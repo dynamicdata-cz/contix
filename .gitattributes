@@ -1,0 +1,2 @@
+# Obsah vydání pro veřejný repozitář (infra/scripts/publish.sh, ADR-112): export-ignore = nezveřejňuje se.
+/.gitlab-ci.yml export-ignore

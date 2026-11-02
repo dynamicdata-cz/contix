@@ -1,0 +1,1 @@
+ALTER TYPE "public"."policy_type" ADD VALUE 'decision' BEFORE 'procedure';

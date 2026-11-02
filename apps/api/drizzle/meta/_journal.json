@@ -1,0 +1,657 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1790613368858,
+      "tag": "0000_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790619974618,
+      "tag": "0001_auth_admin_asset_classes",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790619975311,
+      "tag": "0002_backfill_asset_class",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790761002277,
+      "tag": "0003_vulnerabilities_health",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790777009918,
+      "tag": "0004_org_processes_risks",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790780504114,
+      "tag": "0005_controls_soa_bia",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790796601571,
+      "tag": "0006_documents_plans_suppliers",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790797828525,
+      "tag": "0007_isms_changes_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790823921291,
+      "tag": "0008_incidents_audits",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790862631625,
+      "tag": "0009_companies",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790864179272,
+      "tag": "0010_methodologies",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790880241181,
+      "tag": "0011_policies_awareness_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790881184851,
+      "tag": "0012_cycles_quant",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790910049404,
+      "tag": "0013_alert_suggestions",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790950440054,
+      "tag": "0014_ai_ops",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790956817970,
+      "tag": "0015_evidence_tests",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790977588059,
+      "tag": "0016_evidence_requirements",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790977862289,
+      "tag": "0017_process_versions_gdpr",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790978642046,
+      "tag": "0018_ai_queries_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790998121896,
+      "tag": "0019_api_token_ip",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791104833485,
+      "tag": "0020_dms_workflow",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791107797415,
+      "tag": "0021_dms_folders_retention",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791109792024,
+      "tag": "0022_file_conversion",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791111923231,
+      "tag": "0023_office_edit_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791184172075,
+      "tag": "0024_pgvector_extension",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791184191703,
+      "tag": "0025_doc_chunks",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791204628899,
+      "tag": "0026_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791206379823,
+      "tag": "0027_sod_access_review",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791207326115,
+      "tag": "0028_provisioning_automations",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791208973222,
+      "tag": "0029_policy_type_methodology",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791268705372,
+      "tag": "0030_policy_type_decision",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791287718268,
+      "tag": "0031_policy_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791295634330,
+      "tag": "0032_management_systems",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791355873544,
+      "tag": "0033_legislation",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791467277931,
+      "tag": "0034_i18n",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791528922176,
+      "tag": "0035_eurlex",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791533027440,
+      "tag": "0036_coverage",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791818326234,
+      "tag": "0037_supplier_questionnaires",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791826732811,
+      "tag": "0038_trend_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791827262553,
+      "tag": "0039_questionnaire_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791828616323,
+      "tag": "0040_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792048361326,
+      "tag": "0041_record_vectors",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792049645856,
+      "tag": "0042_ai_query_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1792053552281,
+      "tag": "0043_soc",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1792055822393,
+      "tag": "0044_soc_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1792068664495,
+      "tag": "0045_soc_exposure",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1792070748957,
+      "tag": "0046_vuln_intel",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792120382651,
+      "tag": "0047_soc_ai_triage",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1792121356045,
+      "tag": "0048_soc_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1792138746308,
+      "tag": "0049_soc_iocs",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792139463578,
+      "tag": "0050_soc_actions",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1792142794777,
+      "tag": "0051_threat_intel",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1792184852175,
+      "tag": "0052_risk_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1792186307338,
+      "tag": "0053_soc_hunts",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1792187934063,
+      "tag": "0054_soc_playbooks",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1792189291156,
+      "tag": "0055_soc_pull_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1792190044396,
+      "tag": "0056_asset_dependencies",
+      "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1792211797670,
+      "tag": "0057_sca",
+      "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1792212805063,
+      "tag": "0058_asset_redundant",
+      "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792213742129,
+      "tag": "0059_exercises",
+      "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1792230764042,
+      "tag": "0060_dora_register",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792231765082,
+      "tag": "0061_tls_endpoints",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1792232747047,
+      "tag": "0062_audit_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1792342335059,
+      "tag": "0063_net_segments",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1792377391333,
+      "tag": "0064_cortex_misp",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1792519371324,
+      "tag": "0065_saved_views",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1792520277413,
+      "tag": "0066_vuln_advice",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1792595310713,
+      "tag": "0067_ad_login_sso",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1792598738050,
+      "tag": "0068_custom_frameworks",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1792601211913,
+      "tag": "0069_regulatory_profile",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1792610415547,
+      "tag": "0070_dora_entity",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1792611229795,
+      "tag": "0071_shared_assets_scenarios",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1792614571042,
+      "tag": "0072_info_service",
+      "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1792673583562,
+      "tag": "0073_info_assessments",
+      "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1792679610017,
+      "tag": "0074_ai_act",
+      "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1792681816531,
+      "tag": "0075_soc2_engagements",
+      "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1792683192250,
+      "tag": "0076_cra",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792694031911,
+      "tag": "0077_cra_vex",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792697839697,
+      "tag": "0078_vuln_scans",
+      "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1792714452825,
+      "tag": "0079_control_monitors",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1792717449881,
+      "tag": "0080_supplier_reports",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1792718994071,
+      "tag": "0081_trust",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792739125772,
+      "tag": "0082_record_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792770092627,
+      "tag": "0083_knowledge_base",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792770099201,
+      "tag": "0084_hnsw_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 85,
+      "version": "7",
+      "when": 1792775965957,
+      "tag": "0085_exception_controls_ai_links",
+      "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792778755870,
+      "tag": "0086_monitor_auto_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792784086736,
+      "tag": "0087_soc_rule_tunings",
+      "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1793258003775,
+      "tag": "0088_cra_supply_chain",
+      "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1793363774422,
+      "tag": "0089_risk_scenarios",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1793365166669,
+      "tag": "0090_threat_coverage",
+      "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1793445002157,
+      "tag": "0091_detection_declarations",
+      "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1793445326999,
+      "tag": "0092_risk_appetite_kri",
+      "breakpoints": true
+    }
+  ]
+}

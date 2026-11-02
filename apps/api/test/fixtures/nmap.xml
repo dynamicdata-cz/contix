@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -T4 -F -sV -oX - 10.0.0.0/24" start="1790000000">
+  <host><status state="up" reason="arp-response"/>
+    <address addr="10.0.0.1" addrtype="ipv4"/>
+    <address addr="00:09:0F:AA:BB:CC" addrtype="mac" vendor="Fortinet"/>
+    <hostnames><hostname name="fw-edge-01.firma.local" type="PTR"/></hostnames>
+    <ports><port protocol="tcp" portid="443"><state state="open"/><service name="https" product="FortiGate" /></port></ports>
+  </host>
+  <host><status state="up" reason="arp-response"/>
+    <address addr="10.0.0.50" addrtype="ipv4"/>
+    <address addr="3C:2A:F4:11:22:33" addrtype="mac" vendor="Brother Industries"/>
+    <ports>
+      <port protocol="tcp" portid="80"><state state="open"/><service name="http"/></port>
+      <port protocol="tcp" portid="9100"><state state="open"/><service name="jetdirect"/></port>
+    </ports>
+  </host>
+  <host><status state="down" reason="no-response"/><address addr="10.0.0.99" addrtype="ipv4"/></host>
+</nmaprun>

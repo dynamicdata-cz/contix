@@ -1,0 +1,1 @@
+ALTER TYPE "public"."policy_type" ADD VALUE 'methodology' BEFORE 'procedure';

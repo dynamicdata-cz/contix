@@ -1,0 +1,77 @@
+# CONTIX – GitHub Actions: kontrola typů, unit + integrační testy (PostgreSQL), end-to-end testy, build.
+# Obdoba .gitlab-ci.yml interního vývoje (ADR-112).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUN_VERSION: "1.3.13"
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: contix
+          POSTGRES_PASSWORD: contix
+          POSTGRES_DB: contix_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U contix" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - name: Testy (unit + integrační)
+        env:
+          TEST_DATABASE_URL: postgres://contix:contix@localhost:5432/contix_test
+        run: bun test --timeout=30000
+      - run: bun run build
+
+  e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # verze obrazu = verze @playwright/test v package.json (prohlížeče jsou v obrazu)
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: contix
+          POSTGRES_PASSWORD: contix
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd "pg_isready -U contix" --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm install -g bun@${{ env.BUN_VERSION }} --silent
+      - run: bun install --frozen-lockfile
+      - name: Testy v prohlížeči
+        env:
+          E2E_DATABASE_URL: postgres://contix:contix@postgres:5432/contix_e2e
+        run: bun run e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

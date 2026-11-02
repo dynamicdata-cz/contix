@@ -1,0 +1,42 @@
+{
+  "name": "@contix/api",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "build": "bun build src/index.ts --target bun --outdir dist",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun src/db/migrate.ts",
+    "db:seed": "bun src/db/seed.ts",
+    "demo:seed": "bun src/scripts/demo-seed.ts",
+    "admin:create": "bun src/scripts/create-admin.ts"
+  },
+  "dependencies": {
+    "@contix/shared": "workspace:*",
+    "@hono/zod-validator": "^0.9.1",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "diff": "^9.0.0",
+    "docx": "^9.8.1",
+    "drizzle-orm": "^0.45.3",
+    "fast-xml-parser": "^5.11.1",
+    "fflate": "^0.8.3",
+    "hono": "^4.13.13",
+    "jose": "^6.2.12",
+    "ldapts": "9.2.0",
+    "node-html-parser": "^9.0.4",
+    "nodemailer": "^10.1.2",
+    "pdf-lib": "^1.17.1",
+    "postgres": "^3.4.9",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.2",
+    "@types/nodemailer": "^8.0.2",
+    "drizzle-kit": "^0.31.11",
+    "typescript": "^7.0.2"
+  }
+}

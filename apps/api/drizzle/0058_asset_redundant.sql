@@ -1,0 +1,1 @@
+ALTER TABLE "assets" ADD COLUMN "redundant" boolean DEFAULT false NOT NULL;

@@ -1,0 +1,310 @@
+@import "tailwindcss";
+
+/*
+ * Vzhled CONTIX – barvy jsou proměnné, motivy je přepisují (html[data-theme]).
+ * Komponenty používají jen škály brand-* a slate-* (neutrální), takže motiv mění celé UI bez úprav stránek.
+ * Stavové barvy (červená / oranžová / zelená) se nemění – nesou význam.
+ */
+@theme {
+  /* výchozí motiv „Modrá“ */
+  --color-brand-50: #eef4ff;
+  --color-brand-100: #dce7ff;
+  --color-brand-200: #c0d3ff;
+  --color-brand-300: #93b2fd;
+  --color-brand-400: #6189f7;
+  --color-brand-500: #3d68ee;
+  --color-brand-600: #2c54d6;
+  --color-brand-700: #2443ad;
+  --color-brand-800: #233b8a;
+  --color-brand-900: #21346d;
+
+  --color-slate-50: #f6f8fb;
+  --color-slate-100: #eef1f6;
+  --color-slate-200: #e1e6ee;
+  --color-slate-300: #cbd2de;
+  --color-slate-400: #97a1b4;
+  --color-slate-500: #677186;
+  --color-slate-600: #4d5669;
+  --color-slate-700: #3a4253;
+  --color-slate-800: #252b38;
+  --color-slate-900: #151a24;
+
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --shadow-sm: 0 1px 2px 0 rgb(16 24 40 / 0.04), 0 1px 3px 0 rgb(16 24 40 / 0.05);
+  /* karty (v1.08): jemný stín, v tmavém režimu jen obrys */
+  --shadow-card: 0 1px 2px 0 rgb(16 24 40 / 0.04), 0 2px 6px -1px rgb(16 24 40 / 0.06);
+  --radius-xl: 0.875rem;
+}
+/* barvy grafů (v1.08): jedna série = modrá řada 1 z ověřené palety; tmavý režim má vlastní krok */
+:root {
+  --chart-line: #2a78d6;
+  --chart-area: rgb(42 120 214 / 0.12);
+}
+:root[data-mode="dark"] {
+  --chart-line: #3987e5;
+  --chart-area: rgb(57 135 229 / 0.18);
+}
+
+/* „Petrolej“ – klidná zelenomodrá a teplé neutrální tóny */
+:root[data-theme="petrol"] {
+  --color-brand-50: #ebf7f5;
+  --color-brand-100: #d0eee9;
+  --color-brand-200: #a5ddd3;
+  --color-brand-300: #6fc4b6;
+  --color-brand-400: #3ea697;
+  --color-brand-500: #1f8a7c;
+  --color-brand-600: #157266;
+  --color-brand-700: #115c53;
+  --color-brand-800: #0f4a43;
+  --color-brand-900: #0d3d37;
+
+  --color-slate-50: #f7f6f3;
+  --color-slate-100: #efede8;
+  --color-slate-200: #e4e1da;
+  --color-slate-300: #d0ccc3;
+  --color-slate-400: #a29d93;
+  --color-slate-500: #736e66;
+  --color-slate-600: #59554e;
+  --color-slate-700: #43403b;
+  --color-slate-800: #2d2b28;
+  --color-slate-900: #1d1c1a;
+}
+
+/* „Noc“ – indigo a tmavý boční panel */
+:root[data-theme="night"] {
+  --color-brand-50: #eef0ff;
+  --color-brand-100: #e0e4ff;
+  --color-brand-200: #c6ccfe;
+  --color-brand-300: #a3a9fc;
+  --color-brand-400: #8183f8;
+  --color-brand-500: #6563f1;
+  --color-brand-600: #5148e5;
+  --color-brand-700: #443bc9;
+  --color-brand-800: #3832a2;
+  --color-brand-900: #312f80;
+
+  --color-slate-50: #f5f6fa;
+  --color-slate-100: #eceef5;
+  --color-slate-200: #dfe2ec;
+  --color-slate-300: #c8ccda;
+  --color-slate-400: #959bb0;
+  --color-slate-500: #666c83;
+  --color-slate-600: #4c5168;
+  --color-slate-700: #393d52;
+  --color-slate-800: #23263a;
+  --color-slate-900: #141626;
+}
+/* tmavý panel: lokálně přepsané proměnné → odkazy, přepínač společnosti i aktivní položka bez úprav komponent */
+:root[data-theme="night"] .app-sidebar {
+  --color-white: #161931;
+  --color-slate-50: #1d2140;
+  --color-slate-100: rgb(255 255 255 / 0.06);
+  --color-slate-200: #262a4a;
+  --color-slate-300: #343964;
+  --color-slate-400: #7d83a8;
+  --color-slate-500: #9095b8;
+  --color-slate-600: #c3c7e0;
+  --color-slate-700: #d6d9ec;
+  --color-slate-800: #eceef8;
+  --color-slate-900: #f5f6fc;
+  --color-brand-50: rgb(129 131 248 / 0.18);
+  --color-brand-700: #ffffff;
+  color: var(--color-slate-600);
+}
+
+/* ============================================================
+ * Tmavý režim (v1.08, ADR-104): html[data-mode="dark"]. Stránky používají škály slate-* / brand-* / stavové odstíny,
+ * proto stačí přepsat proměnné – světlé tóny (50–300) se stanou tmavými podklady, tmavé (700–900) světlým textem.
+ * Bílá = povrch karet; text-white zůstává bílý. Stavové barvy grafů (status paleta) jsou čitelné na obou površích.
+ * ============================================================ */
+:root[data-mode="dark"] {
+  --color-white: #131a26;
+  --color-slate-50: #0b1019;
+  --color-slate-100: #1a2232;
+  --color-slate-200: #263045;
+  --color-slate-300: #35415a;
+  --color-slate-400: #66728c;
+  --color-slate-500: #8b97ae;
+  --color-slate-600: #a9b3c7;
+  --color-slate-700: #c6cedd;
+  --color-slate-800: #dde3ed;
+  --color-slate-900: #eef2f8;
+  --color-brand-50: color-mix(in oklab, var(--color-brand-500) 16%, #131a26);
+  --color-brand-100: color-mix(in oklab, var(--color-brand-500) 26%, #131a26);
+  --color-brand-200: color-mix(in oklab, var(--color-brand-500) 40%, #131a26);
+  --color-brand-700: color-mix(in oklab, var(--color-brand-400) 55%, white);
+  --color-brand-800: color-mix(in oklab, var(--color-brand-400) 40%, white);
+  --color-brand-900: color-mix(in oklab, var(--color-brand-400) 25%, white);
+  --shadow-card: 0 0 0 1px rgb(255 255 255 / 0.02);
+  --color-red-50: oklch(0.255 0.035 25);
+  --color-red-100: oklch(0.3 0.055 25);
+  --color-red-200: oklch(0.38 0.075 25);
+  --color-red-300: oklch(0.5 0.1 25);
+  --color-red-700: oklch(0.8 0.12 25);
+  --color-red-800: oklch(0.86 0.09 25);
+  --color-red-900: oklch(0.92 0.05 25);
+  --color-orange-50: oklch(0.255 0.035 47);
+  --color-orange-100: oklch(0.3 0.055 47);
+  --color-orange-200: oklch(0.38 0.075 47);
+  --color-orange-300: oklch(0.5 0.1 47);
+  --color-orange-700: oklch(0.8 0.12 47);
+  --color-orange-800: oklch(0.86 0.09 47);
+  --color-orange-900: oklch(0.92 0.05 47);
+  --color-amber-50: oklch(0.255 0.035 70);
+  --color-amber-100: oklch(0.3 0.055 70);
+  --color-amber-200: oklch(0.38 0.075 70);
+  --color-amber-300: oklch(0.5 0.1 70);
+  --color-amber-700: oklch(0.8 0.12 70);
+  --color-amber-800: oklch(0.86 0.09 70);
+  --color-amber-900: oklch(0.92 0.05 70);
+  --color-yellow-50: oklch(0.255 0.035 95);
+  --color-yellow-100: oklch(0.3 0.055 95);
+  --color-yellow-200: oklch(0.38 0.075 95);
+  --color-yellow-300: oklch(0.5 0.1 95);
+  --color-yellow-700: oklch(0.8 0.12 95);
+  --color-yellow-800: oklch(0.86 0.09 95);
+  --color-yellow-900: oklch(0.92 0.05 95);
+  --color-green-50: oklch(0.255 0.035 150);
+  --color-green-100: oklch(0.3 0.055 150);
+  --color-green-200: oklch(0.38 0.075 150);
+  --color-green-300: oklch(0.5 0.1 150);
+  --color-green-700: oklch(0.8 0.12 150);
+  --color-green-800: oklch(0.86 0.09 150);
+  --color-green-900: oklch(0.92 0.05 150);
+  --color-emerald-50: oklch(0.255 0.035 163);
+  --color-emerald-100: oklch(0.3 0.055 163);
+  --color-emerald-200: oklch(0.38 0.075 163);
+  --color-emerald-300: oklch(0.5 0.1 163);
+  --color-emerald-700: oklch(0.8 0.12 163);
+  --color-emerald-800: oklch(0.86 0.09 163);
+  --color-emerald-900: oklch(0.92 0.05 163);
+  --color-teal-50: oklch(0.255 0.035 182);
+  --color-teal-100: oklch(0.3 0.055 182);
+  --color-teal-200: oklch(0.38 0.075 182);
+  --color-teal-300: oklch(0.5 0.1 182);
+  --color-teal-700: oklch(0.8 0.12 182);
+  --color-teal-800: oklch(0.86 0.09 182);
+  --color-teal-900: oklch(0.92 0.05 182);
+  --color-sky-50: oklch(0.255 0.035 237);
+  --color-sky-100: oklch(0.3 0.055 237);
+  --color-sky-200: oklch(0.38 0.075 237);
+  --color-sky-300: oklch(0.5 0.1 237);
+  --color-sky-700: oklch(0.8 0.12 237);
+  --color-sky-800: oklch(0.86 0.09 237);
+  --color-sky-900: oklch(0.92 0.05 237);
+  --color-blue-50: oklch(0.255 0.035 262);
+  --color-blue-100: oklch(0.3 0.055 262);
+  --color-blue-200: oklch(0.38 0.075 262);
+  --color-blue-300: oklch(0.5 0.1 262);
+  --color-blue-700: oklch(0.8 0.12 262);
+  --color-blue-800: oklch(0.86 0.09 262);
+  --color-blue-900: oklch(0.92 0.05 262);
+  --color-indigo-50: oklch(0.255 0.035 277);
+  --color-indigo-100: oklch(0.3 0.055 277);
+  --color-indigo-200: oklch(0.38 0.075 277);
+  --color-indigo-300: oklch(0.5 0.1 277);
+  --color-indigo-700: oklch(0.8 0.12 277);
+  --color-indigo-800: oklch(0.86 0.09 277);
+  --color-indigo-900: oklch(0.92 0.05 277);
+  --color-violet-50: oklch(0.255 0.035 293);
+  --color-violet-100: oklch(0.3 0.055 293);
+  --color-violet-200: oklch(0.38 0.075 293);
+  --color-violet-300: oklch(0.5 0.1 293);
+  --color-violet-700: oklch(0.8 0.12 293);
+  --color-violet-800: oklch(0.86 0.09 293);
+  --color-violet-900: oklch(0.92 0.05 293);
+  --color-purple-50: oklch(0.255 0.035 304);
+  --color-purple-100: oklch(0.3 0.055 304);
+  --color-purple-200: oklch(0.38 0.075 304);
+  --color-purple-300: oklch(0.5 0.1 304);
+  --color-purple-700: oklch(0.8 0.12 304);
+  --color-purple-800: oklch(0.86 0.09 304);
+  --color-purple-900: oklch(0.92 0.05 304);
+  --color-pink-50: oklch(0.255 0.035 354);
+  --color-pink-100: oklch(0.3 0.055 354);
+  --color-pink-200: oklch(0.38 0.075 354);
+  --color-pink-300: oklch(0.5 0.1 354);
+  --color-pink-700: oklch(0.8 0.12 354);
+  --color-pink-800: oklch(0.86 0.09 354);
+  --color-pink-900: oklch(0.92 0.05 354);
+  --color-rose-50: oklch(0.255 0.035 10);
+  --color-rose-100: oklch(0.3 0.055 10);
+  --color-rose-200: oklch(0.38 0.075 10);
+  --color-rose-300: oklch(0.5 0.1 10);
+  --color-rose-700: oklch(0.8 0.12 10);
+  --color-rose-800: oklch(0.86 0.09 10);
+  --color-rose-900: oklch(0.92 0.05 10);
+}
+:root[data-mode="dark"] .text-white {
+  color: #fff;
+}
+:root[data-mode="dark"] .bg-slate-900\/40 {
+  background-color: rgb(0 0 0 / 0.6);
+}
+:root[data-mode="dark"] img:not([src$=".svg"]) {
+  filter: brightness(0.92);
+}
+/* motiv „Noc“ v tmavém režimu: panel splyne s povrchem */
+:root[data-mode="dark"][data-theme="night"] .app-sidebar {
+  --color-white: #10141f;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+body {
+  @apply bg-slate-50 text-slate-900 antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* ---------- v1.08 (ADR-104): jemnější typografie a detaily ---------- */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.011em;
+}
+::selection {
+  background: var(--color-brand-200);
+}
+/* tenké posuvníky v panelech */
+.app-sidebar nav,
+.overflow-y-auto {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-slate-300) transparent;
+}
+/* aktivní položka menu – svislá značka vlevo */
+.nav-active {
+  box-shadow: inset 3px 0 0 var(--color-brand-600);
+}
+/* skeleton při načítání */
+@keyframes contix-shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+.skeleton {
+  background: linear-gradient(90deg, var(--color-slate-100) 25%, var(--color-slate-200) 37%, var(--color-slate-100) 63%);
+  background-size: 800px 100%;
+  animation: contix-shimmer 1.4s ease infinite;
+  border-radius: 0.375rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+/* fieldset má výchozí min-width: min-content – dlouhé volby v <select> pak přetékaly kartu (v1.08) */
+fieldset {
+  min-width: 0;
+}
+/* výběr s dlouhými volbami nesmí přetéct kontejner */
+select {
+  max-width: 100%;
+}

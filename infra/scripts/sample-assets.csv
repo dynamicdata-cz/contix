@@ -1,0 +1,4 @@
+name;type;hostname;ip;mac;os;serial;owner;criticality;location;tags
+SRV-APP01;server;srv-app01;10.0.0.21;00:50:56:aa:00:21;Ubuntu 24.04;VMW-4211;Aplikační podpora;high;DC Praha;produkce|NIS2
+SW-CORE-01;network_device;sw-core-01;10.0.0.2;;;FOC1234X0YZ;Síťový tým;critical;DC Praha;
+Microsoft 365;saas_service;;;;;;IT provoz;high;cloud;SaaS|GDPR

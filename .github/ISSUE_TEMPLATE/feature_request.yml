@@ -1,0 +1,14 @@
+name: Návrh
+description: Nová funkce nebo vylepšení
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes: { label: Jaký problém to řeší, description: "Kdo to potřebuje (role) a proč – případně předpis / článek." }
+    validations: { required: true }
+  - type: textarea
+    id: proposal
+    attributes: { label: Navrhované řešení }
+  - type: textarea
+    id: alternatives
+    attributes: { label: Jak to řešíte dnes }

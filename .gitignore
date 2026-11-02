@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+/coverage/
+apps/*/coverage/
+packages/*/coverage/
+.vite/
+
+# zálohy databáze (služba backup)
+backups/
+_to_delete/
+certs/
+contix-root-ca.crt
+test-results/
+playwright-report/

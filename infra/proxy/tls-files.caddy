@@ -1,0 +1,2 @@
+# Vlastní certifikát (složka ./certs na serveru je připojena do /certs)
+tls /certs/cert.pem /certs/key.pem

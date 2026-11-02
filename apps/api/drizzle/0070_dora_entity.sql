@@ -1,0 +1,2 @@
+ALTER TYPE "public"."incident_report_recipient" ADD VALUE 'financial_supervisor' BEFORE 'other';--> statement-breakpoint
+ALTER TABLE "companies" ADD COLUMN "dora_entity" boolean DEFAULT false NOT NULL;

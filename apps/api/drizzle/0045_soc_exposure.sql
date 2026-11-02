@@ -1,0 +1,1 @@
+ALTER TABLE "alert_suggestions" ADD COLUMN "exposure" jsonb;

@@ -1,0 +1,25 @@
+name: Chyba
+description: Něco nefunguje, jak má
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "Bezpečnostní chyby nehlaste zde – použijte Security → Report a vulnerability. Nevkládejte citlivá data (jména, IP adresy, hesla)."
+  - type: input
+    id: version
+    attributes: { label: Verze CONTIXu, description: "menu aplikace nebo GET /api/health", placeholder: "1.15.0" }
+    validations: { required: true }
+  - type: dropdown
+    id: install
+    attributes: { label: Způsob instalace, options: ["install.sh z repozitáře", "balíček (bundle.sh)", "vývojové prostředí (bun run dev)", "jiný"] }
+  - type: textarea
+    id: steps
+    attributes: { label: Kroky k reprodukci, placeholder: "1. Otevřu …\n2. Kliknu na …" }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: Očekávané a skutečné chování }
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes: { label: Výpis chyby, description: "např. docker compose logs api – bez tajemství", render: text }

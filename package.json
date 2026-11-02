@@ -1,0 +1,30 @@
+{
+  "name": "contix",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev",
+    "dev:api": "bun run --filter @contix/api dev",
+    "dev:web": "bun run --filter @contix/web dev",
+    "build": "bun run --filter '*' build",
+    "test": "bun test",
+    "typecheck": "bun run --filter '*' typecheck",
+    "db:generate": "bun run --filter @contix/api db:generate",
+    "db:migrate": "bun run --filter @contix/api db:migrate",
+    "db:seed": "bun run --filter @contix/api db:seed",
+    "demo:seed": "bun run --filter @contix/api demo:seed",
+    "admin:create": "bun run --filter @contix/api admin:create",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1",
+    "ldapjs": "3.0.7"
+  },
+  "overrides": {
+    "source-map-js": "^1.2.2"
+  }
+}

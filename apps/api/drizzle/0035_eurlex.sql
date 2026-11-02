@@ -1,0 +1,1 @@
+ALTER TYPE "public"."legal_source" ADD VALUE 'eurlex';
