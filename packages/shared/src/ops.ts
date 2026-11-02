@@ -2,7 +2,7 @@
  * Provoz – stav systému, zálohy, plánovač, monitoring.
  * ============================================================ */
 
-export const CONTIX_VERSION = "1.24.5";
+export const CONTIX_VERSION = "1.24.6";
 /** Veřejný zdrojový kód (AGPL, ADR-112) – výchozí odkaz, když server nemá CONTIX_SOURCE_URL. */
 export const CONTIX_DEFAULT_SOURCE_URL = "https://github.com/dynamicdata-cz/contix";
 /** Licence CONTIXu (v1.15, ADR-112) – AGPL-3.0: uživatelé přes síť mají nárok na zdrojový kód (čl. 13). */

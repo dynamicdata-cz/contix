@@ -41,9 +41,25 @@ Po přihlášení se v horní liště přepněte na společnost **„Vzorová st
 
 ## Instalace na server
 
-Docker Compose s Caddy (TLS), denními šifrovanými zálohami, převodní službou dokumentů a kontrolou po instalaci:
+Docker Compose s Caddy (TLS), denními šifrovanými zálohami, převodní službou dokumentů a kontrolou po instalaci.
+Předpoklad: Linux x86_64 (Ubuntu 22.04/24.04, Debian 12, RHEL/Rocky 9), 2 vCPU, 4 GB RAM, 40 GB disk, volné porty 80 a 443.
+
+**1. Docker** (pokud ještě není – `docker compose version` vypíše verzi):
 
 ```bash
+curl -fsSL https://get.docker.com -o get-docker.sh
+less get-docker.sh                      # volitelně: prohlédnout skript před spuštěním
+sudo sh get-docker.sh                   # Docker Engine + plugin docker compose z oficiálního repozitáře Dockeru
+sudo systemctl enable --now docker
+docker compose version
+```
+
+Instalace z repozitáře balíčků ručně (bez skriptu) viz [požadavky na server](docs/04_operations/install.md#1-požadavky-na-server).
+
+**2. CONTIX:**
+
+```bash
+sudo mkdir -p /opt/contix && sudo chown "$USER": /opt/contix
 git clone https://github.com/dynamicdata-cz/contix.git /opt/contix && cd /opt/contix
 sudo ./infra/scripts/install.sh --domain contix.firma.cz --tls internal --admin spravce@firma.cz
 sudo ./infra/scripts/update.sh      # aktualizace na novou verzi (záloha → git pull → restart)

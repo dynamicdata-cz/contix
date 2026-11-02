@@ -2,6 +2,10 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.24.6
+
+- README: postup instalace Dockeru (oficiální skript get.docker.com, ruční instalace v návodu), požadavky na server a příprava adresáře `/opt/contix` před `git clone`; instalace zůstává na větvi `main` (aktualizace přes `update.sh`).
+
 ## 1.24.5
 
 - `publish.sh`, `bundle.sh`, `lib.sh`: proměnné před znakem „…“ ve složených závorkách – výchozí bash 3.2 na macOS jinak hlásil „unbound variable“.
