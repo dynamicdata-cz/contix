@@ -1,7 +1,7 @@
 import { askConfirm } from "@/components/ui/overlay";
 /** Shoda konfigurace – Wazuh SCA (ADR-064): skóre podle politik, nejčastěji selhávající kontroly, automatický test opatření, karta aktiva. */
 import { STATUS_COLORS } from "@/components/health";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, type Tone, Kpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -52,11 +52,6 @@ export function ScaPage() {
   const d = q.data;
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/controls" className="hover:text-brand-700">
-          {t("sca.back")}
-        </Link>
-      </div>
       <PageHeader
         title={t("sca.title")}
         subtitle={t("sca.subtitle")}
@@ -76,24 +71,10 @@ export function ScaPage() {
             {d.lastSync?.error && <span className="ml-2 text-amber-800">{d.lastSync.error}</span>}
           </p>
           <div className="mb-6 grid gap-4 sm:grid-cols-4">
-            <Card className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("sca.kpi.score")}</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: scoreColor(d.totals.score) }}>
-                {d.totals.score == null ? "—" : `${d.totals.score} %`}
-              </div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("sca.kpi.assets")}</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums">{d.totals.assets}</div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("sca.kpi.pass")}</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums">{d.totals.pass}</div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("sca.kpi.fail")}</div>
-              <div className={cn("mt-1 text-2xl font-semibold tabular-nums", d.totals.fail > 0 && "text-red-700")}>{d.totals.fail}</div>
-            </Card>
+            <Kpi label={t("sca.kpi.score")} value={<span style={{ color: scoreColor(d.totals.score) }}>{d.totals.score == null ? "—" : `${d.totals.score} %`}</span>} />
+            <Kpi label={t("sca.kpi.assets")} value={d.totals.assets} />
+            <Kpi label={t("sca.kpi.pass")} value={d.totals.pass} />
+            <Kpi label={t("sca.kpi.fail")} value={d.totals.fail} tone={d.totals.fail > 0 ? "red" : "slate"} />
           </div>
           <Card className="mb-6 overflow-hidden" data-testid="sca-policies">
             <CardHeader title={t("sca.policies")} subtitle={t("sca.policiesSub")} />

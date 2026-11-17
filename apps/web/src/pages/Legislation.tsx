@@ -8,7 +8,7 @@ import { FrameworkOptions } from "@/components/frameworkOptions";
 import { useT } from "@/lib/i18n";
 import { AiSuggestPanel } from "@/components/ai";
 import { PositionSelect } from "@/components/pickers";
-import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone, Kpi as UiKpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { cn, fmtDate, fmtDay, plural } from "@/lib/utils";
@@ -111,16 +111,7 @@ const kpiTone: Record<"slate" | "amber" | "red" | "blue", string> = {
   blue: "text-blue-700",
 };
 function Kpi({ icon, label, value, note, tone, onClick }: { icon: React.ReactNode; label: string; value: React.ReactNode; note: string; tone: keyof typeof kpiTone; onClick?: () => void }) {
-  const Tag = onClick ? "button" : "div";
-  return (
-    <Tag onClick={onClick} className={cn("rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm", onClick && "transition hover:border-brand-300 hover:shadow")}>
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-        {icon} {label}
-      </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
-      <div className={cn("mt-0.5 text-xs", kpiTone[tone])}>{note}</div>
-    </Tag>
-  );
+  return <UiKpi icon={icon} label={label} value={value} note={note} noteTone={tone === "slate" ? undefined : tone} onClick={onClick} />;
 }
 
 /** Stav předpisu jedním štítkem – od nejzávažnějšího. */
@@ -571,11 +562,6 @@ export function LegalActPage() {
   const write = can("legislation:write");
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/legislation" className="hover:text-brand-700">
-          {t("nav.legislation")}
-        </Link>
-      </div>
       <PageHeader
         title={`${a.code} – ${a.title}`}
         subtitle={`${LL(t, "source", a.source)}${a.currentVersion ? ` · ${t("leg.act.watched", { version: versionName(t, a.currentVersion.label) })}${a.currentVersion.effectiveFrom ? ` (${t("leg.effectiveFrom", { date: fmtDay(a.currentVersion.effectiveFrom) })})` : ""}` : ""}${a.currentVersion?.textSource ? ` · ${t("leg.textSource", { source: t(`leg.textSource.${a.currentVersion.textSource}` as never) })}` : ""}`}
@@ -761,15 +747,6 @@ function ReviewEditor({ r }: { r: LegalReviewDetail }) {
   const edit = r.canEdit && r.status !== "closed";
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/legislation" className="hover:text-brand-700">
-          {t("nav.legislation")}
-        </Link>{" "}
-        ›{" "}
-        <Link to="/legislation/acts/$actId" params={{ actId: r.act.id }} className="hover:text-brand-700">
-          {r.act.code}
-        </Link>
-      </div>
       <PageHeader
         title={t("leg.review.title", { code: r.act.code, version: versionName(t, r.change.to) })}
         subtitle={`${r.act.title} · ${t("leg.review.previous", { version: r.change.from ? versionName(t, r.change.from) : "—" })} · ${t("leg.detected", { date: fmtDay(r.change.detectedAt) })}${r.change.effectiveFrom ? ` · ${t("leg.effectiveFrom", { date: fmtDay(r.change.effectiveFrom) })}` : ""}`}

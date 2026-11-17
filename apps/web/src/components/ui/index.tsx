@@ -4,6 +4,7 @@
  */
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
+import { setPageTitle } from "@/lib/pageTitle";
 import { useEffect, useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import { MoreHorizontal } from "lucide-react";
@@ -67,11 +68,11 @@ export function Field({ label, children, hint, className }: { label: string; chi
   return (
     <label className={cn("block min-w-0 space-y-1.5", className)}>
       {/* popisek na jednom řádku (od šířky sm) – pole v řádku mřížky pak lícují; celý text v title */}
-      <span className="block text-sm font-medium leading-5 text-slate-700 sm:truncate" title={label}>
+      <span className="ctx-label block text-sm font-medium leading-5 text-slate-700 sm:truncate" title={label}>
         {label}
       </span>
       {children}
-      {hint && <span className="block text-xs text-slate-500">{hint}</span>}
+      {hint && <span className="ctx-hint block text-xs text-slate-500">{hint}</span>}
     </label>
   );
 }
@@ -110,6 +111,75 @@ export const statusLabel: Record<string, string> = { queued: "ve frontě", runni
 export const connectorLabel: Record<string, string> = { wazuh: "Wazuh", network_scan: "Síťový sken", csv_import: "Import CSV", netbox: "NetBox" };
 export const statusTone: Record<string, Tone> = { queued: "slate", running: "blue", succeeded: "green", failed: "red" };
 
+/** Nadpis stránky mimo `PageHeader` (detaily s vlastním záhlavím): stejný styl a název pro drobečkovou navigaci. */
+export function PageTitle({ children, className, title }: { children: ReactNode; className?: string; title?: string }) {
+  const ref = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    setPageTitle(title ?? (ref.current?.textContent?.trim() || null));
+    return () => setPageTitle(null);
+  });
+  return (
+    <h1 ref={ref} className={cn("text-[26px] font-semibold leading-tight tracking-tight text-slate-900", className)}>
+      {children}
+    </h1>
+  );
+}
+
+export type KpiTone = "slate" | "amber" | "red" | "green" | "blue";
+const KPI_VALUE: Record<KpiTone, string> = { slate: "text-slate-900", amber: "text-amber-700", red: "text-red-700", green: "text-emerald-700", blue: "text-blue-700" };
+/**
+ * Souhrnná dlaždice (v1.84, sjednocený vzhled): popisek, velké číslo, poznámka. Stejná na všech stránkách –
+ * barva čísla nese stav (`tone`), klikací dlaždice (`onClick`) filtruje nebo přepne pohled, `active` = vybraná.
+ */
+export function Kpi({
+  label,
+  value,
+  note,
+  icon,
+  tone = "slate",
+  noteTone,
+  onClick,
+  active,
+  accent,
+  className,
+}: {
+  label: ReactNode;
+  value: ReactNode;
+  note?: ReactNode;
+  icon?: ReactNode;
+  /** Barevný proužek nahoře (závažnost, stav) – barva z palety stavů. */
+  accent?: string | null;
+  tone?: KpiTone;
+  /** Barva poznámky (výchozí šedá). */
+  noteTone?: KpiTone;
+  onClick?: () => void;
+  active?: boolean;
+  className?: string;
+}) {
+  const Tag = onClick ? "button" : "div";
+  return (
+    <Tag
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      aria-pressed={onClick && active !== undefined ? active : undefined}
+      className={cn(
+        "relative min-w-0 overflow-hidden rounded-xl border border-slate-200/80 bg-white px-4 py-3.5 text-left shadow-[var(--shadow-card)]",
+        onClick && "transition hover:border-brand-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300",
+        active && "border-brand-400 ring-1 ring-brand-300",
+        className,
+      )}
+    >
+      {accent && <span className="absolute inset-x-0 top-0 h-1" style={{ background: accent }} aria-hidden />}
+      <div className="flex items-center gap-1.5 text-xs font-medium text-slate-500 [&_svg]:h-3.5 [&_svg]:w-3.5">
+        {icon}
+        <span className="truncate">{label}</span>
+      </div>
+      <div className={cn("mt-1.5 text-2xl font-semibold tabular-nums tracking-tight", KPI_VALUE[tone])}>{value}</div>
+      {note && <div className={cn("mt-0.5 text-xs", noteTone && noteTone !== "slate" ? KPI_VALUE[noteTone] : "text-slate-500")}>{note}</div>}
+    </Tag>
+  );
+}
+
 /** Záhlaví stránky; `sticky` = pevná hlavička detailu záznamu (název, stav, akce) při posouvání (v1.08). */
 /**
  * Záhlaví stránky (v1.36, ADR-133): nadpis, jedna hlavní akce (`actions`), vedlejší akce schované v „Další“ (`more`),
@@ -138,6 +208,11 @@ export function PageHeader({
   facts?: FactItem[];
 }) {
   const t = useT();
+  // název pro drobečkovou navigaci (poslední položka)
+  useEffect(() => {
+    setPageTitle(title);
+    return () => setPageTitle(null);
+  }, [title]);
   return (
     <div
       className={cn(

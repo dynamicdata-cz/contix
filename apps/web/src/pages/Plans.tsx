@@ -1,4 +1,5 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { EditActions, FormView } from "@/components/detailView";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { useT } from "@/lib/i18n";
 import { TransferButton } from "@/components/transfer";
@@ -175,7 +176,10 @@ function PlanEditor({ plan, processId }: { plan: PlanDetail | null; processId?: 
   const mod = useModule();
   const qc = useQueryClient();
   const nav = useNavigate();
-  const edit = plan ? plan.canEdit : can("bia:write");
+  const canEdit = plan ? plan.canEdit : can("bia:write");
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Nový záznam rovnou ve formuláři. */
+  const [editing, setEditing] = useState(!plan);
+  const edit = canEdit && editing;
   const [f, setF] = useState<Form>({
     code: plan?.code ?? "",
     name: plan?.name ?? "",
@@ -194,6 +198,7 @@ function PlanEditor({ plan, processId }: { plan: PlanDetail | null; processId?: 
     processIds: plan?.processes.map((p) => p.id) ?? (processId ? [processId] : []),
     assets: plan?.assets ?? [],
   });
+  const [initialForm] = useState(() => f);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
   const processes = useQuery({ queryKey: ["processes", "", ""], queryFn: () => api.processes.list({}), enabled: mod("processes") && can("processes:read") });
   const [testing, setTesting] = useState(false);
@@ -219,6 +224,7 @@ function PlanEditor({ plan, processId }: { plan: PlanDetail | null; processId?: 
   const done = (d: PlanDetail) => {
     qc.invalidateQueries({ queryKey: ["plans"] });
     qc.setQueryData(["plans", d.id], d);
+    if (plan) setEditing(false);
     if (!plan) nav({ to: "/continuity/plans/$planId", params: { planId: d.id } });
   };
   const save = useMutation({ mutationFn: () => (plan ? api.plans.update(plan.id, body()) : api.plans.create(body())), onSuccess: done });
@@ -243,11 +249,6 @@ function PlanEditor({ plan, processId }: { plan: PlanDetail | null; processId?: 
 
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/continuity/plans" className="hover:text-brand-700">
-          {t("plan.planyKontinuityAObnovy")}
-        </Link>
-      </div>
       <PageHeader
         title={plan ? `${plan.code ? `${plan.code} ` : ""}${plan.name}` : t("plan.novyPlan")}
         subtitle={
@@ -273,11 +274,17 @@ function PlanEditor({ plan, processId }: { plan: PlanDetail | null; processId?: 
                 <Trash2 size={16} />
               </Button>
             )}
-            {edit && (
-              <Button disabled={save.isPending || !f.name.trim()} onClick={() => save.mutate()}>
-                {plan ? t("plan.ulozit") : t("common.create")}
-              </Button>
-            )}
+            <EditActions
+              isNew={!plan}
+              editing={editing}
+              canEdit={canEdit}
+              onEdit={() => setEditing(true)}
+              onCancel={() => (setF(initialForm), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={!f.name.trim()}
+              saveLabel={plan ? t("plan.ulozit") : t("common.create")}
+            />
           </>
         }
       />
@@ -286,9 +293,10 @@ function PlanEditor({ plan, processId }: { plan: PlanDetail | null; processId?: 
           {t("plan.planJeSchvalenyVecnaZmena", { p: plan.version + 1 })}
         </div>
       )}
-      {save.isSuccess && <SuccessBox>{t("plan.ulozeno")}</SuccessBox>}
+      {save.isSuccess && !editing && <SuccessBox>{t("plan.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? setStatus.error ?? del.error ?? delTest.error} />
 
+      <FormView editing={edit}>
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("plan.zakladniUdaje")} />
@@ -463,6 +471,7 @@ function PlanEditor({ plan, processId }: { plan: PlanDetail | null; processId?: 
         )}
       </Card>
 
+      </FormView>
       {plan && (
         <Card className="mt-6 overflow-hidden">
           <CardHeader

@@ -1,7 +1,7 @@
 import { askConfirm } from "@/components/ui/overlay";
 /** Portál externího auditora (ADR-071): požadavky na podklady (PBC) – interní správa i pohled auditora. */
 import { PositionSelect } from "@/components/pickers";
-import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Field, Input, Modal, Select, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Field, Input, Modal, Select, Textarea, type Tone, PageTitle } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { cn, fmtDate } from "@/lib/utils";
@@ -386,7 +386,7 @@ export function AuditPortalPage() {
   return (
     <>
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">{t("pbc.portalTitle")}</h1>
+        <PageTitle>{t("pbc.portalTitle")}</PageTitle>
         <p className="mt-1 text-sm text-slate-500">{t("pbc.portalSub")}</p>
       </div>
       <ErrorBox error={q.error} />

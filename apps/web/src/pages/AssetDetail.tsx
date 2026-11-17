@@ -37,7 +37,7 @@ export function AssetDetailPage() {
   const mod = useModule();
   const can = useCan();
   const [linking, setLinking] = useState(false);
-  const [tab, setTab] = useTab(["overview", "governance", "security", "tasks"] as const, "overview");
+  const [tab, setTab] = useTab(["overview", "vulns", "governance", "security", "tasks"] as const, "overview");
   const { data: a, error } = useQuery({ queryKey: ["asset", assetId], queryFn: () => api.assets.get(assetId) });
   const del = useMutation({
     mutationFn: () => api.assets.remove(assetId),
@@ -56,6 +56,7 @@ export function AssetDetailPage() {
   if (!a) return <p className="text-slate-500">{t("common.loading")}</p>;
 
   const isPrimary = a.assetClass === "primary";
+  const vulnTotal = a.vulnCritical + a.vulnHigh + a.vulnMedium + a.vulnLow;
   const links = isPrimary ? a.supportedBy : a.supports;
   const eff = a.effectiveCia;
   const cia = (own: number | null, e: number | null) => (
@@ -106,6 +107,7 @@ export function AssetDetailPage() {
         onChange={setTab}
         items={[
           { key: "overview" as const, label: t("detail.tab.overview") },
+          { key: "vulns" as const, label: t("ast.tab.vulns"), badge: vulnTotal ? <Badge tone={a.vulnCritical ? "red" : a.vulnHigh ? "amber" : "slate"}>{vulnTotal}</Badge> : undefined },
           { key: "governance" as const, label: t("detail.tab.governance") },
           { key: "security" as const, label: t("detail.tab.security") },
           { key: "tasks" as const, label: t("ast.tab.findingsTasks") },
@@ -132,186 +134,188 @@ export function AssetDetailPage() {
         </div>
       )}
 
-      <div className={cn("grid gap-6 lg:grid-cols-3", tab !== "overview" && "hidden")}>
-        {a.vulnCritical + a.vulnHigh + a.vulnMedium + a.vulnLow > 0 && (
-        <Card className="lg:col-span-3">
-          <CardHeader
-            title={t("ast.zranitelnostiCve")}
-            subtitle={t("ast.zWazuhVulnerabilityDetectionU")}
-          />
-          <VulnTable assetId={a.id} canEditAsset={a.canEdit} />
-        </Card>
-        )}
-        <Card className="lg:col-span-2">
-          <CardHeader
-            title={isPrimary ? t("ast.podpurnaAktiva", { length: links.length }) : t("ast.podporujePrimarniAktiva", { length: links.length })}
-            subtitle={
-              isPrimary
-                ? t("ast.technikaLideDodavateleAProstory")
-                : t("ast.hodnoceniCiaSeDediZ")
-            }
-            action={
-              a.canEdit && (
-                <Button variant="secondary" onClick={() => setLinking(true)}>
-                  <Plus size={15} /> {t("ast.pridatVazbu")}
-                </Button>
-              )
-            }
-          />
-          <ul className="divide-y divide-slate-100">
-            {links.map((l) => (
-              <li key={l.id} className="flex items-center gap-3 px-5 py-3 text-sm">
-                {isPrimary ? <ArrowDownRight size={16} className="text-slate-400" /> : <ArrowUpRight size={16} className="text-violet-500" />}
-                <Link to="/assets/$assetId" params={{ assetId: l.id }} className="font-medium text-brand-700 hover:underline">
-                  {l.name}
-                </Link>
-                <span className="text-slate-500">{t.lbl(LABELS.assetType[l.assetType])}</span>
-                {l.note && <span className="text-xs text-slate-400">– {l.note}</span>}
-                <span className="ml-auto flex items-center gap-2">
-                  <span className="font-mono text-xs text-slate-500">
-                    C{l.confidentiality ?? "-"} I{l.integrity ?? "-"} A{l.availability ?? "-"}
-                  </span>
-                  <Badge tone={criticalityTone[l.criticality]}>{t.lbl(LABELS.criticality[l.criticality])}</Badge>
-                  {a.canEdit && (
-                    <button className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600" title={t("ast.odebratVazbu")} onClick={() => unlink.mutate(l)}>
-                      <X size={15} />
-                    </button>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-          {!links.length && (
-            <EmptyState>
-              {isPrimary ? t("ast.zatimNejsouPrirazenaZadnaPodpurna") : t("ast.aktivumZatimNepodporujeZadnePrimarni")}
-            </EmptyState>
-          )}
-        </Card>
-
-        <Card>
-          <CardHeader title={t("ast.rizeniGrc")} subtitle={t("ast.vyplnujeVlastnikKonektoryNeprepisuji")} />
-          <dl className="space-y-4 p-5">
-            <Item label={t("ast.podporaOs")}>
-              <SupportBadge status={a.supportStatus} eolDate={a.osEolDate} />
-            </Item>
-            <Item label={t("ast.kriticnost")}>
-              <Badge tone={criticalityTone[a.criticality]}>{t.lbl(LABELS.criticality[a.criticality])}</Badge>
-            </Item>
-            <Item label={t("ast.duvernost")}>{cia(a.confidentiality, eff.confidentiality)}</Item>
-            <Item label={t("ast.integrita")}>{cia(a.integrity, eff.integrity)}</Item>
-            <Item label={t("ast.dostupnost")}>{cia(a.availability, eff.availability)}</Item>
-            <Item label={t("ast.garantVlastnik")}>{a.owner ? `${a.owner.displayName} (${a.owner.email})` : null}</Item>
-            <Item label={t("ast.own.tech")}>
-              {a.technicalOwner ? `${a.technicalOwner.displayName} (${a.technicalOwner.email})` : a.owner ? <span className="text-slate-400">{t("ast.own.techFallback")}</span> : null}
-            </Item>
-            {a.technicalDeputy && <Item label={t("ast.own.deputy")}>{`${a.technicalDeputy.displayName} (${a.technicalDeputy.email})`}</Item>}
-            <Item label={t("ast.ownerUnit")}>
-              {a.ownerUnitId && a.ownerUnitName ? (
-                <Link to="/assets" search={{ unit: a.ownerUnitId } as never} className="text-brand-700 hover:underline" title={t("ast.ownerUnitAssets")}>
-                  {a.ownerUnitName}
-                </Link>
-              ) : (
-                a.ownerName
-              )}
-            </Item>
-          </dl>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader title={t("ast.technickeUdaje")} subtitle={t("ast.doplnujiSeAutomatickyZKonektoru")} />
-          <dl className="grid gap-x-8 gap-y-4 p-5 sm:grid-cols-2">
-            <Item label={t("ast.hostname")}>{a.hostname}</Item>
-            <Item label={t("ast.fqdn")}>{a.fqdn}</Item>
-            <Item label={t("ast.ipAdresy")}>{a.ipAddresses.join(", ")}</Item>
-            <Item label={t("ast.macAdresy")}>{a.macAddresses.join(", ")}</Item>
-            <Item label={t("ast.operacniSystem")}>{[a.osName, a.osVersion].filter(Boolean).join(" ")}</Item>
-            <Item label={t("ast.vyrobceModel")}>{[a.manufacturer, a.model].filter(Boolean).join(" ")}</Item>
-            <Item label={t("ast.serioveCislo")}>{a.serialNumber}</Item>
-            <Item label={t("ast.poprveNaposledyVideno")}>
-              {fmtDate(a.firstSeenAt)} / {fmtDate(a.lastSeenAt)}
-            </Item>
-          </dl>
-          {a.description && <p className="border-t border-slate-100 px-5 py-4 text-sm text-slate-700">{a.description}</p>}
-        </Card>
-
-        <div className="lg:col-span-3 empty:hidden">
-          <AiSuggestPanel useCase="asset_classification" entityId={a.id} canApply={a.canEdit} onApplied={() => qc.invalidateQueries({ queryKey: ["asset", assetId] })} />
-        </div>
-        <Card>
-          <CardHeader title={t("ast.zdrojeZaznamu")} />
-          <ul className="divide-y divide-slate-100">
-            {a.sources.map((s) => (
-              <li key={`${s.sourceType}:${s.sourceRef}`} className="px-5 py-3 text-sm">
-                <div className="flex items-center justify-between">
-                  <Badge tone="violet">{t.lbl(LABELS.source[s.sourceType as SourceType])}</Badge>
-                  <span className="text-xs text-slate-500">{fmtDate(s.lastSyncedAt)}</span>
-                </div>
-                <div className="mt-1 truncate font-mono text-xs text-slate-500">{s.sourceRef}</div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-
-        <HostInventoryCard assetId={a.id} />
-        {mod("sectests") && can("sectests:read") && <AssetSecTestsCard assetId={a.id} />}
-
-        <Card className="lg:col-span-3" data-testid="asset-dependencies">
-          <CardHeader
-            title={t("ag.depsTitle", { n: a.dependsOn.length + a.dependedBy.length })}
-            subtitle={t("ag.depsSub")}
-            action={
-              <Link to="/assets/graph" search={{ focus: a.id } as never}>
-                <Button variant="secondary">
-                  <Network size={15} /> {t("ag.showInGraph")}
-                </Button>
-              </Link>
-            }
-          />
-          {a.dependsOn.length + a.dependedBy.length === 0 ? (
-            <EmptyState>{t("ag.depsEmpty")}</EmptyState>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {[...a.dependsOn.map((d) => ({ ...d, dir: "out" as const })), ...a.dependedBy.map((d) => ({ ...d, dir: "in" as const }))].map((d) => (
-                <li key={`${d.dir}-${d.id}`} className="flex items-center gap-3 px-5 py-2.5 text-sm">
-                  {d.dir === "out" ? <ArrowDownRight size={16} className="text-blue-500" /> : <ArrowUpRight size={16} className="text-slate-400" />}
-                  <span className="text-xs text-slate-500">{d.dir === "out" ? t.lbl(ASSET_GRAPH_LABELS.depKind[d.kind]) : t("ag.dependedByKind", { kind: t.lbl(ASSET_GRAPH_LABELS.depKind[d.kind]) })}</span>
-                  <Link to="/assets/$assetId" params={{ assetId: d.id }} className="font-medium text-brand-700 hover:underline">
-                    {d.name}
-                  </Link>
-                  <span className="text-slate-500">{t.lbl(LABELS.assetType[d.assetType])}</span>
-                  {d.note && <span className="text-xs text-slate-400">– {d.note}</span>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-
-
-        {a.vulnCritical + a.vulnHigh + a.vulnMedium + a.vulnLow === 0 && (
-          <Card className="lg:col-span-3">
-            <CardHeader title={t("ast.zranitelnostiCve")} subtitle={t("ast.historieAVyjimky")} />
+      {tab === "vulns" && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader title={t("ast.zranitelnostiCve")} subtitle={vulnTotal ? t("ast.zWazuhVulnerabilityDetectionU") : t("ast.historieAVyjimky")} />
             <VulnTable assetId={a.id} canEditAsset={a.canEdit} />
           </Card>
-        )}
+          {a.software.length > 0 && <SoftwareCard software={a.software} />}
+        </div>
+      )}
 
-        {a.software.length > 0 && (
-          <Card className="lg:col-span-3">
-            <CardHeader title={t("ast.software", { length: a.software.length })} subtitle={t("ast.zWazuhSyscollectoru")} />
-            <div className="max-h-80 overflow-y-auto">
-              <table className="w-full text-sm">
-                <tbody>
-                  {a.software.map((s, i) => (
-                    <tr key={i} className="border-b border-slate-100">
-                      <td className="px-5 py-2">{s.name}</td>
-                      <td className="px-5 py-2 text-slate-500">{s.version}</td>
-                      <td className="px-5 py-2 text-slate-500">{s.vendor}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+      {/* Přehled: vlevo provoz a technika, vpravo řízení a zdroje; sloupce se neroztahují na stejnou výšku */}
+      <div className={cn("grid items-start gap-6 lg:grid-cols-3", tab !== "overview" && "hidden")}>
+        <div className="space-y-6 lg:col-span-2">
+          {vulnTotal > 0 && (
+            <Card className="p-5" data-testid="asset-vuln-summary">
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                  <h2 className="font-semibold text-slate-900">{t("ast.vulnSummary", { n: vulnTotal })}</h2>
+                  <p className="mt-0.5 text-sm text-slate-500">{t("ast.vulnSummarySub")}</p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <VulnCounts className="text-sm" c={{ critical: a.vulnCritical, high: a.vulnHigh, medium: a.vulnMedium, low: a.vulnLow }} />
+                  <Button variant="secondary" onClick={() => setTab("vulns")}>
+                    {t("ast.vulnOpen")}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
+
+          <HostInventoryCard assetId={a.id} />
+
+          <Card>
+            <CardHeader title={t("ast.technickeUdaje")} subtitle={t("ast.doplnujiSeAutomatickyZKonektoru")} />
+            <dl className="grid gap-x-8 gap-y-4 p-5 sm:grid-cols-2">
+              <Item label={t("ast.hostname")}>{a.hostname}</Item>
+              <Item label={t("ast.fqdn")}>{a.fqdn && a.fqdn !== a.hostname ? a.fqdn : null}</Item>
+              <Item label={t("ast.ipAdresy")}>{a.ipAddresses.length ? <AddrList items={a.ipAddresses} ip /> : null}</Item>
+              <Item label={t("ast.macAdresy")}>{a.macAddresses.length ? <AddrList items={a.macAddresses} /> : null}</Item>
+              <Item label={t("ast.operacniSystem")}>{osLabel(a.osName, a.osVersion)}</Item>
+              <Item label={t("ast.vyrobceModel")}>{[a.manufacturer, a.model].filter(Boolean).join(" ")}</Item>
+              <Item label={t("ast.serioveCislo")}>{a.serialNumber}</Item>
+              <Item label={t("ast.poprveNaposledyVideno")}>
+                {fmtDate(a.firstSeenAt)} / {fmtDate(a.lastSeenAt)}
+              </Item>
+            </dl>
+            {a.description && <p className="border-t border-slate-100 px-5 py-4 text-sm text-slate-700">{a.description}</p>}
           </Card>
-        )}
+
+          <Card>
+            <CardHeader
+              title={isPrimary ? t("ast.podpurnaAktiva", { length: links.length }) : t("ast.podporujePrimarniAktiva", { length: links.length })}
+              subtitle={isPrimary ? t("ast.technikaLideDodavateleAProstory") : t("ast.hodnoceniCiaSeDediZ")}
+              action={
+                a.canEdit && (
+                  <Button variant="secondary" onClick={() => setLinking(true)}>
+                    <Plus size={15} /> {t("ast.pridatVazbu")}
+                  </Button>
+                )
+              }
+            />
+            {links.length ? (
+              <ul className="divide-y divide-slate-100">
+                {links.map((l) => (
+                  <li key={l.id} className="flex items-center gap-3 px-5 py-3 text-sm">
+                    {isPrimary ? <ArrowDownRight size={16} className="text-slate-400" /> : <ArrowUpRight size={16} className="text-violet-500" />}
+                    <Link to="/assets/$assetId" params={{ assetId: l.id }} className="font-medium text-brand-700 hover:underline">
+                      {l.name}
+                    </Link>
+                    <span className="text-slate-500">{t.lbl(LABELS.assetType[l.assetType])}</span>
+                    {l.note && <span className="text-xs text-slate-400">– {l.note}</span>}
+                    <span className="ml-auto flex items-center gap-2">
+                      <span className="font-mono text-xs text-slate-500">
+                        C{l.confidentiality ?? "-"} I{l.integrity ?? "-"} A{l.availability ?? "-"}
+                      </span>
+                      <Badge tone={criticalityTone[l.criticality]}>{t.lbl(LABELS.criticality[l.criticality])}</Badge>
+                      {a.canEdit && (
+                        <button className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-red-600" title={t("ast.odebratVazbu")} onClick={() => unlink.mutate(l)}>
+                          <X size={15} />
+                        </button>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-5 py-4 text-sm text-slate-500">{isPrimary ? t("ast.zatimNejsouPrirazenaZadnaPodpurna") : t("ast.aktivumZatimNepodporujeZadnePrimarni")}</p>
+            )}
+          </Card>
+
+          <Card data-testid="asset-dependencies">
+            <CardHeader
+              title={t("ag.depsTitle", { n: a.dependsOn.length + a.dependedBy.length })}
+              subtitle={t("ag.depsSub")}
+              action={
+                <Link to="/assets/graph" search={{ focus: a.id } as never}>
+                  <Button variant="secondary">
+                    <Network size={15} /> {t("ag.showInGraph")}
+                  </Button>
+                </Link>
+              }
+            />
+            {a.dependsOn.length + a.dependedBy.length === 0 ? (
+              <p className="px-5 py-4 text-sm text-slate-500">{t("ag.depsEmpty")}</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {[...a.dependsOn.map((d) => ({ ...d, dir: "out" as const })), ...a.dependedBy.map((d) => ({ ...d, dir: "in" as const }))].map((d) => (
+                  <li key={`${d.dir}-${d.id}`} className="flex items-center gap-3 px-5 py-2.5 text-sm">
+                    {d.dir === "out" ? <ArrowDownRight size={16} className="text-blue-500" /> : <ArrowUpRight size={16} className="text-slate-400" />}
+                    <span className="text-xs text-slate-500">{d.dir === "out" ? t.lbl(ASSET_GRAPH_LABELS.depKind[d.kind]) : t("ag.dependedByKind", { kind: t.lbl(ASSET_GRAPH_LABELS.depKind[d.kind]) })}</span>
+                    <Link to="/assets/$assetId" params={{ assetId: d.id }} className="font-medium text-brand-700 hover:underline">
+                      {d.name}
+                    </Link>
+                    <span className="text-slate-500">{t.lbl(LABELS.assetType[d.assetType])}</span>
+                    {d.note && <span className="text-xs text-slate-400">– {d.note}</span>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+
+          {mod("sectests") && can("sectests:read") && <AssetSecTestsCard assetId={a.id} />}
+        </div>
+
+        <div className="space-y-6">
+          <Card>
+            <CardHeader title={t("ast.rizeniGrc")} subtitle={t("ast.vyplnujeVlastnikKonektoryNeprepisuji")} />
+            <dl className="space-y-4 p-5">
+              <Item label={t("ast.podporaOs")}>
+                <SupportBadge status={a.supportStatus} eolDate={a.osEolDate} />
+              </Item>
+              <Item label={t("ast.kriticnost")}>
+                <Badge tone={criticalityTone[a.criticality]}>{t.lbl(LABELS.criticality[a.criticality])}</Badge>
+              </Item>
+              <div className="grid grid-cols-3 gap-2">
+                <Item label={t("ast.duvernost")}>{cia(a.confidentiality, eff.confidentiality)}</Item>
+                <Item label={t("ast.integrita")}>{cia(a.integrity, eff.integrity)}</Item>
+                <Item label={t("ast.dostupnost")}>{cia(a.availability, eff.availability)}</Item>
+              </div>
+              <Item label={t("ast.garantVlastnik")}>{a.owner ? <Person p={a.owner} /> : null}</Item>
+              <Item label={t("ast.own.tech")}>
+                {a.technicalOwner ? <Person p={a.technicalOwner} /> : a.owner ? <span className="text-slate-400">{t("ast.own.techFallback")}</span> : null}
+              </Item>
+              {a.technicalDeputy && (
+                <Item label={t("ast.own.deputy")}>
+                  <Person p={a.technicalDeputy} />
+                </Item>
+              )}
+              <Item label={t("ast.ownerUnit")}>
+                {a.ownerUnitId && a.ownerUnitName ? (
+                  <Link to="/assets" search={{ unit: a.ownerUnitId } as never} className="text-brand-700 hover:underline" title={t("ast.ownerUnitAssets")}>
+                    {a.ownerUnitName}
+                  </Link>
+                ) : (
+                  a.ownerName
+                )}
+              </Item>
+            </dl>
+          </Card>
+
+          <Card data-testid="asset-sources">
+            <CardHeader title={t("ast.zdrojeZaznamu")} />
+            <ul className="divide-y divide-slate-100">
+              {a.sources.map((s) => (
+                <li key={`${s.sourceType}:${s.sourceRef}`} className="px-5 py-3 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <Badge tone="violet">{t.lbl(LABELS.source[s.sourceType as SourceType])}</Badge>
+                    <span className="text-xs text-slate-500">{fmtDate(s.lastSyncedAt)}</span>
+                  </div>
+                  <div className="mt-1 truncate font-mono text-xs text-slate-500" title={s.sourceRef}>
+                    {s.sourceRef}
+                  </div>
+                </li>
+              ))}
+              {!a.sources.length && <li className="px-5 py-3 text-sm text-slate-500">{t("ast.sourcesManual")}</li>}
+            </ul>
+          </Card>
+
+          <div className="empty:hidden">
+            <AiSuggestPanel useCase="asset_classification" entityId={a.id} canApply={a.canEdit} onApplied={() => qc.invalidateQueries({ queryKey: ["asset", assetId] })} />
+          </div>
+        </div>
       </div>
 
       {linking && (
@@ -410,6 +414,80 @@ function LinkModal({ assetId, assetClass, existing, onClose }: { assetId: string
         {candidates.data && !candidates.data.items.length && <EmptyState>{t("common.nothingFound")}</EmptyState>}
       </ul>
     </Modal>
+  );
+}
+
+/** Osoba: jméno, e-mail menším písmem pod ním (dlouhé adresy nerozbijí sloupec). */
+function Person({ p }: { p: { displayName: string; email: string } }) {
+  return (
+    <span className="block">
+      {p.displayName}
+      <span className="block truncate text-xs text-slate-500" title={p.email}>
+        {p.email}
+      </span>
+    </span>
+  );
+}
+
+/** „Ubuntu 24.04.4 LTS 24.04.4 LTS (Noble Numbat)“ → bez zdvojené verze. */
+function osLabel(name: string | null, version: string | null) {
+  if (!name) return version;
+  if (!version || name.includes(version.split(" ")[0]!)) return name;
+  return `${name} ${version}`;
+}
+
+/** Adresy: nejdřív ty podstatné (IPv4, veřejné IPv6), link-local fe80:: a zbytek až po rozbalení. */
+function AddrList({ items, ip }: { items: string[]; ip?: boolean }) {
+  const t = useT();
+  const [all, setAll] = useState(false);
+  const minor = (x: string) => ip && /^fe80:/i.test(x);
+  const sorted = ip ? [...items].sort((a, b) => Number(minor(a)) - Number(minor(b)) || Number(a.includes(":")) - Number(b.includes(":"))) : items;
+  const main = sorted.filter((x) => !minor(x));
+  const shown = all ? sorted : (main.length ? main : sorted).slice(0, 4);
+  const rest = sorted.length - shown.length;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {shown.map((x) => (
+        <code key={x} className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700">
+          {x}
+        </code>
+      ))}
+      {rest > 0 && (
+        <button type="button" className="text-xs text-brand-700 hover:underline" onClick={() => setAll(true)}>
+          {t("ast.addrMore", { n: rest })}
+        </button>
+      )}
+      {all && sorted.length > 4 && (
+        <button type="button" className="text-xs text-brand-700 hover:underline" onClick={() => setAll(false)}>
+          {t("ast.addrLess")}
+        </button>
+      )}
+    </span>
+  );
+}
+
+function SoftwareCard({ software }: { software: { name: string; version: string | null; vendor: string | null }[] }) {
+  const t = useT();
+  const [q, setQ] = useState("");
+  const f = q.trim().toLowerCase();
+  const rows = f ? software.filter((s) => s.name.toLowerCase().includes(f) || (s.vendor ?? "").toLowerCase().includes(f)) : software;
+  return (
+    <Card>
+      <CardHeader title={t("ast.software", { length: software.length })} subtitle={t("ast.zWazuhSyscollectoru")} action={<Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("hd.search")} aria-label={t("hd.search")} className="w-56" />} />
+      <div className="max-h-96 overflow-y-auto">
+        <table className="w-full text-sm">
+          <tbody>
+            {rows.slice(0, 1000).map((s, i) => (
+              <tr key={i} className="border-b border-slate-100">
+                <td className="px-5 py-2">{s.name}</td>
+                <td className="px-5 py-2 text-slate-500">{s.version}</td>
+                <td className="px-5 py-2 text-slate-500">{s.vendor}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 

@@ -2536,6 +2536,10 @@ describe("zveřejnění – kontrola exportu (v1.15, ADR-112)", () => {
   test("zakázané soubory a velikost", () => {
     expect(scanFileMeta(".env", 10)[0]?.rule).toBe("forbidden-file");
     expect(scanFileMeta("certs/server.key", 10)[0]?.rule).toBe("forbidden-file");
+    expect(scanFileMeta("CLAUDE.md", 10)[0]?.rule).toBe("forbidden-file");
+    expect(scanFileMeta("apps/api/CLAUDE.md", 10)[0]?.rule).toBe("forbidden-file");
+    expect(scanFileMeta(".claude/settings.json", 10)[0]?.rule).toBe("forbidden-file");
+    expect(scanFileMeta("docs/claude-notes.md", 10)).toEqual([]);
     expect(scanFileMeta(".env.example", 10)).toEqual([]);
     expect(scanFileMeta("infra/server.env.example", 10)).toEqual([]);
     expect(scanFileMeta("a.bin", 6 * 1024 * 1024)[0]?.rule).toBe("large-file");
@@ -3641,5 +3645,108 @@ describe("v1.73: průvodce prvním nastavením", () => {
     expect(/[A-Z]/.test(a) && /[a-z]/.test(a) && /\d/.test(a)).toBe(true);
     expect(/[0O1lI]/.test(a.slice(0, 13))).toBe(false);
     expect(_tp173(rnd)).not.toBe(a);
+  });
+});
+
+import { AGENT_MESSAGE_KINDS, AgentEnvelopeV1, canonicalJson } from "@contix/shared";
+import { generateKeyPairSync as _agentKeys, sign as _agentSign } from "node:crypto";
+import { agentPublicKey, verifyAgentMessage } from "../src/modules/agents/verify";
+
+describe("agenti – protokol v1 (ADR-177)", () => {
+  const vector = async () =>
+    JSON.parse(await Bun.file(new URL("./fixtures/agent-protocol-v1/change-signed.json", import.meta.url)).text()) as {
+      publicKey: string;
+      canonical: string;
+      message: Record<string, unknown>;
+    };
+
+  test("kanonický JSON podle RFC 8785 (příklady z normy)", () => {
+    const rfc = JSON.parse('{"numbers":[333333333.33333329,1E30,4.50,2e-3,0.000000000000000000000000001],"string":"\\u20ac$\\u000F\\u000aA\'\\u0042\\u0022\\u005c\\\\\\"\\/","literals":[null,true,false]}');
+    expect(canonicalJson(rfc)).toBe('{"literals":[null,true,false],"numbers":[333333333.3333333,1e+30,4.5,0.002,1e-27],"string":"€$\\u000f\\nA\'B\\"\\\\\\\\\\"/"}');
+    const keys = JSON.parse('{"\\u20ac":1,"\\r":2,"\\ufb33":3,"1":4,"\\ud83d\\ude00":5,"\\u0080":6,"\\u00f6":7}');
+    // UTF-16 řazení: emoji (náhradní pár) před U+FB33
+    expect(canonicalJson(keys)).toBe('{"\\r":2,"1":4,"\u0080":6,"\u00f6":7,"\u20ac":1,"\ud83d\ude00":5,"\ufb33":3}');
+    expect(canonicalJson(-0)).toBe("0");
+    expect(() => canonicalJson({ a: Number.NaN })).toThrow();
+    expect(() => canonicalJson({ a: new Date() })).toThrow();
+  });
+
+  test("sdílený vektor z contix-agent (Go) – stejný kanonický tvar a platný podpis", async () => {
+    const v = await vector();
+    const { sig: _sig, ...unsigned } = v.message;
+    expect(canonicalJson(unsigned)).toBe(v.canonical);
+    const r = verifyAgentMessage(v.message, agentPublicKey(v.publicKey));
+    expect(r.ok).toBe(true);
+    if (r.ok) expect([r.envelope.kind, r.envelope.seq]).toEqual(["change", 18234]);
+  });
+
+  test("změněná zpráva, cizí klíč nebo chybějící podpis neprojdou", async () => {
+    const v = await vector();
+    const key = agentPublicKey(v.publicKey);
+    const payload = v.message.payload as Record<string, unknown>;
+    expect(verifyAgentMessage({ ...v.message, seq: 18235 }, key)).toMatchObject({ ok: false, reason: "signature" });
+    expect(verifyAgentMessage({ ...v.message, payload: { ...payload, op: "remove" } }, key)).toMatchObject({ ok: false, reason: "signature" });
+    expect(verifyAgentMessage({ ...v.message, cmd: "rm -rf /" }, key)).toMatchObject({ ok: false, reason: "signature" });
+    const { sig: _s, ...noSig } = v.message;
+    expect(verifyAgentMessage(noSig, key)).toMatchObject({ ok: false, reason: "signature" });
+    const other = _agentKeys("ed25519").publicKey.export({ format: "der", type: "spki" }).subarray(12).toString("base64");
+    expect(verifyAgentMessage(v.message, agentPublicKey(other))).toMatchObject({ ok: false, reason: "signature" });
+    expect(verifyAgentMessage([v.message], key)).toMatchObject({ ok: false, reason: "shape" });
+  });
+
+  test("podepsaná zpráva mimo schéma v1 se odmítne (neznámé pole, druh)", () => {
+    const { publicKey, privateKey } = _agentKeys("ed25519");
+    const pub = publicKey.export({ format: "der", type: "spki" }).subarray(12).toString("base64");
+    const signedMsg = (m: Record<string, unknown>) => ({ ...m, sig: _agentSign(null, Buffer.from(canonicalJson(m)), privateKey).toString("base64") });
+    const base = { v: 1, agent: "a-example", seq: 1, ts: "2026-11-17T08:12:44Z", kind: "hello", payload: {} };
+    expect(verifyAgentMessage(signedMsg(base), agentPublicKey(pub)).ok).toBe(true);
+    expect(verifyAgentMessage(signedMsg({ ...base, cmd: "x" }), agentPublicKey(pub))).toMatchObject({ ok: false, reason: "schema" });
+    expect(verifyAgentMessage(signedMsg({ ...base, kind: "exec" }), agentPublicKey(pub))).toMatchObject({ ok: false, reason: "schema" });
+    expect(verifyAgentMessage(signedMsg({ ...base, seq: 0 }), agentPublicKey(pub))).toMatchObject({ ok: false, reason: "schema" });
+  });
+
+  test("klíč agenta jen 32 B v base64; druhy zpráv shodné s agentem", () => {
+    expect(() => agentPublicKey("AAAA")).toThrow();
+    expect(() => agentPublicKey("not base64!")).toThrow();
+    expect([...AGENT_MESSAGE_KINDS]).toEqual(["hello", "snapshot", "change", "evidence", "flows"]);
+    expect(AgentEnvelopeV1.safeParse({}).success).toBe(false);
+  });
+});
+
+describe("agent → stav hostitele a inventář (ADR-177, fáze 2)", () => {
+  test("změny bez výchozího snímku se ignorují, snímek stav nahradí, změny ho upraví", async () => {
+    const { applyAgentMessage } = await import("../src/modules/agents/process");
+    expect(applyAgentMessage(null, "change", { changes: [{ module: "ports", op: "add", key: "k", to: {} }] }, "2026-11-17T10:00:00Z")).toBeNull();
+    expect(applyAgentMessage(null, "hello", { version: "1" }, "2026-11-17T10:00:00Z")).toBeNull();
+    const s1 = applyAgentMessage(null, "snapshot", { host: { hostname: "a" }, modules: { ports: { p1: { port: 22 } } } }, "2026-11-17T10:00:00Z")!;
+    const s2 = applyAgentMessage(s1, "change", { changes: [{ module: "ports", op: "remove", key: "p1" }, { module: "ports", op: "add", key: "p2", to: { port: 80 } }, { module: "x", op: "drop", key: "y" }, null] }, "2026-11-17T10:05:00Z")!;
+    expect(s2.modules.ports).toEqual({ p2: { port: 80 } });
+    expect(s1.modules.ports).toEqual({ p1: { port: 22 } }); // původní stav se nemění
+    expect(s2.at).toBe("2026-11-17T10:05:00Z");
+  });
+
+  test("převod na inventář: neplatné položky vynechá, dlouhé texty zkrátí, neznámý firewall = none", async () => {
+    const { agentStateToInventory } = await import("../src/modules/agents/process");
+    const inv = agentStateToInventory(
+      {
+        host: { hostname: "srv", hostId: "ABC", os: "Debian", ips: ["10.0.0.1", 5] },
+        modules: {
+          ports: { a: { proto: "tcp", address: "::", port: 70000 }, b: { proto: "udp", address: "0.0.0.0", port: 53 } },
+          services: { s: { name: "x.service", active: "inactive", sub: "dead", enabled: "disabled" } },
+          accounts: { u: { name: "", uid: 1 }, d: { name: "daemon", uid: 1, shell: "/usr/sbin/nologin", login: false }, r: { name: "radek", uid: 1000, shell: "/bin/bash", login: true } },
+          firewall: { firewall: { tool: "ufw", ruleCount: 2, inputPolicy: "ACCEPT" } },
+          scheduled: { c: { source: "cron", schedule: "x".repeat(500) } },
+        },
+        at: "2026-11-17T10:00:00Z",
+      },
+      { hostId: "abc", version: "0.2.1" },
+    )!;
+    expect(inv.host).toMatchObject({ hostname: "srv", machineId: "abc", ips: ["10.0.0.1"] });
+    expect(inv.listening).toEqual([{ proto: "udp", address: "0.0.0.0", port: 53, process: null }]);
+    expect(inv.services).toEqual([{ name: "x.service", state: "dead", enabled: false }]);
+    expect(inv.users.map((u) => u.name)).toEqual(["radek"]); // systémové účty bez přihlášení vynechá
+    expect(inv.firewall.tool).toBe("none");
+    expect(inv.scheduled[0]!.schedule.length).toBe(200);
+    expect(agentStateToInventory({ host: {}, modules: {}, at: "2026-11-17T10:00:00Z" }, { hostId: "h", version: null })).toBeNull(); // bez jména serveru
   });
 });

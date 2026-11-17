@@ -1,5 +1,5 @@
 import { UserSelect } from "@/components/pickers";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone, Kpi as UiKpi } from "@/components/ui";
 import { ProcessGuide } from "@/components/processGuide";
 import { askConfirm, toast } from "@/components/ui/overlay";
 import { Tabs, useTab } from "@/components/ui/tabs";
@@ -133,14 +133,7 @@ export function AccessPage() {
 }
 
 function Stat({ label, value, tone = "slate" }: { label: string; value: number; tone?: Tone }) {
-  return (
-    <Card className="px-4 py-3">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="mt-1 flex items-center gap-2 text-2xl font-semibold tabular-nums">
-        {value} {value > 0 && tone !== "slate" && <Badge tone={tone}>!</Badge>}
-      </div>
-    </Card>
-  );
+  return <UiKpi label={label} value={value} tone={value > 0 && (tone === "red" || tone === "amber" || tone === "green" || tone === "blue") ? tone : "slate"} />;
 }
 
 /* ---------------- žádosti ---------------- */

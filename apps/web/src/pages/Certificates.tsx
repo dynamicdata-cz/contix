@@ -1,6 +1,6 @@
 import { askConfirm } from "@/components/ui/overlay";
 /** Inventář certifikátů a TLS (ADR-070): koncové body, platnost, řetězec, klíč, podpis, zastaralé protokoly. */
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, type Tone, Kpi as UiKpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -30,11 +30,6 @@ export function CertificatesPage() {
   const d = q.data;
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/assets" className="hover:text-brand-700">
-          {t("ag.back")}
-        </Link>
-      </div>
       <PageHeader
         title={t("tls.title")}
         subtitle={t("tls.subtitle")}
@@ -167,13 +162,7 @@ export function CertificatesPage() {
 }
 
 function Kpi({ label, value, hint, danger }: { label: string; value: number; hint?: string; danger?: boolean }) {
-  return (
-    <Card className="p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={cn("mt-1 text-2xl font-semibold tabular-nums", danger && "text-red-700")}>{value}</div>
-      {hint && <div className="mt-0.5 text-xs text-slate-500">{hint}</div>}
-    </Card>
-  );
+  return <UiKpi label={label} value={value} note={hint} tone={danger ? "red" : "slate"} />;
 }
 
 function Detail({ e }: { e: TlsEndpointDto }) {

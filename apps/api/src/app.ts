@@ -42,6 +42,7 @@ import { scaRoutes } from "./modules/sca/routes";
 import { connectorAdminRoutes } from "./modules/connectors/routes";
 import { connectionAdminRoutes } from "./modules/connections/routes";
 import { hostRoutes, publicHostRoutes } from "./modules/collector/routes";
+import { publicAgentRoutes } from "./modules/agents/routes";
 import { tagRoutes } from "./modules/tags/routes";
 import { issueRoutes } from "./modules/connections/issues";
 import { locationRoutes } from "./modules/locations/routes";
@@ -294,6 +295,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     /** Import skenů zranitelností z CI/CD – osobní API token (ADR-097). */
     .route("/public/vulnerabilities", publicVulnScanRoutes(db))
     .route("/public/hosts", publicHostRoutes(db))
+    .route("/public/agent/v1", publicAgentRoutes(db))
     .route("/public/probe", publicProbeRoutes({ db, config, fetchImpl: deps.fetchImpl, onBackground: deps.onBackground }))
     /** Výsledky externích kontrol opatření ze skriptů – token monitoru (ADR-109). */
     .route("/public/monitors", publicMonitorRoutes(db))
@@ -323,7 +325,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
   // Ochrana proti CSRF: změnové požadavky musí mít Origin naší aplikace (+ SameSite=Lax cookie).
   // výjimka: příjem alertů z jiných nástrojů – autentizace tokenem v hlavičce, bez cookies (ADR-052)
   const csrfMw = csrf({ origin: origins });
-  app.use("/api/*", (c, next) => (c.req.path === "/api/public/soc/ingest" || c.req.path === "/api/public/vulnerabilities/scans" || c.req.path === "/api/public/monitors/result" || c.req.path === "/api/public/hosts/inventory" ? next() : csrfMw(c, next)));
+  app.use("/api/*", (c, next) => (c.req.path === "/api/public/soc/ingest" || c.req.path === "/api/public/vulnerabilities/scans" || c.req.path === "/api/public/monitors/result" || c.req.path === "/api/public/hosts/inventory" || c.req.path.startsWith("/api/public/agent/v1/") ? next() : csrfMw(c, next)));
   app.use("/api/*", sessionMiddleware(db));
   app.route("/api", api);
   /** RFC 9116 (v1.48, ADR-145): kontakt provozovatele (SECURITY_CONTACT), jinak soukromé hlášení u výrobce. */

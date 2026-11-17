@@ -1,7 +1,7 @@
 import { askConfirm } from "@/components/ui/overlay";
 import { useT } from "@/lib/i18n";
 import { EvidenceFiles, EvidenceModal, UploadButton, ValidityBadge, useCanTest } from "@/components/assurance";
-import { Badge, Button, Card, CardHeader, ErrorBox } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, ErrorBox, PageTitle } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fmtDay } from "@/lib/utils";
 import { ASSURANCE_LABELS, FRAMEWORKS } from "@contix/shared";
@@ -22,14 +22,9 @@ export function EvidenceDetailPage() {
   if (!e) return <ErrorBox error={q.error} />;
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/controls/assurance" className="hover:text-brand-700">
-          {t("asr.testyADukazy")}
-        </Link>
-      </div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{e.title}</h1>
+          <PageTitle>{e.title}</PageTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
             <Badge>{t.lbl(ASSURANCE_LABELS.evidenceKind[e.kind])}</Badge>
             <ValidityBadge e={e} />

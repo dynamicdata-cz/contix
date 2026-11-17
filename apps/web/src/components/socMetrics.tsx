@@ -2,7 +2,7 @@
 import { StackedBars, Legend, type Segment } from "@/components/charts";
 import { STATUS_COLORS } from "@/components/health";
 import { SeverityBadge } from "@/components/soc";
-import { Badge, Card, CardHeader, EmptyState, ErrorBox, Select } from "@/components/ui";
+import { Badge, Card, CardHeader, EmptyState, ErrorBox, Select, Kpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { cn, fmtDay } from "@/lib/utils";
@@ -15,14 +15,7 @@ const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)} %` : "â
 const OUTCOMES: SocOutcome[] = ["attack", "noise", "unknown"];
 
 function Tile({ label, value, hint, tone = "slate" }: { label: string; value: string; hint?: string; tone?: "slate" | "amber" | "red" | "green" }) {
-  const c = { slate: "text-slate-900", amber: "text-amber-700", red: "text-red-700", green: "text-green-700" }[tone];
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={cn("mt-2 text-2xl font-semibold tabular-nums tracking-tight", c)}>{value}</div>
-      {hint && <div className="mt-0.5 text-xs text-slate-500">{hint}</div>}
-    </div>
-  );
+  return <Kpi label={label} value={value} note={hint} tone={tone} />;
 }
 
 export function PerformanceTab() {

@@ -1,5 +1,5 @@
 import { askConfirm } from "@/components/ui/overlay";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, type Tone, Kpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -66,15 +66,12 @@ export function MonitoringPage() {
       <ErrorBox error={list.error ?? run.error} />
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
         {[
-          { k: "all", n: rows.filter((m) => m.enabled).length, label: t("mon.tileActive"), tone: "text-slate-900" },
-          { k: "pass", n: count("pass"), label: t.lbl(MONITOR_LABELS.result.pass), tone: "text-emerald-700" },
-          { k: "fail", n: count("fail"), label: t.lbl(MONITOR_LABELS.result.fail), tone: "text-red-700" },
-          { k: "error", n: count("error"), label: t.lbl(MONITOR_LABELS.result.error), tone: "text-amber-700" },
+          { k: "all", n: rows.filter((m) => m.enabled).length, label: t("mon.tileActive"), tone: "slate" as const },
+          { k: "pass", n: count("pass"), label: t.lbl(MONITOR_LABELS.result.pass), tone: "green" as const },
+          { k: "fail", n: count("fail"), label: t.lbl(MONITOR_LABELS.result.fail), tone: "red" as const },
+          { k: "error", n: count("error"), label: t.lbl(MONITOR_LABELS.result.error), tone: "amber" as const },
         ].map((x) => (
-          <Card key={x.k} className="px-5 py-4">
-            <div className={cn("text-3xl font-semibold tabular-nums", x.tone)}>{list.data ? x.n : "…"}</div>
-            <div className="text-xs text-slate-500">{x.label}</div>
-          </Card>
+          <Kpi key={x.k} label={x.label} value={list.data ? x.n : "…"} tone={x.n ? x.tone : "slate"} />
         ))}
       </div>
       <Card data-testid="monitors">

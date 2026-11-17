@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn, fmtDay } from "@/lib/utils";
 import { TagBar } from "@/components/tags";
 import { Tabs, useTab } from "@/components/ui/tabs";
 import { useFormGuard } from "@/lib/unsaved";
@@ -34,6 +34,8 @@ import {
   Select,
   SuccessBox,
   Textarea,
+  PageTitle,
+  Kpi,
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
@@ -56,6 +58,7 @@ import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { fwShort } from "./Controls";
+import { Chip, Chips, EditActions, Prose, ViewItem, ViewSection } from "@/components/detailView";
 
 type Form = Omit<ControlInput, "requirementIds" | "assetIds"> & {
   requirementIds: string[];
@@ -131,6 +134,8 @@ function ControlEditor({
   const nav = useNavigate();
   const qc = useQueryClient();
   const [f, setF] = useState<Form>(initial);
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). */
+  const [editing, setEditing] = useState(!detail);
   const [tab, setTab] = useTab(["overview", "assurance", "links", "tasks"] as const, "overview");
   const set = <K extends keyof Form>(k: K, v: Form[K]) =>
     setF((x) => ({ ...x, [k]: v }));
@@ -156,6 +161,7 @@ function ControlEditor({
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ["controls"] });
       qc.setQueryData(["control", d.id], d);
+      if (detail) setEditing(false);
       if (!detail)
         nav({ to: "/controls/$controlId", params: { controlId: d.id } });
     },
@@ -171,19 +177,14 @@ function ControlEditor({
 
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/controls" className="hover:text-brand-700">
-          {t("soa.opatreniAShoda")}
-        </Link>
-      </div>
       {detail && <TagBar entityType="control" entityId={detail.id} canEdit={can("controls:write")} />}
       <div className="sticky top-14 z-20 -mx-4 mb-4 flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/70 bg-slate-50/85 px-4 py-3 backdrop-blur-md md:-mx-8 md:px-8">
         <div className="min-w-0">
-          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">
+          <PageTitle>
             {detail
               ? `${detail.code ? `${detail.code} ` : ""}${detail.name}`
               : t("soa.noveOpatreni")}
-          </h1>
+          </PageTitle>
           {detail && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <ControlStatusBadge s={detail.status} />
@@ -221,17 +222,20 @@ function ControlEditor({
               <Trash2 size={15} />
             </Button>
           )}
-          {edit && (
-            <Button
-              disabled={!f.name.trim() || save.isPending}
-              onClick={() => save.mutate()}
-            >
-              {detail ? t("soa.ulozit") : t("soa.zalozitOpatreni")}
-            </Button>
-          )}
+          <EditActions
+            isNew={!detail}
+            editing={editing}
+            canEdit={edit}
+            onEdit={() => setEditing(true)}
+            onCancel={() => (setF(initial), setEditing(false))}
+            onSave={() => save.mutate()}
+            saving={save.isPending}
+            saveDisabled={!f.name.trim()}
+            saveLabel={detail ? t("soa.ulozit") : t("soa.zalozitOpatreni")}
+          />
         </div>
       </div>
-      {save.isSuccess && detail && <SuccessBox>{t("soa.ulozeno")}</SuccessBox>}
+      {save.isSuccess && detail && !editing && <SuccessBox>{t("soa.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error} />
 
       {detail && (
@@ -260,7 +264,12 @@ function ControlEditor({
         </div>
       )}
       {detail && tab === "tasks" && <TasksCard kind="control" id={detail.id} />}
-      <div className={cn("mt-4 grid items-start gap-6 lg:grid-cols-2", detail && tab !== "overview" && "hidden")}>
+      {detail && !editing && (
+        <div className={cn("mt-4", tab !== "overview" && "hidden")}>
+          <ControlOverview detail={detail} onTab={setTab} />
+        </div>
+      )}
+      <div className={cn("mt-4 grid items-start gap-6 lg:grid-cols-2", detail && (tab !== "overview" || !editing) && "hidden")}>
         <div className="space-y-6">
           <Card>
             <CardHeader title={t("soa.controls")} />
@@ -454,6 +463,100 @@ function ControlEditor({
         </div>
       </div>
     </>
+  );
+}
+
+/** Přehled opatření (v1.84): stav a účinnost v dlaždicích, popis zavedení vlevo, požadavky a rizika vpravo. */
+function ControlOverview({ detail: d, onTab }: { detail: ControlDetail; onTab: (k: "overview" | "assurance" | "links" | "tasks") => void }) {
+  const t = useT();
+  const statusTone = d.status === "implemented" ? "green" : d.status === "not_applicable" ? "slate" : "amber";
+  const effTone = d.effectiveness === "effective" ? "green" : d.effectiveness === "ineffective" ? "red" : d.effectiveness === "partially_effective" ? "amber" : "slate";
+  const findings = (d.findings?.serious ?? 0) + (d.findings?.other ?? 0);
+  return (
+    <div className="space-y-6" data-testid="control-overview">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Kpi label={t("soa.stavZavedeni")} value={<span className="text-lg">{t.lbl(CONTROL_LABELS.status[d.status])}</span>} tone={statusTone} note={d.plannedDate && d.status !== "implemented" ? t("ctl.ov.planned", { date: fmtDay(d.plannedDate) }) : undefined} />
+        <Kpi
+          label={t("soa.ucinnost")}
+          value={<span className="text-lg">{t.lbl(CONTROL_LABELS.effectiveness[d.effectiveness])}</span>}
+          tone={effTone}
+          note={d.lastReviewAt ? t("ctl.ov.reviewed", { date: fmtDay(d.lastReviewAt) }) : t("ctl.ov.neverReviewed")}
+          onClick={() => onTab("assurance")}
+        />
+        <Kpi label={t("ctl.ov.requirements")} value={d.requirements.length} note={d.frameworks.map(fwShort).join(" · ") || undefined} />
+        <Kpi label={t("ctl.ov.findings")} value={findings} tone={d.findings?.serious ? "red" : findings ? "amber" : "slate"} note={t("ctl.ov.risks", { n: d.risks.length })} onClick={() => onTab("assurance")} />
+      </div>
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <ViewSection title={t("soa.controls")}>
+            <ViewItem label={t("soa.druh")}>{t.lbl(CONTROL_LABELS.category[d.category])}</ViewItem>
+            <ViewItem label={t("soa.vlastnikFunkcniMisto")}>{d.ownerPositionName ?? <span className="text-amber-700">{t("rsk.ov.noOwner")}</span>}</ViewItem>
+            <ViewItem label={t("soa.planovanyTerminZavedeni")}>{d.plannedDate ? fmtDay(d.plannedDate) : null}</ViewItem>
+            <ViewItem label={t("soa.posledniPrezkumUcinnosti")}>{d.lastReviewAt ? fmtDay(d.lastReviewAt) : null}</ViewItem>
+            <ViewItem label={t("soa.popis")} wide>
+              <Prose text={d.description} />
+            </ViewItem>
+            <ViewItem label={t("soa.zpusobPlneniPopisZavedeni")} wide>
+              <Prose text={d.implementation} />
+            </ViewItem>
+            <ViewItem label={t("soa.kdeJeKodifikovanoDolozeno")} wide>
+              <Prose text={d.evidence} />
+            </ViewItem>
+            <ViewItem label={t("soa.aktivaNaKteraSeOpatreni")} wide>
+              <Chips empty={t("rsk.ov.none")}>
+                {d.assets.map((a) => (
+                  <Chip key={a.id}>
+                    <Link to="/assets/$assetId" params={{ assetId: a.id }} className="hover:text-brand-700">
+                      {a.name}
+                    </Link>
+                  </Chip>
+                ))}
+              </Chips>
+            </ViewItem>
+          </ViewSection>
+        </div>
+        <div className="space-y-6">
+          <Card data-testid="control-requirements">
+            <CardHeader title={t("ctl.ov.requirementsTitle", { n: d.requirements.length })} subtitle={t("ctl.ov.requirementsSub")} />
+            {d.requirements.length ? (
+              <ul className="max-h-96 divide-y divide-slate-100 overflow-y-auto">
+                {d.requirements.map((r) => (
+                  <li key={r.id} className="px-5 py-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <Badge tone="violet">{fwShort(r.framework)}</Badge>
+                      <span className="font-mono text-xs text-slate-500">{r.ref}</span>
+                    </div>
+                    <p className="mt-0.5 line-clamp-2 text-slate-700" title={r.text}>
+                      {r.text}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-5 py-4 text-sm text-slate-500">{t("ctl.ov.noRequirements")}</p>
+            )}
+          </Card>
+          <Card>
+            <CardHeader title={t("soa.rizika")} subtitle={t("soa.rizikaKteraOpatreniSnizujeVazba")} />
+            {d.risks.length === 0 ? (
+              <p className="px-5 py-4 text-sm text-slate-500">{t("soa.opatreniZatimNeniNavazaneNa")}</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {d.risks.map((r) => (
+                  <li key={r.id} className="flex items-center gap-3 px-5 py-2 text-sm">
+                    <Link to="/risks/$riskId" params={{ riskId: r.id }} className="flex-1 hover:text-brand-700">
+                      {r.code && <span className="mr-1.5 text-slate-500">{r.code}</span>}
+                      {r.name}
+                    </Link>
+                    <RiskLevelBadge level={r.level} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
   );
 }
 

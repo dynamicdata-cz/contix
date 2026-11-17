@@ -7,7 +7,7 @@ import { FrameworkBadge } from "@/components/frameworkBadge";
 import { NeedsCompany, useGroupView } from "@/components/company";
 import { useDecree } from "@/lib/regime";
 import { complianceTone } from "@/components/compliance";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone, Kpi as UiKpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -456,14 +456,5 @@ function SnapshotModal({ framework, onClose, onSaved }: { framework: FrameworkId
 
 const kpiTone = { slate: "text-slate-500", amber: "text-amber-700", red: "text-red-700", green: "text-emerald-700" } as const;
 function Kpi({ icon, label, value, note, tone = "slate", onClick }: { icon: React.ReactNode; label: string; value: React.ReactNode; note: string; tone?: keyof typeof kpiTone; onClick?: () => void }) {
-  const Tag = onClick ? "button" : "div";
-  return (
-    <Tag onClick={onClick} className={cn("rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm", onClick && "transition hover:border-brand-300 hover:shadow")}>
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-        {icon} {label}
-      </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
-      <div className={cn("mt-0.5 text-xs", kpiTone[tone])}>{note}</div>
-    </Tag>
-  );
+  return <UiKpi icon={icon} label={label} value={value} note={note} noteTone={tone === "slate" ? undefined : tone} onClick={onClick} />;
 }

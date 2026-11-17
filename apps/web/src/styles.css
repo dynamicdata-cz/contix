@@ -248,7 +248,75 @@
 }
 /* motiv „Noc“ v tmavém režimu: panel splyne s povrchem */
 :root[data-mode="dark"][data-theme="night"] .app-sidebar {
-  --color-white: #10141f;
+  --color-white: #121726;
+  --color-slate-50: #1a2033;
+  --color-slate-200: #232a40;
+  --color-slate-300: #323a57;
+}
+
+/* ============================================================
+ * „Noc“ v tónech přihlášení (v1.85, ADR-180): podklad stránky je soumračná levandulová šeď, karty, horní lišta
+ * a boční panel tmavě modré. Text přímo na podkladu (nadpis, podnadpis, záložky) je světlejší; uvnitř povrchů
+ * (cokoli s bg-white) platí běžná škála. Světlý režim má stejný nádech – jemně levandulový podklad místo šedé.
+ * ============================================================ */
+:root[data-mode="dark"][data-theme="night"] {
+  --color-white: #141a29;
+  --color-slate-50: #0f1421;
+  --color-slate-100: #1c2335;
+  --color-slate-200: #283047;
+  --color-slate-300: #384260;
+  --color-slate-400: #7a82a3;
+  --color-slate-500: #9aa0be;
+  --color-slate-600: #b4b9d3;
+  --color-slate-700: #cdd1e6;
+  --color-slate-800: #e1e4f2;
+  --color-slate-900: #f1f2fa;
+  --color-brand-50: color-mix(in oklab, var(--color-brand-500) 18%, #141a29);
+  --color-brand-100: color-mix(in oklab, var(--color-brand-500) 28%, #141a29);
+  --color-brand-200: color-mix(in oklab, var(--color-brand-500) 42%, #141a29);
+  --shadow-card: 0 1px 2px 0 rgb(10 12 30 / 0.25), 0 6px 18px -6px rgb(10 12 30 / 0.35);
+  --night-page: #44465f;
+}
+:root[data-mode="dark"][data-theme="night"] body {
+  background:
+    radial-gradient(ellipse 70% 38% at 50% -6%, #5f6188 0%, transparent 72%),
+    linear-gradient(180deg, #4a4c68 0%, #44465f 45%, #3d3f57 100%);
+}
+:root[data-mode="dark"][data-theme="night"] .app-main {
+  --color-slate-400: #a9aeca;
+  --color-slate-500: #c6c9df;
+  --color-slate-600: #d6d9eb;
+  --color-slate-200: rgb(255 255 255 / 0.14);
+  --color-brand-700: #c9cbff;
+}
+:root[data-mode="dark"][data-theme="night"] .app-main :where([class*="bg-white"], [role="dialog"], [role="menu"], [role="listbox"]) {
+  --color-slate-400: #7a82a3;
+  --color-slate-500: #9aa0be;
+  --color-slate-600: #b4b9d3;
+  --color-slate-200: #283047;
+  --color-brand-700: color-mix(in oklab, var(--color-brand-400) 55%, white);
+}
+:root[data-mode="dark"][data-theme="night"] .app-main [data-sticky] {
+  background-color: rgb(68 70 95 / 0.88);
+  border-color: rgb(255 255 255 / 0.1);
+}
+:root[data-mode="dark"][data-theme="night"] .app-topbar:not(.topbar-colored) {
+  background-color: rgb(18 23 38 / 0.92);
+  border-color: rgb(255 255 255 / 0.06);
+}
+:root[data-mode="light"][data-theme="night"] body {
+  background:
+    radial-gradient(ellipse 70% 38% at 50% -6%, #dfe0f2 0%, transparent 72%),
+    linear-gradient(180deg, #eceef7 0%, #f1f2f8 100%);
+}
+:root[data-mode="light"][data-theme="night"] .app-main [data-sticky] {
+  background-color: rgb(236 238 247 / 0.88);
+}
+:root[data-mode="light"][data-theme="night"] .app-sidebar {
+  --color-white: #262840;
+  --color-slate-50: #2e3150;
+  --color-slate-200: #34385a;
+  --color-slate-300: #444a72;
 }
 
 html,
@@ -340,14 +408,22 @@ html[data-mode="dark"] select.ctx-select:not([multiple]) {
 .app-topbar.topbar-colored .tb-field:hover { background-color: rgb(255 255 255 / 0.18); }
 .app-topbar.topbar-colored .tb-field kbd { background-color: transparent; border-color: rgb(255 255 255 / 0.3); color: rgb(255 255 255 / 0.8); }
 
-/* přihlášení v duchu loga (v1.77, ADR-170): zaměření polí inkoustem značky místo barvy motivu */
-.auth-ink input:focus,
-.auth-ink select:focus {
-  border-color: var(--color-slate-900);
-  --tw-ring-color: color-mix(in srgb, var(--color-slate-900) 14%, transparent);
+/* přihlášení (v1.84): tmavý podklad v barvě motivu jako boční panel aplikace, logo a přepínač jazyka světlé */
+.auth-night {
+  /* pevné tóny (v1.85) – přihlášení vypadá stejně ve světlém i tmavém režimu */
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 0%, #7a7ca6 0%, transparent 70%),
+    linear-gradient(180deg, #4d4f6c 0%, #45475f 55%, #3f4158 100%);
 }
+.auth-night .auth-brand {
+  --color-slate-900: #f5f6fc;
+  --color-slate-800: #eceef8;
+  --color-slate-500: #9aa0c4;
+  --color-slate-400: #8187ad;
+}
+.auth-night .auth-brand select option { color: #141626; }
 .auth-ink input {
-  border-radius: 0.75rem;
+  border-radius: 0.625rem;
 }
 
 /*
@@ -370,4 +446,66 @@ html[data-mode="dark"] select.ctx-select:not([multiple]) {
 }
 :root[data-mode="dark"] .text-red-600 {
   color: oklch(0.72 0.17 25);
+}
+
+/*
+ * Detail v režimu čtení (v1.84, FormView): pole formuláře vypadají jako text, prvky pro úpravy se skryjí.
+ */
+.ctx-view :is(input, textarea, select):disabled {
+  border-color: transparent;
+  background-color: transparent;
+  box-shadow: none;
+  padding-left: 0;
+  padding-right: 0;
+  color: var(--color-slate-800);
+  -webkit-text-fill-color: var(--color-slate-800);
+  opacity: 1;
+  cursor: default;
+}
+.ctx-view select:disabled {
+  appearance: none;
+  background-image: none;
+}
+.ctx-view textarea:disabled {
+  resize: none;
+  min-height: 0;
+  field-sizing: content;
+}
+.ctx-view :is(input, textarea):disabled::placeholder {
+  color: var(--color-slate-400);
+  -webkit-text-fill-color: var(--color-slate-400);
+}
+.ctx-view textarea:disabled {
+  padding-top: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+.ctx-view :is(input, select):disabled {
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+}
+.ctx-view input[type="date"]:disabled::-webkit-calendar-picker-indicator,
+.ctx-view input[type="datetime-local"]:disabled::-webkit-calendar-picker-indicator {
+  display: none;
+}
+.ctx-view input:is([type="checkbox"], [type="radio"]):disabled {
+  opacity: 1;
+}
+.ctx-view button:disabled,
+.ctx-view .ctx-edit-only {
+  display: none;
+}
+/* v režimu čtení popisky jako u přehledu záznamu (malé, velkými písmeny), nápověda k vyplnění se skryje */
+.ctx-view .ctx-label {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.025em;
+  color: var(--color-slate-500);
+}
+.ctx-view .ctx-hint {
+  display: none;
+}
+.ctx-view label.block {
+  --tw-space-y-reverse: 0;
 }

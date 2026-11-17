@@ -23,7 +23,7 @@ import { CompanyCell, useGroupView } from "@/components/company";
 import { STATUS_COLORS } from "@/components/health";
 import { RiskLevelBadge } from "@/components/risk";
 import { AssetPicker, IdMultiSelect, UnitSelect, type PickedAsset } from "@/components/pickers";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Kpi, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
 import { cn, fmtDay } from "@/lib/utils";
@@ -45,6 +45,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { AlertTriangle, FileSignature, Mail, Plus, Trash2, Landmark, Globe2 } from "lucide-react";
 import { useState } from "react";
+import { Tabs, useTab } from "@/components/ui/tabs";
+import { Chip, Chips, EditActions, Prose, ViewItem, ViewSection } from "@/components/detailView";
 
 const clauseTone: Record<ClauseState, Tone> = { included: "green", partial: "amber", missing: "red", not_relevant: "slate" };
 
@@ -246,6 +248,10 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
     assets: s?.assets ?? [],
   });
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). */
+  const [initialForm] = useState(f);
+  const [editing, setEditing] = useState(!s);
+  const [tab, setTab] = useTab(["overview", "contracts", "regulation", "links"] as const, "overview");
   const processes = useQuery({ queryKey: ["processes", "", ""], queryFn: () => api.processes.list({}), enabled: mod("processes") && can("processes:read") });
   const risks = useQuery({ queryKey: ["risks", "list", "all"], queryFn: () => api.risks.list({ limit: 500 }), enabled: mod("risks") && can("risks:read") });
   const [contract, setContract] = useState<ContractDto | "new" | null>(null);
@@ -275,6 +281,7 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
   const done = (d: SupplierDetail) => {
     qc.invalidateQueries({ queryKey: ["suppliers"] });
     qc.setQueryData(["suppliers", "detail", d.id], d);
+    if (s) setEditing(false);
     if (!s) nav({ to: "/suppliers/$supplierId", params: { supplierId: d.id } });
   };
   const save = useMutation({ mutationFn: () => (s ? api.suppliers.update(s.id, body()) : api.suppliers.create(body())), onSuccess: done });
@@ -293,11 +300,6 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
 
   return (
     <div {...guard.bind}>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/suppliers" className="hover:text-brand-700">
-          {t("sup.dodavatele")}
-        </Link>
-      </div>
       {s && <TagBar entityType="supplier" entityId={s.id} canEdit={can("suppliers:write")} />}
       <PageHeader
         title={s ? s.name : t("sup.novyDodavatel")}
@@ -317,11 +319,17 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
                 <Trash2 size={16} />
               </Button>
             )}
-            {edit && (
-              <Button disabled={save.isPending || !f.name.trim()} onClick={() => save.mutate()}>
-                {s ? t("sup.ulozit") : t("common.create")}
-              </Button>
-            )}
+            <EditActions
+              isNew={!s}
+              editing={editing}
+              canEdit={edit}
+              onEdit={() => (setTab("overview"), setEditing(true))}
+              onCancel={() => (setF(initialForm), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={!f.name.trim()}
+              saveLabel={s ? t("sup.ulozit") : t("common.create")}
+            />
           </>
         }
       />
@@ -334,9 +342,25 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
           ))}
         </div>
       )}
-      {save.isSuccess && <SuccessBox>{t("sup.ulozeno")}</SuccessBox>}
+      {save.isSuccess && !editing && <SuccessBox>{t("sup.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error ?? delContract.error} />
 
+      {s && !editing && (
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          items={[
+            { key: "overview" as const, label: t("detail.tab.overview") },
+            { key: "contracts" as const, label: t("sup.tab.contracts"), badge: s.contracts.length ? <Badge>{s.contracts.length}</Badge> : undefined },
+            { key: "regulation" as const, label: t("sup.tab.regulation") },
+            { key: "links" as const, label: t("detail.tab.links") },
+          ]}
+        />
+      )}
+      {s && !editing && tab === "overview" && <SupplierOverview s={s} onTab={setTab} />}
+
+      {(!s || editing) && (
+      <>
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("sup.identifikaceAKontakt")} />
@@ -485,8 +509,12 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
         </div>
       </Card>
 
-      {s && (
-        <Card className="mt-6 overflow-hidden">
+      </>
+      )}
+
+      {s && !editing && tab === "contracts" && (
+      <>
+        <Card className="mt-2 overflow-hidden" data-testid="supplier-contracts">
           <CardHeader
             title={t("sup.smlouvy")}
             subtitle={t("sup.kontrolaObsahuSmlouvyProtiRelevantnim")}
@@ -525,15 +553,132 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
             </ul>
           )}
         </Card>
+        <QuestionnairesCard supplier={s} edit={edit} />
+        <SupplierReportsCard supplierId={s.id} edit={can("suppliers:write")} />
+      </>
       )}
-      {s && <QuestionnairesCard supplier={s} edit={edit} />}
-      {s && <SupplierReportsCard supplierId={s.id} edit={can("suppliers:write")} />}
-      {s && <RegulationCard className="mt-6" subjectKind="supplier" subjectId={s.id} ico={s.ico ?? null} canEdit={edit} />}
-      {s && <DoraProviderCard supplierId={s.id} name={s.name} dora={s.dora ?? {}} edit={edit} />}
-      {s && <LinkedRecordsCard target="supplier" id={s.id} className="mt-6" />}
-      {s && <TasksCard kind="supplier" id={s.id} className="mt-6" />}
-      {s && <LinkedDocsCard kind="supplier" id={s.id} className="mt-6" />}
+      {s && !editing && tab === "regulation" && (
+        <>
+          <RegulationCard className="mt-2" subjectKind="supplier" subjectId={s.id} ico={s.ico ?? null} canEdit={edit} />
+          <DoraProviderCard supplierId={s.id} name={s.name} dora={s.dora ?? {}} edit={edit} />
+        </>
+      )}
+      {s && !editing && tab === "links" && (
+        <>
+          <LinkedRecordsCard target="supplier" id={s.id} className="mt-2" />
+          <TasksCard kind="supplier" id={s.id} className="mt-6" />
+          <LinkedDocsCard kind="supplier" id={s.id} className="mt-6" />
+        </>
+      )}
       {s && contract && <ContractModal supplier={s} contract={contract === "new" ? null : contract} edit={edit} onClose={() => setContract(null)} onDone={done} />}
+    </div>
+  );
+}
+
+/** Přehled dodavatele (v1.84): význam, smlouvy a § 9 v dlaždicích, kontakt a povinnosti vlevo, vazby vpravo. */
+function SupplierOverview({ s, onTab }: { s: SupplierDetail; onTab: (k: "overview" | "contracts" | "regulation" | "links") => void }) {
+  const t = useT();
+  const can = useCan();
+  const mod = useModule();
+  const date = (v: string | null | undefined) => (v ? fmtDay(v) : <span className="text-amber-700">{t("sup.ov.missing")}</span>);
+  const active = s.contracts.filter((c) => !c.expired).length;
+  return (
+    <div className="mt-4 space-y-6" data-testid="supplier-overview">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Kpi label={t("sup.ov.kind")} value={<span className="text-lg">{s.significant ? t("sup.vyznamnyDodavatel") : t("sup.ov.regular")}</span>} note={s.status === "ended" ? t("sup.spolupraceUkoncena") : t("sup.aktivni")} />
+        <Kpi label={t("sup.smlouvy")} value={active} note={t("sup.ov.contractsNote", { n: s.contracts.length, missing: s.missingClauses })} noteTone={s.missingClauses ? "amber" : undefined} onClick={() => onTab("contracts")} />
+        <Kpi label={t("sup.ov.gaps")} value={s.gaps.length} tone={s.gaps.length ? "amber" : "green"} note={s.significant ? t("sup.ov.gapsNote") : t("sup.ov.notSignificant")} />
+        <Kpi
+          label={t("sup.posledniPrezkumPlneni")}
+          value={<span className="text-lg">{s.lastReviewAt ? fmtDay(s.lastReviewAt) : "—"}</span>}
+          tone={s.reviewDue ? "amber" : "slate"}
+          note={s.reviewDue ? t("sup.ov.reviewDue") : t("sup.ov.interval", { n: s.reviewIntervalMonths })}
+        />
+      </div>
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <ViewSection title={t("sup.identifikaceAKontakt")}>
+            <ViewItem label={t("sup.ico3")}>{s.ico}</ViewItem>
+            <ViewItem label={t("sup.sidlo")}>{[s.address, s.country].filter(Boolean).join(", ")}</ViewItem>
+            <ViewItem label={t("sup.kontaktniOsoba")}>{s.contactName}</ViewItem>
+            <ViewItem label={t("sup.ov.contact")}>
+              {s.contactEmail || s.contactPhone ? (
+                <span className="flex flex-col">
+                  {s.contactEmail && <a href={`mailto:${s.contactEmail}`} className="text-brand-700 hover:underline">{s.contactEmail}</a>}
+                  {s.contactPhone && <span>{s.contactPhone}</span>}
+                </span>
+              ) : null}
+            </ViewItem>
+            <ViewItem label={t("sup.predmetPlneni")} wide>
+              <Prose text={s.supplyDescription} />
+            </ViewItem>
+            {s.significant && (
+              <ViewItem label={t("sup.oduvodneniVyznamnosti")} wide>
+                <Prose text={s.significanceReason} />
+              </ViewItem>
+            )}
+          </ViewSection>
+          <ViewSection title={t("sup.povinnostiDle9")} subtitle={t("sup.datumDolozeniJednotlivychKrokuZaznam")}>
+            <ViewItem label={t("sup.hodnoceniRizikPredUzavrenimSmlouvy")}>{date(s.riskAssessedAt)}</ViewItem>
+            <ViewItem label={t("sup.seznameniSPravidlyProDodavatele")}>{date(s.rulesAcknowledgedAt)}</ViewItem>
+            <ViewItem label={t("sup.informovaniOEvidenci")}>
+              {s.notifiedAt ? `${fmtDay(s.notifiedAt)}${s.notificationRef ? ` · ${s.notificationRef}` : ""}` : date(null)}
+            </ViewItem>
+            <ViewItem label={t("sup.zpracovavaDataNeboProvozujeAktiva")}>{s.dataOutsideCz ? t("sup.ov.yes") : t("sup.ov.no")}</ViewItem>
+          </ViewSection>
+        </div>
+        <div className="space-y-6">
+          <ViewSection title={t("sup.vazby")} subtitle={t("sup.aktivaAProcesyNaKterych")} cols={1}>
+            <ViewItem label={t("sup.ownerUnit")}>{s.ownerUnitName}</ViewItem>
+            <ViewItem label={t("sup.aktiva")}>
+              <Chips empty={t("rsk.ov.none")}>
+                {s.assets.map((a) => (
+                  <Chip key={a.id}>
+                    <Link to="/assets/$assetId" params={{ assetId: a.id }} className="hover:text-brand-700">
+                      {a.name}
+                    </Link>
+                  </Chip>
+                ))}
+              </Chips>
+            </ViewItem>
+            {mod("processes") && can("processes:read") && (
+              <ViewItem label={t("sup.procesy")}>
+                <Chips empty={t("sup.zadneProcesy")}>
+                  {s.processes.map((p) => (
+                    <Chip key={p.id}>
+                      <Link to="/processes/$processId" params={{ processId: p.id }} className="hover:text-brand-700">
+                        {p.code ? `${p.code} ` : ""}
+                        {p.name}
+                      </Link>
+                    </Chip>
+                  ))}
+                </Chips>
+              </ViewItem>
+            )}
+            {mod("risks") && can("risks:read") && (
+              <ViewItem label={t("sup.rizika")}>
+                <Chips empty={t("sup.zadnaRizika")}>
+                  {s.risks.map((r) => (
+                    <Chip key={r.id}>
+                      <Link to="/risks/$riskId" params={{ riskId: r.id }} className="hover:text-brand-700">
+                        {r.code ?? r.name}
+                      </Link>
+                      <RiskLevelBadge level={r.level as RiskLevel | null} score={null} />
+                    </Chip>
+                  ))}
+                </Chips>
+              </ViewItem>
+            )}
+          </ViewSection>
+          {s.notes && (
+            <ViewSection title={t("sup.ov.notes")} cols={1}>
+              <ViewItem label="">
+                <Prose text={s.notes} />
+              </ViewItem>
+            </ViewSection>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

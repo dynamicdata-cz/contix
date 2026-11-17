@@ -171,11 +171,6 @@ export function ExerciseDetailPage() {
   if (!e) return <ErrorBox error={q.error} />;
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/continuity/exercises" className="hover:text-brand-700">
-          {t("ex.back")}
-        </Link>
-      </div>
       <PageHeader
         title={`${e.code} ${e.title}`}
         subtitle={`${t.lbl(BCM_LABELS.testType[e.exerciseType])} · ${t.lbl(EXERCISE_LABELS.status[e.status])}${e.plannedAt ? ` · ${fmtDay(e.plannedAt)}` : ""}`}

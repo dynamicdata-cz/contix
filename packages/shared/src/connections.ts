@@ -6,7 +6,7 @@ import { WazuhSettingsInput } from "./asset";
  * Teď Wazuh (inventář, zranitelnosti, SCA, alerty, hunting, reakce); každý typ může mít víc instancí.
  * ============================================================ */
 
-export const CONNECTION_KINDS = ["wazuh", "collector", "netbox", "jira", "probe"] as const;
+export const CONNECTION_KINDS = ["wazuh", "collector", "netbox", "jira", "probe", "concentrator"] as const;
 export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
 
 export const ConnectionGroupMap = z

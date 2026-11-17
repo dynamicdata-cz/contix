@@ -1,4 +1,5 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { EditActions, FormView } from "@/components/detailView";
 import { ProcessGuide } from "@/components/processGuide";
 import { useT } from "@/lib/i18n";
 import { TransferButton } from "@/components/transfer";
@@ -202,7 +203,10 @@ function CourseEditor({ c }: { c: CourseDetail | null }) {
   const mod = useModule();
   const qc = useQueryClient();
   const nav = useNavigate();
-  const edit = c ? c.canEdit : can("awareness:write");
+  const canEdit = c ? c.canEdit : can("awareness:write");
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Nový záznam rovnou ve formuláři. */
+  const [editing, setEditing] = useState(!c);
+  const edit = canEdit && editing;
   const [f, setF] = useState({
     code: c?.code ?? "",
     title: c?.title ?? "",
@@ -218,6 +222,7 @@ function CourseEditor({ c }: { c: CourseDetail | null }) {
     policyId: c?.policyId ?? null,
     active: c?.active ?? true,
   });
+  const [initialForm] = useState(() => f);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const [topic, setTopic] = useState("");
   const policies = useQuery({ queryKey: ["policies"], queryFn: api.policies.list, enabled: mod("policies") && can("policies:read") });
@@ -226,6 +231,7 @@ function CourseEditor({ c }: { c: CourseDetail | null }) {
   const done = (d: CourseDetail) => {
     qc.invalidateQueries({ queryKey: ["awareness"] });
     qc.setQueryData(["awareness", "detail", d.id], d);
+    if (c) setEditing(false);
     if (!c) nav({ to: "/awareness/$courseId", params: { courseId: d.id } });
   };
   const body = (): CourseInput => ({ ...f, code: f.code || null, description: f.description || null, intervalMonths: f.intervalMonths || null });
@@ -239,32 +245,34 @@ function CourseEditor({ c }: { c: CourseDetail | null }) {
   });
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/awareness" className="hover:text-brand-700">
-          {t("awr.povedomiASkoleni")}
-        </Link>
-      </div>
       <PageHeader
         title={c ? `${c.code ? `${c.code} ` : ""}${c.title}` : t("awr.noveSkoleni")}
         subtitle={c ? `${t.lbl(AWARENESS_LABELS.kind[c.kind])} · ${t.lbl(AWARENESS_LABELS.form[c.form])}` : t("awr.polozkaPlanuRozvojeBezpecnostnihoPovedom")}
         actions={
           <>
-            {c && edit && <TransferButton entity="courses" id={c.id} companyId={c.companyId} />}
-            {c && edit && (
+            {c && canEdit && <TransferButton entity="courses" id={c.id} companyId={c.companyId} />}
+            {c && canEdit && (
               <Button variant="danger" onClick={async () => (await askConfirm(t("awr.smazatSkoleniJdeJenBez"))) && del.mutate()}>
                 <Trash2 size={16} />
               </Button>
             )}
-            {edit && (
-              <Button disabled={save.isPending || !f.title.trim()} onClick={() => save.mutate()}>
-                {c ? t("awr.ulozit") : t("common.create")}
-              </Button>
-            )}
+            <EditActions
+              isNew={!c}
+              editing={editing}
+              canEdit={canEdit}
+              onEdit={() => setEditing(true)}
+              onCancel={() => (setF(initialForm), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={!f.title.trim()}
+              saveLabel={c ? t("awr.ulozit") : t("common.create")}
+            />
           </>
         }
       />
-      {save.isSuccess && <SuccessBox>{t("awr.ulozeno")}</SuccessBox>}
+      {save.isSuccess && !editing && <SuccessBox>{t("awr.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error} />
+      <FormView editing={edit}>
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("awr.skoleni")} />
@@ -389,13 +397,14 @@ function CourseEditor({ c }: { c: CourseDetail | null }) {
           )}
         </Card>
       </div>
+      </FormView>
       {c && (
         <Card className="mt-6 overflow-hidden">
           <CardHeader
             title={t("awr.terminy")}
             subtitle={t("awr.poOznaceniProbehloSeUcastnikum")}
             action={
-              edit && (
+              canEdit && (
                 <Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => setSession("new")}>
                   <Plus size={14} /> {t("awr.termin")}
                 </Button>
@@ -422,7 +431,7 @@ function CourseEditor({ c }: { c: CourseDetail | null }) {
           )}
         </Card>
       )}
-      {c && session && <SessionModal course={c} sessionId={session === "new" ? null : session} edit={edit} onClose={() => setSession(null)} onDone={done} />}
+      {c && session && <SessionModal course={c} sessionId={session === "new" ? null : session} edit={canEdit} onClose={() => setSession(null)} onDone={done} />}
       {c && record && <RecordModal course={c} onClose={() => setRecord(false)} onDone={done} />}
     </>
   );

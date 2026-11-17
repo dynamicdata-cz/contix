@@ -1,6 +1,6 @@
 /** Analýza odolnosti (ADR-065): RTO / RPO z BIA přenesené po grafu závislostí, jediné body selhání a mezery v kontinuitě. */
 import { FrameworkBadge } from "@/components/frameworkBadge";
-import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, PageHeader, Select, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, PageHeader, Select, type Tone, Kpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -40,11 +40,6 @@ export function ResiliencePage() {
   const findings = d?.findings.filter((f) => !kind || f.kind === kind) ?? [];
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/assets" className="hover:text-brand-700">
-          {t("ag.back")}
-        </Link>
-      </div>
       <PageHeader badge={<FrameworkBadge />}
         title={t("res.title")}
         subtitle={t("res.subtitle")}
@@ -60,22 +55,10 @@ export function ResiliencePage() {
       {d && (
         <>
           <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("res.kpi.spof")}</div>
-              <div className={cn("mt-1 text-2xl font-semibold tabular-nums", d.summary.spof > 0 && "text-red-700")}>{d.summary.spof}</div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("res.kpi.findings")}</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums">{d.findings.length}</div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("res.kpi.withReq")}</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums">{d.summary.withRequirement}</div>
-            </Card>
-            <Card className="p-4">
-              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{t("res.kpi.assets")}</div>
-              <div className="mt-1 text-2xl font-semibold tabular-nums">{d.summary.assets}</div>
-            </Card>
+            <Kpi label={t("res.kpi.spof")} value={d.summary.spof} tone={d.summary.spof > 0 ? "red" : "slate"} />
+            <Kpi label={t("res.kpi.findings")} value={d.findings.length} />
+            <Kpi label={t("res.kpi.withReq")} value={d.summary.withRequirement} />
+            <Kpi label={t("res.kpi.assets")} value={d.summary.assets} />
           </div>
           <Card className="mb-6 overflow-hidden" data-testid="resilience-findings">
             <CardHeader

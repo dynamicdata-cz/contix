@@ -22,11 +22,6 @@ export function RiskQuantPage() {
   const over = d?.portfolio && ap != null ? d.portfolio.p95 > ap : null;
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/risks" className="hover:text-brand-700">
-          {t("rsk.rizika")}
-        </Link>
-      </div>
       <PageHeader nav={riskNav}
         title={t("rsk.kvantitativniAnalyzaRizik")}
         subtitle={t("rsk.fairRocniZtratyZKvantifikovanych")}

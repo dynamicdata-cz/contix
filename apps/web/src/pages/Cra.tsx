@@ -1,4 +1,5 @@
 import { useFormGuard } from "@/lib/unsaved";
+import { EditActions, FormView } from "@/components/detailView";
 import { ProcessGuide } from "@/components/processGuide";
 import { Tabs, useTab } from "@/components/ui/tabs";
 import { askConfirm } from "@/components/ui/overlay";
@@ -7,7 +8,7 @@ import { TasksCard } from "@/components/tasks";
 import { CompanyCell, TargetCompanyField, useGroupView, useTargetCompany } from "@/components/company";
 import { AssetPicker, IdMultiSelect, PositionSelect, type PickedAsset } from "@/components/pickers";
 import { TransferButton } from "@/components/transfer";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone, PageTitle } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -428,7 +429,10 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
   const qc = useQueryClient();
   const nav = useNavigate();
   const target = useTargetCompany();
-  const edit = p ? p.canEdit : can("cra:write");
+  const canEdit = p ? p.canEdit : can("cra:write");
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Nový záznam rovnou ve formuláři. */
+  const [editing, setEditing] = useState(!p);
+  const edit = canEdit && editing;
   const [f, setF] = useState({
     code: p?.code ?? "",
     name: p?.name ?? "",
@@ -456,6 +460,7 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
     memberStates: (p?.memberStates ?? []).join(", "),
     ownerPositionId: p?.ownerPositionId ?? null,
   });
+  const [initialForm] = useState(() => f);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const n = (v: string) => v.trim() || null;
   const body = (): CraProductInput => ({
@@ -491,6 +496,7 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ["cra"] });
       qc.setQueryData(["cra", "detail", d.id], d);
+      if (p) setEditing(false);
       if (!p) nav({ to: "/cra/$productId", params: { productId: d.id } });
     },
   });
@@ -507,14 +513,9 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
   const mf = f.role === "manufacturer";
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/cra" className="hover:text-brand-700">
-          {t("cra.title")}
-        </Link>
-      </div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{p ? `${p.code ? `${p.code} ` : ""}${p.name}${p.version ? ` ${p.version}` : ""}` : t("cra.newProduct")}</h1>
+          <PageTitle>{p ? `${p.code ? `${p.code} ` : ""}${p.name}${p.version ? ` ${p.version}` : ""}` : t("cra.newProduct")}</PageTitle>
           {p && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <Badge tone={statusTone[p.status]}>{t.lbl(CRA_LABELS.status[p.status])}</Badge>
@@ -531,14 +532,20 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
               <Trash2 size={15} />
             </Button>
           )}
-          {edit && (
-            <Button disabled={!f.name.trim() || save.isPending} onClick={() => save.mutate()}>
-              {p ? t("cra.save") : t("common.create")}
-            </Button>
-          )}
+          <EditActions
+              isNew={!p}
+              editing={editing}
+              canEdit={canEdit}
+              onEdit={() => setEditing(true)}
+              onCancel={() => (setF(initialForm), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={!f.name.trim()}
+              saveLabel={p ? t("cra.save") : t("common.create")}
+            />
         </div>
       </div>
-      {save.isSuccess && p && <SuccessBox>{t("cra.saved")}</SuccessBox>}
+      {save.isSuccess && !editing && p && <SuccessBox>{t("cra.saved")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error} />
       {p && p.gaps.length > 0 && (
         <Card className="mb-6 border-amber-200 bg-amber-50/50 p-4" data-testid="cra-gaps">
@@ -550,6 +557,7 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
           </ul>
         </Card>
       )}
+      <FormView editing={edit}>
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("cra.basics")} />
@@ -705,6 +713,8 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
           </fieldset>
         </Card>
       </div>
+      </FormView>
+
     </>
   );
 }

@@ -2,7 +2,7 @@ import { useRiskNav } from "@/components/riskNav";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { useT, lbl } from "@/lib/i18n";
 import { DocumentVersions } from "@/components/documents";
-import { Button, Card, EmptyState, ErrorBox, PageHeader, Select } from "@/components/ui";
+import { Button, Card, EmptyState, ErrorBox, PageHeader, Select, Kpi as UiKpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { ACTION_LABELS, ACTION_STATUSES, RISK_LABELS, type TreatmentActionDto } from "@contix/shared";
@@ -56,11 +56,6 @@ export function RiskPlanPage() {
 
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/risks" className="hover:text-brand-700">
-          {t("rsk.rizika")}
-        </Link>
-      </div>
       <PageHeader nav={riskNav} badge={<FrameworkBadge />}
         title={t("rsk.planZvladaniRizik")}
         subtitle={t("rsk.8Odst1PismG2")}
@@ -103,8 +98,5 @@ export function RiskPlanPage() {
 }
 
 const Kpi = ({ label, value, warn }: { label: string; value: string | number; warn?: boolean }) => (
-  <Card className="px-5 py-4">
-    <div className="text-sm text-slate-500">{label}</div>
-    <div className={`mt-1 text-2xl font-semibold tabular-nums ${warn && value ? "text-red-700" : ""}`}>{value}</div>
-  </Card>
+  <UiKpi label={label} value={value} tone={warn && value ? "red" : "slate"} />
 );

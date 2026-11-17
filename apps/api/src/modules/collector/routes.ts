@@ -1,4 +1,4 @@
-import { HostFindingPatch, HostInventoryInput, SecTestTasksInput } from "@contix/shared";
+import { HostAssetInput, HostFindingPatch, HostInventoryInput, SecTestTasksInput } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
@@ -10,7 +10,7 @@ import type { Db } from "../../db/client";
 import { assets, connections, hostFindings, hostInventories } from "../../db/schema";
 import { recomputeHealth } from "../vulnerabilities/service";
 import { closeHostFindingTasks, createHostFindingTasks, hostFindingTitle } from "./findings";
-import { collectorByToken, hostDetail, hostDto, hostSummaries, ingestInventory } from "./service";
+import { attachHostToAsset, collectorByToken, hostDetail, hostDto, hostSummaries, ingestInventory } from "./service";
 
 /* ============================================================
  * Sběrač ze serverů (v1.51, ADR-148): veřejný příjem inventáře s tokenem připojení a čtení inventářů.
@@ -53,6 +53,20 @@ export function hostRoutes(db: Db) {
       const d = await hostDetail(db, c.req.param("id"));
       assertScope(c, d?.companyId, "Server nenalezen");
       return c.json(d);
+    })
+    /* ---- založení / spárování aktiva pro server bez aktiva (agenti CONTIX, ADR-177) ---- */
+    .post("/:id{[0-9a-f-]{36}}/asset", requirePerm("assets:write"), zValidator("json", HostAssetInput), async (c) => {
+      const [h] = await db.select({ companyId: hostInventories.companyId, hostname: hostInventories.hostname, assetId: hostInventories.assetId }).from(hostInventories).where(eq(hostInventories.id, c.req.param("id")));
+      if (!h || !hasPermIn(c, "assets:write", h.companyId)) throw new HTTPException(404, { message: "Server nenalezen" });
+      const { assetId } = c.req.valid("json");
+      if (assetId) {
+        const [a] = await db.select({ companyId: assets.companyId }).from(assets).where(eq(assets.id, assetId));
+        if (!a || !hasPermIn(c, "assets:write", a.companyId)) throw new HTTPException(404, { message: "Aktivum nenalezeno" });
+      }
+      const r = await attachHostToAsset(db, c.req.param("id"), assetId ?? null);
+      if ("error" in r) throw new HTTPException(r.error === "ambiguous" ? 409 : 404, { message: r.error === "ambiguous" ? "Server odpovídá více aktivům – vyberte aktivum ručně (Spárovat s aktivem)" : "Server nenalezen" });
+      await audit(db, { c, user: currentUser(c), action: r.action === "linked" ? "host.asset_linked" : "host.asset_created", entityType: "asset", entityId: r.assetId, details: { hostname: h.hostname, inventoryId: c.req.param("id"), previous: h.assetId } });
+      return c.json(await hostDetail(db, c.req.param("id")));
     })
     .get("/by-asset/:assetId", requirePerm("assets:read"), async (c) => {
       const [a] = await db.select({ companyId: assets.companyId }).from(assets).where(eq(assets.id, c.req.param("assetId")));

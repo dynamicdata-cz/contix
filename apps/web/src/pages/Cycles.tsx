@@ -60,13 +60,6 @@ export function CyclesPage({ kind }: { kind: CycleKind }) {
   const riskNav = useRiskNav();
   return (
     <>
-      {kind !== "risk" && (
-        <div className="mb-1 text-sm text-slate-500">
-          <Link to={BACK[kind].to as never} className="hover:text-brand-700">
-            {t.lbl(BACK[kind].label)}
-          </Link>
-        </div>
-      )}
       <PageHeader badge={<FrameworkBadge />}
         nav={kind === "risk" ? riskNav : undefined}
         title={kind === "risk" ? t("cyc.pravidelneHodnoceniRizik") : t("cyc.pravidelnaAnalyzaDopaduBia")}
@@ -278,11 +271,6 @@ function CycleView({ d }: { d: CycleDetail }) {
   const link = (id: string) => (d.kind === "risk" ? { to: "/risks/$riskId" as const, params: { riskId: id } } : { to: "/bia/$biaId" as const, params: { biaId: id } });
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to={d.kind === "risk" ? "/risks/cycles" : "/bia/cycles"} className="hover:text-brand-700">
-          {d.kind === "risk" ? t("cyc.pravidelneHodnoceniRizik") : t("cyc.pravidelnaAnalyzaDopadu")}
-        </Link>
-      </div>
       <PageHeader
         title={d.title}
         subtitle={`${t.lbl(CYCLE_LABELS.kind[d.kind])} · ${t.lbl(CYCLE_LABELS.reason[d.reason])}${d.changeTitle ? ` (${d.changeTitle})` : ""} · ${t("cyc.zahajenoDne", { date: fmtDay(d.startedAt) })}${d.dueDate ? (" " + t("cyc.termin2", { p: fmtDay(d.dueDate) })) : ""}${d.leaderPositionName ? ` · ${t("cyc.vede", { p: d.leaderPositionName })}` : ""}`}

@@ -16,7 +16,7 @@ import { PlaybooksTab } from "@/components/socPlaybooks";
 import { HostsTab } from "./SocHost";
 import { ResponseTab } from "@/components/socResponse";
 import { SuggestTuningButton, TuningCard } from "@/components/socTuning";
-import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone, Kpi as UiKpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -842,14 +842,7 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
 const kpiTone = { slate: "text-slate-900", amber: "text-amber-700", red: "text-red-700" } as const;
 function Kpi({ label, value, hint, tone = "slate", onClick }: { label: string; value: number | string; hint?: string; tone?: keyof typeof kpiTone; onClick?: () => void }) {
-  const Tag = onClick ? "button" : "div";
-  return (
-    <Tag onClick={onClick} className="rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-brand-300">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={cn("mt-2 text-2xl font-semibold tabular-nums tracking-tight", kpiTone[tone])}>{value}</div>
-      {hint && <div className="mt-0.5 text-xs text-slate-500">{hint}</div>}
-    </Tag>
-  );
+  return <UiKpi label={label} value={value} note={hint} tone={tone === "slate" ? "slate" : tone} onClick={onClick} />;
 }
 
 /** Ruční alert (hlášení z jiného nástroje, telefonu, e-mailu). */

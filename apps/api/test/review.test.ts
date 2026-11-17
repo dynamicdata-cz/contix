@@ -70,6 +70,11 @@ const INLINE_GUARDED = new Set([
   "modules/vulnerabilities/ci.ts POST /scans",
   // sběrač ze serverů: token připojení v hlavičce (v1.51, ADR-148)
   "modules/collector/routes.ts POST /inventory",
+  // koncentrátory agentů: registrační kód v těle, jinak podpis koncentrátoru v hlavičkách (ADR-177)
+  "modules/agents/routes.ts POST /register",
+  "modules/agents/routes.ts POST /agents",
+  "modules/agents/routes.ts POST /batches",
+  "modules/agents/routes.ts POST /hello",
   // sonda bezpečnostních testů: token sondy v hlavičce (v1.56, ADR-153)
   "modules/sectests/routes.ts POST /poll",
   "modules/sectests/routes.ts POST /result",

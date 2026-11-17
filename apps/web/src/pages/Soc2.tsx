@@ -1,8 +1,9 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { FormView } from "@/components/detailView";
 import { ProcessGuide } from "@/components/processGuide";
 import { TasksCard } from "@/components/tasks";
 import { CompanyCell, TargetCompanyField, useGroupView, useTargetCompany } from "@/components/company";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, toggle, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, toggle, type Tone, PageTitle } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -37,7 +38,7 @@ import {
 } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileDown, ListPlus, Plus, Printer, Trash2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, FileDown, ListPlus, Pencil, Plus, Printer, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 const conclTone: Record<Soc2Conclusion, Tone> = { pending: "slate", no_exceptions: "green", exceptions: "amber", na: "slate" };
@@ -289,8 +290,13 @@ function Engagement({ d }: { d: Soc2DetailDto }) {
   const can = useCan();
   const qc = useQueryClient();
   const nav = useNavigate();
-  const [tab, setTab] = useState<Tab>("criteria");
+  const [tab, setTabRaw] = useState<Tab>("criteria");
   const edit = can("audits:write");
+  /** Rozsah a popis systému se otevřou jako přehled; formulář až po „Upravit“ (v1.84). */
+  const [editing, setEditing] = useState(false);
+  const [ver, setVer] = useState(0);
+  const setTab = (x: Tab) => (setTabRaw(x), setEditing(false));
+  const formTab = tab === "scope" || tab === "description";
   const done = (x: Soc2DetailDto) => {
     qc.setQueryData(["soc2", "detail", x.id], x);
     qc.invalidateQueries({ queryKey: ["soc2"], exact: true });
@@ -304,14 +310,9 @@ function Engagement({ d }: { d: Soc2DetailDto }) {
   });
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/soc2" className="hover:text-brand-700">
-          {t("soc2.title")}
-        </Link>
-      </div>
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{d.title}</h1>
+          <PageTitle>{d.title}</PageTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
             <Badge tone="blue">{t.lbl(SOC2_LABELS.reportType[d.reportType])}</Badge>
             <Badge tone="slate">{t.lbl(AUDIT_LABELS.status[d.auditStatus as AuditStatus])}</Badge>
@@ -323,6 +324,16 @@ function Engagement({ d }: { d: Soc2DetailDto }) {
           <Link to="/audits/$auditId" params={{ auditId: d.auditId }}>
             <Button variant="secondary">{t("soc2.auditPbc")}</Button>
           </Link>
+          {edit && formTab &&
+            (editing ? (
+              <Button variant="secondary" onClick={() => (setEditing(false), setVer((v) => v + 1))} data-testid="detail-cancel">
+                {t("detail.cancelEdit")}
+              </Button>
+            ) : (
+              <Button variant="secondary" onClick={() => setEditing(true)} data-testid="detail-edit">
+                <Pencil size={15} /> {t("detail.edit")}
+              </Button>
+            ))}
           {edit && d.auditStatus !== "completed" && (
             <Button variant="danger" aria-label={t("soc2.delete")} onClick={async () => (await askConfirm(t("soc2.deleteConfirm"))) && del.mutate()}>
               <Trash2 size={15} />
@@ -339,8 +350,16 @@ function Engagement({ d }: { d: Soc2DetailDto }) {
           </button>
         ))}
       </div>
-      {tab === "scope" && <ScopeTab d={d} edit={edit} onSaved={done} />}
-      {tab === "description" && <DescriptionTab d={d} edit={edit} onSaved={done} />}
+      {tab === "scope" && (
+        <FormView editing={edit && editing}>
+          <ScopeTab key={ver} d={d} edit={edit && editing} onSaved={(x) => (done(x), setEditing(false))} />
+        </FormView>
+      )}
+      {tab === "description" && (
+        <FormView editing={edit && editing}>
+          <DescriptionTab key={ver} d={d} edit={edit && editing} onSaved={(x) => (done(x), setEditing(false))} />
+        </FormView>
+      )}
       {tab === "criteria" && <CriteriaTab d={d} edit={edit} onSaved={done} />}
       {tab === "report" && <ReportTab d={d} />}
       <TasksCard kind="soc2" id={d.id} className="mt-6" />

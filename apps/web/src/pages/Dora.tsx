@@ -1,7 +1,7 @@
 /** DORA – registr informací (ADR-069): smluvní ujednání s poskytovateli IKT, funkce, subjekty, koncentrace, export šablon. */
 import { ProcessGuide } from "@/components/processGuide";
 import { IdMultiSelect } from "@/components/pickers";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, type Tone, Kpi as UiKpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -59,11 +59,6 @@ export function DoraPage() {
   };
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/suppliers" className="hover:text-brand-700">
-          {t("dora.back")}
-        </Link>
-      </div>
       <PageHeader
         title={t("dora.title")}
         subtitle={t("dora.subtitle")}
@@ -108,13 +103,7 @@ export function DoraPage() {
 }
 
 function Kpi({ label, value, hint, tone }: { label: string; value: ReactNode; hint?: string; tone?: string }) {
-  return (
-    <Card className="p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={cn("mt-1 text-2xl font-semibold tabular-nums", tone)}>{value}</div>
-      {hint && <div className="mt-0.5 truncate text-xs text-slate-500">{hint}</div>}
-    </Card>
-  );
+  return <UiKpi label={label} value={<span className={tone}>{value}</span>} note={hint} />;
 }
 
 function Overview({ d, onOpen, onProvider }: { d: DoraRegisterDto; onOpen: (f: DoraFinding) => void; onProvider?: (id: string, name: string) => void }) {

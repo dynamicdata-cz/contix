@@ -78,11 +78,6 @@ export function ThreatModelingPage() {
   };
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/risks" className="hover:text-brand-700">
-          {t("rsk.rizika")}
-        </Link>
-      </div>
       <PageHeader nav={riskNav} title={t("tm.title")} subtitle={t("tm.subtitle")} />
       {ov.data && <Process ov={ov.data} onGo={(k) => setTab(k)} />}
       <Tabs label={t("tm.title")} value={tab} onChange={setTab} items={keys.map((k) => ({ key: k, label: t(`tm.tab.${k}`), badge: badges[k] }))} />
@@ -893,11 +888,6 @@ export function ThreatModelPage() {
   if (!m) return <Card>{q.error ? <ErrorBox error={q.error} /> : <EmptyState>{t("common.loading")}</EmptyState>}</Card>;
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/risks/modeling" search={{ tab: "models" } as never} className="hover:text-brand-700">
-          {t("tm.title")}
-        </Link>
-      </div>
       <PageHeader
         nav={riskNav}
         title={m.name}

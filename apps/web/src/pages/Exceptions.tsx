@@ -4,7 +4,7 @@
  */
 import { ProcessGuide } from "@/components/processGuide";
 import { FrameworkBadge } from "@/components/frameworkBadge";
-import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone, Kpi as UiKpi } from "@/components/ui";
 import { toast } from "@/components/ui/overlay";
 import { IdMultiSelect } from "@/components/pickers";
 import { useModule } from "@/lib/auth";
@@ -149,15 +149,7 @@ export function ExceptionsPage() {
 
 const kpiTone = { slate: "text-slate-500", amber: "text-amber-700", red: "text-red-700", green: "text-emerald-700" } as const;
 function Kpi({ icon, label, value, note, tone = "slate", onClick }: { icon: React.ReactNode; label: string; value: React.ReactNode; note: string; tone?: keyof typeof kpiTone; onClick?: () => void }) {
-  return (
-    <button onClick={onClick} className="rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-brand-300 hover:shadow">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-        {icon} {label}
-      </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
-      <div className={cn("mt-0.5 text-xs", kpiTone[tone])}>{note}</div>
-    </button>
-  );
+  return <UiKpi icon={icon} label={label} value={value} note={note} noteTone={tone === "slate" ? undefined : tone} onClick={onClick} />;
 }
 
 

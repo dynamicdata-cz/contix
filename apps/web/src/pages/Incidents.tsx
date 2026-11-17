@@ -1,4 +1,5 @@
 import { useFormGuard } from "@/lib/unsaved";
+import { EditActions, FormView } from "@/components/detailView";
 import { ProcessGuide } from "@/components/processGuide";
 import { Tabs, useTab } from "@/components/ui/tabs";
 import { askConfirm } from "@/components/ui/overlay";
@@ -294,7 +295,10 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
   const qc = useQueryClient();
   const nav = useNavigate();
   const admin = can("incidents:write");
-  const edit = inc.canEdit;
+  const canEdit = inc.canEdit;
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). */
+  const [editing, setEditing] = useState(false);
+  const edit = canEdit && editing;
   const [f, setF] = useState<Form>(formOf(inc));
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
   const [reporting, setReporting] = useState<ReportType | null>(null);
@@ -335,6 +339,7 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
     qc.invalidateQueries({ queryKey: ["incidents"] });
     qc.setQueryData(["incidents", "detail", d.id], d);
     setF(formOf(d));
+    setEditing(false);
   };
   const save = useMutation({ mutationFn: () => api.incidents.update(inc.id, body()), onSuccess: done });
   const guard = useFormGuard(save);
@@ -389,11 +394,17 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
                 <Trash2 size={16} />
               </Button>
             )}
-            {edit && (
-              <Button disabled={save.isPending || !f.title.trim()} onClick={() => save.mutate()}>
-                {t("inc.ulozit")}
-              </Button>
-            )}
+            <EditActions
+              isNew={false}
+              editing={editing}
+              canEdit={canEdit}
+              onEdit={() => setEditing(true)}
+              onCancel={() => (setF(formOf(inc)), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={!f.title.trim()}
+              saveLabel={t("inc.ulozit")}
+            />
           </>
         }
       />
@@ -406,7 +417,7 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
           ))}
         </div>
       )}
-      {save.isSuccess && <SuccessBox>{t("inc.ulozeno")}</SuccessBox>}
+      {save.isSuccess && !editing && <SuccessBox>{t("inc.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error ?? delReport.error} />
 
       {/* ---------- lhůty hlášení ---------- */}
@@ -513,6 +524,7 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
         )}
       </Card>
 
+      <FormView editing={edit}>
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("inc.zaznam")} />
@@ -687,11 +699,12 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
         </Card>
       </div>
 
+      </FormView>
       <div className="mt-6 empty:hidden">
         <AiSuggestPanel
           useCase="incident_summary"
           entityId={inc.id}
-          canApply={edit}
+          canApply={canEdit}
           onApplied={async () => {
             // přijaté texty jsou uložené – převzít je do formuláře, aby je další uložení nepřepsalo
             const fresh = await api.incidents.get(inc.id);
@@ -704,7 +717,7 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
         <AiSuggestPanel
           useCase="incident_triage"
           entityId={inc.id}
-          canApply={edit}
+          canApply={canEdit}
           onApplied={async () => {
             const fresh = await api.incidents.get(inc.id);
             qc.setQueryData(["incidents", "detail", inc.id], fresh);
@@ -713,8 +726,9 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
         />
       </div>
 
-      {mod("soc") && can("soc:read") && <IncidentSocCard incidentId={inc.id} edit={edit} onApply={applySoc} />}
+      {mod("soc") && can("soc:read") && <IncidentSocCard incidentId={inc.id} edit={canEdit} onApply={(p) => (setEditing(true), applySoc(p))} />}
 
+      <FormView editing={edit}>
       <Card className="mt-6">
         <CardHeader title={t("inc.prubehLZaznamyOZvladani")} subtitle={t("inc.casovaOsaSeUloziSpolu")} />
         <div className="p-5">
@@ -821,6 +835,7 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
           )}
         </div>
       </Card>
+      </FormView>
       <TasksCard kind="incident" id={inc.id} className="mt-6" />
       <SimilarRecordsCard kind="incident" id={inc.id} className="mt-6" />
       {wizard && (

@@ -10709,6 +10709,239 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(roles.find((r) => r.key === "ciso").permissions).toEqual(expect.arrayContaining(["documents:approve", "suppliers:write"]));
   });
 
+  /* ============ Agenti a koncentrátory (ADR-177, fáze 1) ============ */
+
+  test("koncentrátor: registrace kódem, podepsané požadavky, agenti, karanténa, potvrzení a duplicity", async () => {
+    const { generateKeyPairSync, sign, createHash } = await import("node:crypto");
+    const { canonicalJson, concentratorSigningString } = await import("@contix/shared");
+    const rawPub = (k: import("node:crypto").KeyObject) => k.export({ format: "der", type: "spki" }).subarray(12).toString("base64");
+    const conc = generateKeyPairSync("ed25519");
+    const H = { "content-type": "application/json" };
+
+    const created = await admin.json("/api/admin/connections/concentrator", { method: "POST", json: { name: "Kancelář", zone: "kancelar", companyId: null } });
+    expect(created.status).toBe(201);
+    const code = created.body.code as string;
+    expect(code).toMatch(/^ctxr_/);
+    expect(JSON.stringify(created.body.concentrators)).not.toContain(code);
+    expect(created.body.concentrators[0]).toMatchObject({ zone: "kancelar", registered: false, autoApprove: false, agents: { pending: 0, approved: 0, blocked: 0 } });
+    expect(created.body.concentrators[0].codeExpiresAt).toBeTruthy();
+
+    const register = (body: unknown) => admin.req("/api/public/agent/v1/register", { method: "POST", headers: H, body: JSON.stringify(body) });
+    const regBody = { code, publicKey: rawPub(conc.publicKey), hostname: "ctx-konc-kancelar-01", version: "0.1.0" };
+    expect((await register({ ...regBody, code: "ctxr_spatny" })).status).toBe(401);
+    expect((await register({ ...regBody, publicKey: "AAAA" })).status).toBe(400);
+    const reg = await register(regBody);
+    expect(reg.status).toBe(201);
+    const concId = ((await reg.json()) as any).concentratorId as string;
+    expect(concId).toBe(created.body.id);
+    expect((await register(regBody)).status).toBe(401); // kód je jednorázový
+    const dto = (await admin.json("/api/admin/connections")).body.concentrators.find((x: any) => x.id === concId);
+    expect(dto).toMatchObject({ registered: true, hostname: "ctx-konc-kancelar-01", codeExpiresAt: null });
+    expect(dto.keyFingerprint).toMatch(/^SHA256:/);
+
+    const signed = (path: string, body: unknown, opts: { date?: Date; key?: import("node:crypto").KeyObject; id?: string; tamper?: boolean } = {}) => {
+      const text = JSON.stringify(body);
+      const date = (opts.date ?? new Date()).toISOString();
+      const full = `/api/public/agent/v1${path}`;
+      const msg = concentratorSigningString("POST", full, date, createHash("sha256").update(text).digest("hex"));
+      const sig = sign(null, Buffer.from(msg), opts.key ?? conc.privateKey).toString("base64");
+      return admin.req(full, { method: "POST", headers: { ...H, "x-contix-concentrator": opts.id ?? concId, "x-contix-date": date, "x-contix-signature": sig }, body: opts.tamper ? text.replace("srv-app-01", "srv-xxx-01") : text });
+    };
+
+    const agentKey = generateKeyPairSync("ed25519");
+    const agentReg = { hostId: "3c4b5a69788796a5b4c3d2e1f00f1e2d", hostname: "srv-app-01", os: "Ubuntu 24.04", version: "0.1.0", publicKey: rawPub(agentKey.publicKey) };
+    expect((await admin.req("/api/public/agent/v1/agents", { method: "POST", headers: H, body: JSON.stringify(agentReg) })).status).toBe(401);
+    expect((await signed("/agents", agentReg, { date: new Date(Date.now() - 10 * 60_000) })).status).toBe(401);
+    expect((await signed("/agents", agentReg, { key: generateKeyPairSync("ed25519").privateKey })).status).toBe(401);
+    expect((await signed("/agents", agentReg, { tamper: true })).status).toBe(401);
+    const ar = await signed("/agents", agentReg);
+    expect(ar.status).toBe(200);
+    const { agentId, status } = (await ar.json()) as any;
+    expect(status).toBe("pending");
+
+    const msg = (seq: number, kind: string, payload: Record<string, unknown>, key = agentKey.privateKey, agent = agentId) => {
+      const m = { v: 1, agent, seq, ts: new Date().toISOString(), kind, payload };
+      return { ...m, sig: sign(null, Buffer.from(canonicalJson(m)), key).toString("base64") };
+    };
+    const hello = msg(1, "hello", { version: "0.1.1", os: "Ubuntu 24.04" });
+    const forged = { ...msg(3, "change", { module: "ports" }), seq: 5 };
+    const b1 = await signed("/batches", { messages: [hello, msg(2, "snapshot", { services: [] }), msg(4, "change", { module: "ports" }), forged, msg(1, "hello", {}, agentKey.privateKey, "00000000-0000-4000-8000-0000000000aa")] });
+    expect(b1.status).toBe(200);
+    const r1 = (await b1.json()) as any;
+    expect(r1).toMatchObject({ accepted: 3, duplicates: 0, acks: { [agentId]: 2 } });
+    expect(r1.rejected.map((x: any) => x.reason).sort()).toEqual(["signature", "unknown_agent"]);
+    // opakované odeslání + doplnění mezery: duplicita se nezapíše, potvrzení se posune
+    const r2 = (await (await signed("/batches", { messages: [hello, msg(3, "change", { module: "users" })] })).json()) as any;
+    expect(r2).toMatchObject({ accepted: 1, duplicates: 1, acks: { [agentId]: 4 } });
+
+    let agent = (await admin.json("/api/admin/connections/agents")).body.agents.find((a: any) => a.id === agentId);
+    expect(agent).toMatchObject({ status: "pending", events: 4, quarantined: 4, ackSeq: 4, version: "0.1.1", zone: "kancelar", concentratorName: "Kancelář" });
+
+    // schválení uvolní karanténu, blokace zahazuje další zprávy
+    expect((await admin.json(`/api/admin/connections/agents/${agentId}/status`, { method: "POST", json: { status: "approved" } })).status).toBe(200);
+    agent = (await admin.json("/api/admin/connections/agents")).body.agents.find((a: any) => a.id === agentId);
+    expect(agent).toMatchObject({ status: "approved", quarantined: 0 });
+    expect(((await (await signed("/batches", { messages: [msg(5, "evidence", { checks: [] })] })).json()) as any).acks[agentId]).toBe(5);
+    await admin.json(`/api/admin/connections/agents/${agentId}/status`, { method: "POST", json: { status: "blocked" } });
+    const r3 = (await (await signed("/batches", { messages: [msg(6, "hello", {})] })).json()) as any;
+    expect(r3.rejected[0].reason).toBe("blocked");
+    // blokovaný hostitel se novým klíčem neodblokuje
+    const again = (await (await signed("/agents", { ...agentReg, publicKey: rawPub(generateKeyPairSync("ed25519").publicKey) })).json()) as any;
+    expect(again).toEqual({ agentId, status: "blocked" });
+
+    // reinstalace schváleného agenta (nový klíč) = nová identita, čeká na schválení, číslování od 1 se přijme
+    const host3 = { ...agentReg, hostId: "host-3", hostname: "srv-files-01" };
+    const k3 = generateKeyPairSync("ed25519");
+    const a3 = (await (await signed("/agents", { ...host3, publicKey: rawPub(k3.publicKey) })).json()) as any;
+    await admin.json(`/api/admin/connections/agents/${a3.agentId}/status`, { method: "POST", json: { status: "approved" } });
+    expect(((await (await signed("/batches", { messages: [msg(1, "hello", {}, k3.privateKey, a3.agentId)] })).json()) as any).accepted).toBe(1);
+    const k3b = generateKeyPairSync("ed25519");
+    const a3b = (await (await signed("/agents", { ...host3, publicKey: rawPub(k3b.publicKey) })).json()) as any;
+    expect(a3b.agentId).not.toBe(a3.agentId);
+    expect(a3b.status).toBe("pending");
+    const rb = (await (await signed("/batches", { messages: [msg(1, "hello", {}, k3b.privateKey, a3b.agentId), msg(2, "hello", {}, k3.privateKey, a3.agentId)] })).json()) as any;
+    expect(rb).toMatchObject({ accepted: 1, acks: { [a3b.agentId]: 1 } });
+    expect(rb.rejected).toEqual([{ index: 1, agent: a3.agentId, seq: 2, reason: "unknown_agent" }]);
+    const list = (await admin.json("/api/admin/connections/agents")).body.agents as any[];
+    expect(list.filter((a) => a.hostId === "host-3").map((a) => a.id)).toEqual([a3b.agentId]);
+    expect((await admin.json(`/api/admin/connections/agents/${a3.agentId}/status`, { method: "POST", json: { status: "approved" } })).status).toBe(404);
+    const old = await db.select().from(schema.agentEvents).where(eq(schema.agentEvents.agentId, a3.agentId));
+    expect(old.length).toBe(1); // historie nahrazené identity zůstává
+
+    // zóna s automatickým schválením
+    await admin.json(`/api/admin/connections/concentrator/${concId}`, { method: "PUT", json: { name: "Kancelář", zone: "kancelar", companyId: null, autoApprove: true } });
+    const auto = (await (await signed("/agents", { ...agentReg, hostId: "host-2", hostname: "srv-db-01" })).json()) as any;
+    expect(auto.status).toBe("approved");
+    expect((await admin.json("/api/admin/connections")).body.concentrators.find((x: any) => x.id === concId).agents).toEqual({ pending: 1, approved: 1, blocked: 1 });
+
+    // hlášení stavu koncentrátoru
+    expect((await signed("/hello", { version: "0.2.0", hostname: "ctx-konc-kancelar-01", uptimeSeconds: 60, agents: 2, queueFiles: 3, queueBytes: 4096, lastError: "timeout" })).status).toBe(200);
+    expect((await signed("/hello", { version: "x", queueFiles: -1 })).status).toBe(400);
+    const st = (await admin.json("/api/admin/connections")).body.concentrators.find((x: any) => x.id === concId);
+    expect(st).toMatchObject({ version: "0.2.0", status: { queueFiles: 3, queueBytes: 4096, agents: 2, lastError: "timeout" } });
+    expect(st.status.receivedAt).toBeTruthy();
+
+    // nový kód; vypnutý koncentrátor se nepřihlásí
+    const renewed = await admin.json(`/api/admin/connections/concentrator/${concId}/code`, { method: "POST" });
+    expect(renewed.body.code).toMatch(/^ctxr_/);
+    await admin.json(`/api/admin/connections/concentrator/${concId}`, { method: "PUT", json: { name: "Kancelář", zone: "kancelar", companyId: null, enabled: false } });
+    expect((await signed("/batches", { messages: [msg(7, "hello", {})] })).status).toBe(401);
+    expect((await admin.req("/api/admin/connections/agents", { method: "GET" })).status).toBe(200);
+    const audits = (await admin.json("/api/admin/audit-log?limit=200")).body as any[];
+    expect(audits.map((a) => a.action)).toEqual(expect.arrayContaining(["concentrator.registered", "agent.registered", "agent.approved", "agent.blocked"]));
+  });
+
+  test("agent → inventář serveru: snímek a změny, automatické spárování podle jména, ruční založení a spárování aktiva", async () => {
+    const { generateKeyPairSync, sign, createHash } = await import("node:crypto");
+    const { canonicalJson, concentratorSigningString } = await import("@contix/shared");
+    const { scheduleAgentProcessing } = await import("../src/modules/agents/process");
+    const rawPub = (k: import("node:crypto").KeyObject) => k.export({ format: "der", type: "spki" }).subarray(12).toString("base64");
+    const H = { "content-type": "application/json" };
+    const conc = generateKeyPairSync("ed25519");
+    const created = await admin.json("/api/admin/connections/concentrator", { method: "POST", json: { name: "Serverovna", zone: "serverovna", companyId: null } });
+    const concId = ((await (await admin.req("/api/public/agent/v1/register", { method: "POST", headers: H, body: JSON.stringify({ code: created.body.code, publicKey: rawPub(conc.publicKey), hostname: "ctx-konc-02", version: "0.2.1" }) })).json()) as any).concentratorId as string;
+    const signed = async (path: string, body: unknown) => {
+      const text = JSON.stringify(body);
+      const date = new Date().toISOString();
+      const full = `/api/public/agent/v1${path}`;
+      const sig = sign(null, Buffer.from(concentratorSigningString("POST", full, date, createHash("sha256").update(text).digest("hex"))), conc.privateKey).toString("base64");
+      return (await admin.req(full, { method: "POST", headers: { ...H, "x-contix-concentrator": concId, "x-contix-date": date, "x-contix-signature": sig }, body: text })).json() as Promise<any>;
+    };
+    const enroll = async (hostId: string, hostname: string) => {
+      const key = generateKeyPairSync("ed25519");
+      const r = await signed("/agents", { hostId, hostname, os: "Ubuntu 22.04.5 LTS", version: "0.2.1", publicKey: rawPub(key.publicKey) });
+      const msg = (seq: number, kind: string, payload: Record<string, unknown>) => {
+        const m = { v: 1, agent: r.agentId, seq, ts: new Date(Date.now() + seq * 1000).toISOString(), kind, payload };
+        return { ...m, sig: sign(null, Buffer.from(canonicalJson(m)), key.privateKey).toString("base64") };
+      };
+      return { id: r.agentId as string, msg };
+    };
+    const snapshot = (hostname: string, hostId: string) => ({
+      host: { hostname, hostId, os: "Ubuntu 22.04.5 LTS", kernel: "5.15.0-1", ips: ["192.0.2.39", "172.18.0.1"], uptimeSeconds: 100 },
+      modules: {
+        ports: { "tcp/0.0.0.0:22": { proto: "tcp", address: "0.0.0.0", port: 22, process: "sshd" } },
+        services: { "ssh.service": { name: "ssh.service", active: "active", sub: "running", enabled: "enabled" }, "bad.service": { name: "bad.service", active: "failed", sub: "failed", enabled: "enabled" } },
+        packages: { "openssl:amd64": { name: "openssl", version: "3.0.2", arch: "amd64" } },
+        accounts: { root: { name: "root", uid: 0, gid: 0, home: "/root", shell: "/bin/bash", login: true, admin: true }, toor: { name: "toor", uid: 0, gid: 0, home: "/", shell: "/bin/sh", login: true, admin: true } },
+        ssh_keys: { "root:SHA256:abc": { user: "root", file: "/root/.ssh/authorized_keys", type: "ssh-ed25519", fingerprint: "SHA256:abc", comment: "radek@mac" } },
+        firewall: { firewall: { tool: "nftables", rulesHash: "a".repeat(64), ruleCount: 3, inputPolicy: "drop" } },
+        scheduled: { "cron:/etc/crontab:1": { source: "/etc/crontab", user: "root", schedule: "17 * * * *", program: "cd", lineHash: "x" } },
+      },
+    });
+
+    // aktivum se stejným jménem už je v evidenci (např. z Wazuhu) → jednoznačná shoda, spáruje se samo
+    const asset = await admin.json("/api/assets", { method: "POST", json: { name: "automation", assetType: "server", hostname: "automation" } });
+    const a1 = await enroll("e1d2c3b4a5968778695a4b3c2d1e0f01", "automation");
+    await signed("/batches", { messages: [a1.msg(1, "hello", { version: "0.2.1" }), a1.msg(2, "snapshot", snapshot("automation", "e1d2c3b4a5968778695a4b3c2d1e0f01"))] });
+    // neschválený agent: zprávy v karanténě, nic se nepromítá
+    await scheduleAgentProcessing(db, [a1.id]);
+    expect((await db.select().from(schema.agents).where(eq(schema.agents.id, a1.id)))[0]!.inventoryId).toBeNull();
+    // schválení bez zpracování (starší verze) → dohnání po startu API zprávy zpracuje
+    await db.update(schema.agents).set({ status: "approved" }).where(eq(schema.agents.id, a1.id));
+    await db.update(schema.agentEvents).set({ quarantined: false }).where(eq(schema.agentEvents.agentId, a1.id));
+    const { processPendingAgents } = await import("../src/modules/agents/process");
+    expect(await processPendingAgents(db)).toBeGreaterThanOrEqual(1);
+    expect(await processPendingAgents(db)).toBe(0);
+    const approved = await admin.json(`/api/admin/connections/agents/${a1.id}/status`, { method: "POST", json: { status: "approved" } });
+    const dto1 = approved.body.agents.find((a: any) => a.id === a1.id);
+    expect(dto1.assetId).toBe(asset.body.id);
+    expect(dto1.inventoryId).toBeTruthy();
+    let host = (await admin.json(`/api/hosts/${dto1.inventoryId}`)).body;
+    expect(host).toMatchObject({ assetId: asset.body.id, hostname: "automation" });
+    expect(host.data.collectorVersion).toBe("agent 0.2.1");
+    expect(host.data.packages).toEqual([{ name: "openssl", version: "3.0.2", arch: "amd64" }]);
+    expect(host.data.scheduled[0]).toMatchObject({ source: "/etc/crontab", program: "cd" });
+    expect(host.data.firewall).toMatchObject({ tool: "nftables", defaultInput: "drop", ruleCount: 3 });
+    expect(host.findings.map((f: any) => f.code).sort()).toEqual(["service_failed", "ssh_key_root", "uid0_user"]);
+    const src = await db.select().from(schema.assetSources).where(eq(schema.assetSources.assetId, asset.body.id));
+    expect(src.map((x) => x.sourceType)).toContain("agent");
+
+    // změna: nový port, odebraný účet → stav i časová osa změn
+    await signed("/batches", {
+      messages: [
+        a1.msg(3, "change", {
+          changes: [
+            { module: "ports", op: "add", key: "tcp/0.0.0.0:8080", to: { proto: "tcp", address: "0.0.0.0", port: 8080, process: "node" } },
+            { module: "accounts", op: "remove", key: "toor", from: {} },
+          ],
+        }),
+      ],
+    });
+    await scheduleAgentProcessing(db, [a1.id]);
+    host = (await admin.json(`/api/hosts/${dto1.inventoryId}`)).body;
+    expect(host.data.listening.map((p: any) => p.port).sort()).toEqual([22, 8080]);
+    expect(host.data.users.map((u: any) => u.name)).toEqual(["root"]);
+    expect(host.findings.map((f: any) => f.code)).not.toContain("uid0_user");
+    expect(host.changes.length).toBeGreaterThan(0);
+    const evs = await db.select().from(schema.agentEvents).where(eq(schema.agentEvents.agentId, a1.id));
+    expect(evs.every((e) => e.processedAt)).toBe(true);
+
+    // server, který v evidenci není → nespárovaný; správce založí aktivum
+    await admin.json(`/api/admin/connections/concentrator/${concId}`, { method: "PUT", json: { name: "Serverovna", zone: "serverovna", companyId: null, autoApprove: true } });
+    const a2 = await enroll("0f0e0d0c0b0a09080706050403020100", "ctx-konc-kancelar-01");
+    await signed("/batches", { messages: [a2.msg(1, "snapshot", snapshot("ctx-konc-kancelar-01", "0f0e0d0c0b0a09080706050403020100"))] });
+    await scheduleAgentProcessing(db, [a2.id]);
+    const dto2 = (await admin.json("/api/admin/connections/agents")).body.agents.find((a: any) => a.id === a2.id);
+    expect(dto2).toMatchObject({ assetId: null });
+    expect((await db.select().from(schema.assets).where(eq(schema.assets.hostname, "ctx-konc-kancelar-01"))).length).toBe(0);
+    expect((await admin.json(`/api/hosts/${dto2.inventoryId}/asset`, { method: "POST", json: { assetId: "nope" } })).status).toBe(400);
+    const made = await admin.json(`/api/hosts/${dto2.inventoryId}/asset`, { method: "POST", json: { assetId: null } });
+    expect(made.status).toBe(200);
+    expect(made.body.assetId).toBeTruthy();
+    const [newAsset] = await db.select().from(schema.assets).where(eq(schema.assets.id, made.body.assetId));
+    expect(newAsset).toMatchObject({ name: "ctx-konc-kancelar-01", hostname: "ctx-konc-kancelar-01" });
+    // přepárování na jiné aktivum; další hlášení spárování zachová
+    const other = await admin.json("/api/assets", { method: "POST", json: { name: "Koncentrátor kancelář", assetType: "server" } });
+    expect((await admin.json(`/api/hosts/${dto2.inventoryId}/asset`, { method: "POST", json: { assetId: other.body.id } })).body.assetId).toBe(other.body.id);
+    await signed("/batches", { messages: [a2.msg(2, "change", { changes: [{ module: "packages", op: "add", key: "curl:amd64", to: { name: "curl", version: "8.5", arch: "amd64" } }] })] });
+    await scheduleAgentProcessing(db, [a2.id]);
+    const h2 = (await admin.json(`/api/hosts/${dto2.inventoryId}`)).body;
+    expect(h2.assetId).toBe(other.body.id);
+    expect(h2.data.packages.map((p: any) => p.name).sort()).toEqual(["curl", "openssl"]);
+    const audits = (await admin.json("/api/admin/audit-log?limit=100")).body as any[];
+    expect(audits.map((a) => a.action)).toEqual(expect.arrayContaining(["host.asset_created", "host.asset_linked"]));
+  });
+
   /* ============ Audit a odhlášení ============ */
 
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {

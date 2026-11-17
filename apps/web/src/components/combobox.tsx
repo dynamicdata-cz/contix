@@ -192,7 +192,7 @@ export function Combobox({ value, onChange, ...p }: ListProps & { value: string 
         onKeyDown={c.onKeyDown}
         autoComplete="off"
       />
-      <ChevronDown size={16} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
+      <ChevronDown size={16} className="ctx-edit-only pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
       {c.open && <Popup id={`${id}-list`} list={c.list} active={c.active} setActive={c.setActive} choose={c.choose} selected={new Set(value ? [value] : [])} loading={p.loading} noneText={p.noneText ?? t("combo.none")} />}
     </div>
   );
@@ -269,7 +269,7 @@ export function ComboMulti({
             onKeyDown={c.onKeyDown}
             autoComplete="off"
           />
-          <ChevronDown size={16} className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
+          <ChevronDown size={16} className="ctx-edit-only pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
           {c.open && <Popup id={`${id}-list`} list={c.list} active={c.active} setActive={c.setActive} choose={c.choose} selected={new Set()} loading={p.loading} noneText={p.noneText ?? t("combo.none")} />}
         </div>
       )}

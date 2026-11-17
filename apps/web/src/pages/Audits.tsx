@@ -1,4 +1,5 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { EditActions, FormView } from "@/components/detailView";
 import { ProcessGuide } from "@/components/processGuide";
 import { TasksCard } from "@/components/tasks";
 import { FrameworkBadge } from "@/components/frameworkBadge";
@@ -288,7 +289,10 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
   const mod = useModule();
   const qc = useQueryClient();
   const nav = useNavigate();
-  const edit = a ? a.canEdit : can("audits:write");
+  const canEdit = a ? a.canEdit : can("audits:write");
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Nový záznam rovnou ve formuláři. */
+  const [editing, setEditing] = useState(!a);
+  const edit = canEdit && editing;
   const [f, setF] = useState({
     code: a?.code ?? "",
     title: a?.title ?? "",
@@ -312,6 +316,7 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
     changeIds: a?.changes.map((c) => c.id) ?? [],
     methodologyKey: a ? a.methodologyKey : profile.auditMethodology,
   });
+  const [initialForm] = useState(() => f);
   const methods = useMethodologies();
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const [finding, setFinding] = useState<FindingDto | "new" | null>(null);
@@ -334,6 +339,7 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
   const done = (d: AuditDetail) => {
     qc.invalidateQueries({ queryKey: ["audits"] });
     qc.setQueryData(["audits", "detail", d.id], d);
+    if (a) setEditing(false);
     if (!a) nav({ to: "/audits/$auditId", params: { auditId: d.id } });
   };
   const save = useMutation({ mutationFn: () => (a ? api.audits.update(a.id, body()) : api.audits.create(body())), onSuccess: done });
@@ -350,27 +356,28 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
 
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/audits" className="hover:text-brand-700">
-          {t("aud.audity")}
-        </Link>
-      </div>
       <PageHeader
         title={a ? `${a.code ? `${a.code} ` : ""}${a.title}` : t("aud.novyAudit")}
         subtitle={a ? `${t.lbl(AUDIT_LABELS.type[a.auditType])} · ${t.lbl(AUDIT_LABELS.status[a.status])}` : t("aud.planAudituKybernetickeBezpecnosti16")}
         actions={
           <>
-            {a && edit && <TransferButton entity="audits" id={a.id} companyId={a.companyId} />}
-            {a && edit && (
+            {a && canEdit && <TransferButton entity="audits" id={a.id} companyId={a.companyId} />}
+            {a && canEdit && (
               <Button variant="danger" onClick={async () => (await askConfirm(t("aud.smazatAuditVcetneZjisteni"))) && del.mutate()}>
                 <Trash2 size={16} />
               </Button>
             )}
-            {edit && (
-              <Button disabled={save.isPending || !f.title.trim()} onClick={() => save.mutate()}>
-                {a ? t("aud.ulozit") : t("common.create")}
-              </Button>
-            )}
+            <EditActions
+              isNew={!a}
+              editing={editing}
+              canEdit={canEdit}
+              onEdit={() => setEditing(true)}
+              onCancel={() => (setF(initialForm), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={!f.title.trim()}
+              saveLabel={a ? t("aud.ulozit") : t("common.create")}
+            />
           </>
         }
       />
@@ -383,9 +390,10 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
           ))}
         </div>
       )}
-      {save.isSuccess && <SuccessBox>{t("aud.ulozeno")}</SuccessBox>}
+      {save.isSuccess && !editing && <SuccessBox>{t("aud.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error} />
 
+      <FormView editing={edit}>
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("aud.audit")} />
@@ -532,7 +540,8 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
         </div>
       </Card>
 
-      {a?.methodologyKey && <ChecklistCard audit={a} edit={edit} />}
+      </FormView>
+      {a?.methodologyKey && <ChecklistCard audit={a} edit={canEdit} />}
 
       {a && (
         <Card className="mt-6 overflow-hidden">
@@ -540,7 +549,7 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
             title={t("aud.zjisteniANapravnaOpatreni")}
             subtitle={t("aud.16Odst3VysledkyZahrnout")}
             action={
-              edit && (
+              canEdit && (
                 <Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => setFinding("new")}>
                   <Plus size={14} /> {t("aud.zjisteni")}
                 </Button>
@@ -551,7 +560,7 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
         </Card>
       )}
       {a && <AuditRequestsPanel auditId={a.id} />}
-      {a && finding && <FindingModal audit={a} finding={finding === "new" ? null : finding} edit={edit} onClose={() => setFinding(null)} onDone={done} />}
+      {a && finding && <FindingModal audit={a} finding={finding === "new" ? null : finding} edit={canEdit} onClose={() => setFinding(null)} onDone={done} />}
       {a && <TasksCard kind="audit" id={a.id} className="mt-6" />}
     </>
   );

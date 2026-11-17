@@ -25,11 +25,6 @@ export function DataLocationsPage() {
   const rows = q.data ?? [];
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/suppliers" className="hover:text-brand-700">
-          {t("sup.dodavatele")}
-        </Link>
-      </div>
       <PageHeader
         title={t("loc.title")}
         subtitle={t("loc.subtitle")}

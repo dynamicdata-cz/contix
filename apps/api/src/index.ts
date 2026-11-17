@@ -2,6 +2,7 @@ import { createApp } from "./app";
 import { bootstrap } from "./bootstrap";
 import { config } from "./config";
 import { db } from "./db/client";
+import { startAgentCatchUp } from "./modules/agents/process";
 import { ensureFrameworks } from "./modules/frameworks/routes";
 import { startNotificationScheduler } from "./modules/notifications/service";
 
@@ -10,6 +11,8 @@ await bootstrap(db, config);
 await ensureFrameworks(db).catch((e) => console.warn("Knihovna rámců se nenačetla:", (e as Error).message));
 const app = createApp({ db, config });
 startNotificationScheduler(db, config);
+// zprávy schválených agentů, které čekají na zpracování (ADR-177)
+startAgentCatchUp(db);
 
 console.log(`CONTIX API běží na http://localhost:${config.PORT}`);
 

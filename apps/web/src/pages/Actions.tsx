@@ -2,7 +2,7 @@
  * Akce a úkoly (v0.48, ADR-043): jednotný přehled nápravných akcí – úkoly, akce plánu zvládání rizik,
  * nápravná opatření z auditů a úkoly ze změn předpisů; po termínu nahoře, filtry, export CSV.
  */
-import { Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Select } from "@/components/ui";
+import { Badge, Button, Card, EmptyState, ErrorBox, Input, PageHeader, Select, Kpi as UiKpi } from "@/components/ui";
 import { priorityTone, TaskModal, taskStatusTone } from "@/components/tasks";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
@@ -243,13 +243,5 @@ function Row({ a, selected, onSelect }: { a: ActionItem; selected: boolean; onSe
 
 const kpiTone = { slate: "text-slate-900", amber: "text-amber-700", red: "text-red-700", green: "text-emerald-700" } as const;
 function Kpi({ icon, label, value, tone = "slate", onClick }: { icon: React.ReactNode; label: string; value: number; tone?: keyof typeof kpiTone; onClick?: () => void }) {
-  const Tag = onClick ? "button" : "div";
-  return (
-    <Tag onClick={onClick} className="rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-brand-300">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-        {icon} {label}
-      </div>
-      <div className={cn("mt-2 text-2xl font-semibold tabular-nums tracking-tight", kpiTone[tone])}>{value}</div>
-    </Tag>
-  );
+  return <UiKpi icon={icon} label={label} value={value} tone={tone === "slate" ? "slate" : tone} onClick={onClick} />;
 }

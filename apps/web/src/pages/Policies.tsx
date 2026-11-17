@@ -1,4 +1,5 @@
 import { Tabs, useTab } from "@/components/ui/tabs";
+import { EditActions, FormView } from "@/components/detailView";
 import { ProcessGuide } from "@/components/processGuide";
 import { askConfirm } from "@/components/ui/overlay";
 import { TasksCard } from "@/components/tasks";
@@ -279,7 +280,10 @@ function PolicyEditor({ p }: { p: PolicyDetail | null }) {
   const mod = useModule();
   const qc = useQueryClient();
   const nav = useNavigate();
-  const edit = p ? p.canEdit : can("policies:write");
+  const canEdit = p ? p.canEdit : can("policies:write");
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Nový záznam rovnou ve formuláři. */
+  const [editing, setEditing] = useState(!p);
+  const edit = canEdit && editing;
   const decree = useDecree(p?.companyId);
   const [f, setF] = useState({
     code: p?.code ?? "",
@@ -307,6 +311,7 @@ function PolicyEditor({ p }: { p: PolicyDetail | null }) {
     controlIds: p?.controls.map((c) => c.id) ?? [],
     ...linkStateOf(p),
   });
+  const [initialForm] = useState(() => f);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const controls = useQuery({ queryKey: ["controls", "all"], queryFn: () => api.controls.list({ withGroup: "1" }), enabled: mod("controls") && can("controls:read") });
   const [version, setVersion] = useState<"new" | string | null>(null);
@@ -314,6 +319,7 @@ function PolicyEditor({ p }: { p: PolicyDetail | null }) {
   const done = (d: PolicyDetail) => {
     qc.invalidateQueries({ queryKey: ["policies"] });
     qc.setQueryData(["policies", "detail", d.id], d);
+    if (p) setEditing(false);
     if (!p) nav({ to: "/policies/$policyId", params: { policyId: d.id } });
   };
   const body = (): PolicyInput => {
@@ -330,27 +336,28 @@ function PolicyEditor({ p }: { p: PolicyDetail | null }) {
   });
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/policies" className="hover:text-brand-700">
-          {t("pol.spravaDokumentace")}
-        </Link>
-      </div>
       <PageHeader
         title={p ? `${p.code ? `${p.code} ` : ""}${p.title}` : t("pol.novyDokument")}
         subtitle={p ? `${t.lbl(POLICY_LABELS.type[p.docType])} · ${t.lbl(POLICY_LABELS.status[p.status])}${p.currentVersion ? (" " + t("pol.platnaVerze", { currentVersion: p.currentVersion })) : ""}` : t("pol.bezpecnostniPolitikaNeboDokumentaceK")}
         actions={
           <>
-            {p && edit && <TransferButton entity="policies" id={p.id} companyId={p.companyId} />}
-            {p && edit && (
+            {p && canEdit && <TransferButton entity="policies" id={p.id} companyId={p.companyId} />}
+            {p && canEdit && (
               <Button variant="danger" onClick={async () => (await askConfirm(t("pol.smazatDokumentJdeJenBez"))) && del.mutate()}>
                 <Trash2 size={16} />
               </Button>
             )}
-            {edit && (
-              <Button disabled={save.isPending || !f.title.trim()} onClick={() => save.mutate()}>
-                {p ? t("pol.ulozit") : t("common.create")}
-              </Button>
-            )}
+            <EditActions
+              isNew={!p}
+              editing={editing}
+              canEdit={canEdit}
+              onEdit={() => setEditing(true)}
+              onCancel={() => (setF(initialForm), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={!f.title.trim()}
+              saveLabel={p ? t("pol.ulozit") : t("common.create")}
+            />
           </>
         }
       />
@@ -363,9 +370,10 @@ function PolicyEditor({ p }: { p: PolicyDetail | null }) {
           ))}
         </div>
       )}
-      {save.isSuccess && <SuccessBox>{t("pol.ulozeno")}</SuccessBox>}
+      {save.isSuccess && !editing && <SuccessBox>{t("pol.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error} />
 
+      <FormView editing={edit}>
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("pol.dokument")} />
@@ -525,6 +533,8 @@ function PolicyEditor({ p }: { p: PolicyDetail | null }) {
 
       <PolicyLinksCard p={p} value={f} onChange={(v) => setF((x) => ({ ...x, ...v }))} disabled={!edit} />
 
+      </FormView>
+
       {p && (
         <div className="mt-6 empty:hidden">
           <AiSuggestPanel useCase="policy_review" entityId={p.id} canApply />
@@ -540,7 +550,7 @@ function PolicyEditor({ p }: { p: PolicyDetail | null }) {
           <CoursesCard p={p} />
         </div>
       )}
-      {p && version && <VersionModal policy={p} versionId={version === "new" ? null : version} edit={edit} onClose={() => setVersion(null)} onDone={done} />}
+      {p && version && <VersionModal policy={p} versionId={version === "new" ? null : version} edit={canEdit} onClose={() => setVersion(null)} onDone={done} />}
       {p && review && <ReviewModal policy={p} onClose={() => setReview(false)} onDone={done} />}
       {p && <TasksCard kind="policy" id={p.id} className="mt-6" />}
     </>

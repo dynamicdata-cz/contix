@@ -150,11 +150,6 @@ function DocView({ d }: { d: PortalDocDetail }) {
   const [changes, setChanges] = useState(false);
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/docs" className="inline-flex items-center gap-1 hover:text-brand-700">
-          <ArrowLeft size={14} /> {t("doc.dokumenty")}
-        </Link>
-      </div>
       <PageHeader
         title={`${d.code ? `${d.code} ` : ""}${d.title}`}
         subtitle={`${t.lbl(POLICY_LABELS.type[d.docType])} · ${t("doc.platnaVerzeN", { v: d.version })}${d.effectiveFrom ? (" " + t("doc.ucinnostOd", { p: fmtDay(d.effectiveFrom) })) : ""} · ${t.lbl(POLICY_LABELS.classification[d.classification])}`}

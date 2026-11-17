@@ -66,11 +66,6 @@ function SoaInner() {
 
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/controls" className="hover:text-brand-700">
-          {t("soa.opatreniAShoda")}
-        </Link>
-      </div>
       <PageHeader
         title={framework === "cz410" ? t("soa.overview") : t("soa.prohlaseniOAplikovatelnosti")}
         subtitle={

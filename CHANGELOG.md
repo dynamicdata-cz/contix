@@ -2,6 +2,14 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.84.0
+
+- **Agenti a koncentrátory** (ADR-177): registrace koncentrátoru jednorázovým kódem, schvalování agentů, podepsané zprávy a dávkový příjem. Údaje agenta (systém, porty, služby, balíčky, přihlašovací účty, SSH klíče, firewall, plánované úlohy) se promítnou do inventáře serveru; při jednoznačné shodě se server spáruje s aktivem sám, jinak nabídne *Založit aktivum* nebo *Spárovat*. Nezpracované zprávy schválených agentů se dozpracují po startu API a každých 10 minut.
+- **Mapa propojení** v Konektorech: co s čím komunikuje (CONTIX, Wazuh, sběrače, koncentrátory, agenti, skenery) včetně stavu spojení.
+- **Detail aktiva** přeuspořádán: přehled ve dvou sloupcích, kompaktní karta inventáře serveru se seskupenými nálezy, zranitelnosti na vlastní záložce.
+- **Jednotný vzhled** (ADR-179): výchozí motiv Noc v tónech přihlašovací obrazovky – v tmavém režimu soumračně levandulový podklad s tmavě modrými kartami, lištou a panelem, ve světlém jemně levandulový podklad s bílými kartami; přihlášení vypadá stejně v obou režimech. Jedna podoba KPI dlaždic na všech stránkách, název stránky v drobečkové navigaci místo „Detail“.
+- **Detaily záznamů se otevírají jako přehled**, úpravy tlačítkem *Upravit* (*Uložit* / *Zrušit úpravy*): rizika, opatření, dodavatelé a GDPR mají přehled s dlaždicemi, ostatní detaily (incidenty, audity, plány kontinuity, BIA, změny ISMS, dokumenty, školení, CRA, AI Act, SOC 2, procesní karta) zobrazí formulář jen ke čtení. Průběžná práce (hlášení, zjištění, verze dokumentů, testy, úkoly) funguje bez přepnutí.
+
 ## 1.83.0
 
 - **Příručka vedoucího útvaru a garanta** (ADR-176): nová role v nápovědě a v příručce ke stažení – za co odpovídá vedoucí, vlastník a technický garant, Moje práce, týdenní souhrn, lhůty a eskalace nálezů, přehled útvaru, chybějící údaje a hromadné úpravy, změny lidí, práce z telefonu. Role se nabídne každému, kdo vidí aktiva, procesy nebo úkoly.

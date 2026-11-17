@@ -101,6 +101,7 @@ export * from "./threatModeling";
 export * from "./guides";
 export * from "./connections";
 export * from "./hostInventory";
+export * from "./agentProtocol";
 export * from "./tags";
 export * from "./dataLocations";
 export * from "./securityTests";

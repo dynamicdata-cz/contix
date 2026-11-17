@@ -3,7 +3,7 @@
  * zranitelností a zjištění auditů – stejná stupnice závažnosti a stavů, odpovědná osoba, úkol, přijaté riziko.
  * Nálezy serveru se tu i spravují (úkol, přijetí, falešný nález); ostatní se otevírají ve svém modulu.
  */
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone, Kpi } from "@/components/ui";
 import { toast } from "@/components/ui/overlay";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
@@ -123,13 +123,7 @@ function SourceTiles({ d, active, onPick }: { d: UnifiedFindingsDto; active: str
         const total = UNIFIED_SEVERITIES.reduce((n, v) => n + o[v], 0);
         const hot = o.critical + o.high;
         return (
-          <button key={s} type="button" onClick={() => onPick(s)} className={cn("rounded-lg border bg-white p-4 text-left shadow-sm transition hover:border-brand-300 hover:shadow", active === s ? "border-brand-400 ring-1 ring-brand-200" : "border-slate-200")}>
-            <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-              {srcIcon[s]} {L.src(s)}
-            </div>
-            <div className="mt-2 text-2xl font-semibold tracking-tight">{total}</div>
-            <div className={cn("mt-0.5 text-xs", hot ? "text-red-700" : "text-slate-500")}>{t("fnd.tile.note", { hot, total })}</div>
-          </button>
+          <Kpi key={s} icon={srcIcon[s]} label={L.src(s)} value={total} note={t("fnd.tile.note", { hot, total })} noteTone={hot ? "red" : undefined} onClick={() => onPick(s)} active={active === s} />
         );
       })}
     </div>

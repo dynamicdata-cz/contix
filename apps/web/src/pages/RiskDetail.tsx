@@ -14,7 +14,7 @@ import { SeverityBadge } from "@/components/health";
 import { AssetPicker, PositionSelect, type PickedAsset } from "@/components/pickers";
 import { FactorEditor, useMethodologies } from "@/components/methodology";
 import { RiskLevelBadge, ScaleSelect, locScale } from "@/components/risk";
-import { Badge, Button, Card, CardHeader, Checkbox, ErrorBox, Facts, Field, Input, Select, SuccessBox, Textarea, toggle } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, ErrorBox, Facts, Field, Input, Kpi, Select, SuccessBox, Textarea, toggle, PageTitle } from "@/components/ui";
 import { fmtDay, formatLocale } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
@@ -46,6 +46,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PlanSuggestionsCard, TreatmentPlanCard } from "./risk/TreatmentPlan";
 import { QuantCard } from "./risk/QuantCard";
 import { AiSuggestPanel } from "@/components/ai";
+import { Chip, Chips, EditActions, Prose, ViewItem, ViewSection } from "@/components/detailView";
 
 type Form = Omit<RiskInput, "assetIds" | "processIds" | "cveIds" | "controlIds"> & {
   assets: PickedAsset[];
@@ -150,6 +151,8 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
   const nav = useNavigate();
   const qc = useQueryClient();
   const [f, setF] = useState<Form>(initial);
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Nové riziko rovnou ve formuláři. */
+  const [editing, setEditing] = useState(!detail);
   /** Zdůvodnění přehodnocení (ADR-058) – uloží se s novým hodnocením nebo při potvrzení beze změny. */
   const [reviewNote, setReviewNote] = useState("");
   const edit = detail ? detail.canEdit : can("risks:write");
@@ -197,7 +200,10 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
       if (!detail && onCreated) await onCreated(r.id).catch(() => undefined);
       qc.invalidateQueries({ queryKey: ["risks"] });
       qc.invalidateQueries({ queryKey: ["risk", r.id, "reassessment"] });
-      if (detail) setReviewNote("");
+      if (detail) {
+        setReviewNote("");
+        setEditing(false);
+      }
       qc.invalidateQueries({ queryKey: ["process"] });
       qc.setQueryData(["risk", r.id], r);
       if (!detail) nav({ to: "/risks/$riskId", params: { riskId: r.id } });
@@ -225,8 +231,8 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
       {detail && <TagBar entityType="risk" entityId={detail.id} canEdit={can("risks:write")} />}
       <div className="sticky top-14 z-20 -mx-4 mb-4 flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/70 bg-slate-50/85 px-4 py-3 backdrop-blur-md md:-mx-8 md:px-8">
         <div className="min-w-0">
-          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">{detail ? (detail.code ? `${detail.code} ${detail.name}` : detail.name) : t("rsk.noveRiziko")}</h1>
-          {cur && (
+          <PageTitle>{detail ? (detail.code ? `${detail.code} ${detail.name}` : detail.name) : t("rsk.noveRiziko")}</PageTitle>
+          {cur && (editing || !detail) && (
             <div className="mt-2 flex flex-wrap items-center gap-4 text-sm text-slate-600">
               <span className="flex items-center gap-2">
                 {t("rsk.aktualni2")} <RiskLevelBadge level={cur.level} score={cur.score} />
@@ -257,14 +263,20 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
               <Trash2 size={15} />
             </Button>
           )}
-          {edit && (
-            <Button disabled={!f.name.trim() || save.isPending} onClick={() => save.mutate()}>
-              {detail ? t("rsk.ulozit") : t("rsk.zalozitRiziko")}
-            </Button>
-          )}
+          <EditActions
+            isNew={!detail}
+            editing={editing}
+            canEdit={edit}
+            onEdit={() => setEditing(true)}
+            onCancel={() => (setF(initial), setReviewNote(""), setEditing(false))}
+            onSave={() => save.mutate()}
+            saving={save.isPending}
+            saveDisabled={!f.name.trim()}
+            saveLabel={detail ? t("rsk.ulozit") : t("rsk.zalozitRiziko")}
+          />
         </div>
       </div>
-      {save.isSuccess && detail && <SuccessBox>{t("rsk.ulozeno")}</SuccessBox>}
+      {save.isSuccess && detail && !editing && <SuccessBox>{t("rsk.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error ?? summary.error} />
 
       {detail && (
@@ -288,9 +300,13 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
             canEdit={edit}
             note={reviewNote}
             onNote={setReviewNote}
-            onApply={(changes) => setF((x) => ({ ...x, ...Object.fromEntries(changes.map((c) => [c.field, c.to])) }))}
+            onApply={(changes) => (setEditing(true), setF((x) => ({ ...x, ...Object.fromEntries(changes.map((c) => [c.field, c.to])) })))}
           />
         )}
+        {detail && !editing ? (
+          <RiskOverview detail={detail} policy={policy} cur={cur} res={res} levelOf={levelLabel} three={three} steps={{ impact: sImpact, threat: sThreat, vuln: sVuln, like: sLike }} onTab={setTab} />
+        ) : (
+        <>
         <Card>
           <CardHeader title={t("rsk.1Identifikace")} />
           <fieldset disabled={!edit} {...guard.bind} className="space-y-4 p-5">
@@ -621,6 +637,8 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
           </fieldset>
         </Card>
 
+        </>
+        )}
         {policy && (
           <QuantCard
             riskId={detail?.id ?? ""}
@@ -628,7 +646,7 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
             onChange={(v) => set("quant", v)}
             policy={policy.quant}
             actionsCost={(detail?.actions ?? []).filter((a) => a.status !== "cancelled").reduce((n, a) => n + (a.costEstimate ?? 0), 0)}
-            edit={edit}
+            edit={edit && editing}
           />
         )}
 
@@ -654,6 +672,193 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
         )}
       </div>
     </>
+  );
+}
+
+type Step = { value: number; name: string };
+/**
+ * Přehled rizika (v1.84): hodnocení v dlaždicích, scénář a ošetření vlevo, dotčené záznamy vpravo – bez formuláře.
+ */
+function RiskOverview({
+  detail: d,
+  policy,
+  cur,
+  res,
+  levelOf,
+  three,
+  steps,
+  onTab,
+}: {
+  detail: RiskDetail;
+  policy: RiskPolicy | undefined;
+  cur: ReturnType<typeof riskScore> | null;
+  res: ReturnType<typeof riskScore> | null;
+  levelOf: (v: FactorValues | null | undefined) => { label: string } | null;
+  three: boolean;
+  steps: { impact: Step[]; threat: Step[]; vuln: Step[]; like: Step[] };
+  onTab: (k: "overview" | "treatment" | "links" | "tasks") => void;
+}) {
+  const t = useT();
+  const mod = useModule();
+  const can = useCan();
+  const step = (list: Step[], v: number | null | undefined) => {
+    const x = list.find((s) => s.value === v);
+    return x ? `${x.value} – ${x.name}` : null;
+  };
+  const custom = d.methodologyKey !== BUILTIN_RISK_METHODOLOGY;
+  const openActions = d.actions.filter((a) => a.status === "planned" || a.status === "in_progress").length;
+  const implemented = d.controls.filter((c) => c.status === "implemented").length;
+  return (
+    <div className="space-y-6 lg:col-span-2" data-testid="risk-overview">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Kpi
+          label={t("rsk.ov.current")}
+          value={cur?.level ? <RiskLevelBadge level={cur.level} score={cur.score} /> : "—"}
+          note={cur?.level && policy ? (isAcceptable(policy, cur.level) ? t("rsk.akceptovatelne2") : t("rsk.nadHraniciAkceptovatelnosti")) : t("rsk.ov.notAssessed")}
+          noteTone={cur?.level && policy && !isAcceptable(policy, cur.level) ? "red" : undefined}
+        />
+        <Kpi
+          label={t("rsk.ov.residual")}
+          value={res?.level ? <RiskLevelBadge level={res.level} score={res.score} /> : "—"}
+          note={res?.level && policy && !isAcceptable(policy, res.level) ? t("rsk.staleNadHraniciAkceptovatelnosti") : undefined}
+          noteTone="amber"
+        />
+        <Kpi
+          label={t("rsk.ov.treatment")}
+          value={<span className="text-lg">{d.treatment ? t.lbl(RISK_LABELS.treatment[d.treatment]) : "—"}</span>}
+          note={d.treatmentDue ? t("rsk.ov.due", { date: fmtDay(d.treatmentDue) }) : undefined}
+        />
+        <Kpi label={t("rsk.ov.actions")} value={openActions} note={t("rsk.ov.actionsNote", { n: d.actions.length })} onClick={() => onTab("treatment")} />
+      </div>
+
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <ViewSection title={t("rsk.ov.scenario")}>
+            <ViewItem label={t("rsk.hrozba")}>{d.threatName}</ViewItem>
+            <ViewItem label={t("rsk.zranitelnostSlabeMisto")}>{d.weaknessName}</ViewItem>
+            {d.moreThreatNames.length > 0 && <ViewItem label={t("rsk.moreThreats")}>{d.moreThreatNames.join(", ")}</ViewItem>}
+            {d.moreWeaknessNames.length > 0 && <ViewItem label={t("rsk.moreWeaknesses")}>{d.moreWeaknessNames.join(", ")}</ViewItem>}
+            <ViewItem label={t("rsk.popisScenare")} wide>
+              <Prose text={d.description} />
+            </ViewItem>
+          </ViewSection>
+
+          <ViewSection
+            title={t("rsk.ov.assessment")}
+            subtitle={d.assessedAt ? t("rsk.ov.assessed", { date: fmtDay(d.assessedAt) }) : t("rsk.ov.notAssessed")}
+          >
+            {custom ? (
+              <>
+                <ViewItem label={t("rsk.ov.current")}>{levelOf(d.factorValues)?.label ?? (cur?.score != null ? String(cur.score) : null)}</ViewItem>
+                <ViewItem label={t("rsk.ov.residual")}>{levelOf(d.residualFactorValues)?.label ?? (res?.score != null ? String(res.score) : null)}</ViewItem>
+              </>
+            ) : (
+              <>
+                <ViewItem label={t("rsk.dopadHodnotaAktiva")}>{step(steps.impact, d.impact)}</ViewItem>
+                {three ? (
+                  <>
+                    <ViewItem label={t("rsk.urovenHrozby")}>{step(steps.threat, d.threatLevel)}</ViewItem>
+                    <ViewItem label={t("rsk.urovenZranitelnosti")}>{step(steps.vuln, d.vulnLevel)}</ViewItem>
+                  </>
+                ) : (
+                  <ViewItem label={t("rsk.pravdepodobnostScenare")}>{step(steps.like, d.likelihood)}</ViewItem>
+                )}
+              </>
+            )}
+            {cur?.level && (
+              <ViewItem label={t("rsk.ov.meaning")} wide>
+                {t.lbl(RISK_LABELS.levelDesc[cur.level])}
+              </ViewItem>
+            )}
+            {(d.outdatedScale || d.reviewDue) && (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 sm:col-span-2">
+                {d.outdatedScale ? t("rsk.ov.outdated") : t("rsk.posledniHodnoceniJeStarsiNez", { p: policy?.reviewMonths ?? 12 })}
+              </p>
+            )}
+          </ViewSection>
+
+          <ViewSection title={t("rsk.ov.treatmentTitle")}>
+            <ViewItem label={t("rsk.zpusobZvladani")}>{d.treatment ? t.lbl(RISK_LABELS.treatment[d.treatment]) : null}</ViewItem>
+            <ViewItem label={t("rsk.termin")}>{d.treatmentDue ? fmtDay(d.treatmentDue) : null}</ViewItem>
+            <ViewItem label={t("rsk.zduvodneniPoznamkaKOsetreni")} wide>
+              <Prose text={d.treatmentPlan} />
+            </ViewItem>
+            {!custom && (
+              <ViewItem label={t("rsk.zbytkoveRizikoPoZavedeniOpatreni")} wide>
+                {[
+                  step(steps.impact, d.residualImpact) && `${t("rsk.dopad2")}: ${step(steps.impact, d.residualImpact)}`,
+                  three && step(steps.threat, d.residualThreatLevel) && `${t("rsk.hrozba")}: ${step(steps.threat, d.residualThreatLevel)}`,
+                  three && step(steps.vuln, d.residualVulnLevel) && `${t("rsk.zranitelnost")}: ${step(steps.vuln, d.residualVulnLevel)}`,
+                  !three && step(steps.like, d.residualLikelihood) && `${t("rsk.pravdepodobnost2")}: ${step(steps.like, d.residualLikelihood)}`,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || null}
+              </ViewItem>
+            )}
+          </ViewSection>
+        </div>
+
+        <div className="space-y-6">
+          <ViewSection title={t("rsk.ov.responsibility")} cols={1}>
+            <ViewItem label={t("rsk.vlastnikRizikaFunkcniMisto")}>{d.ownerPositionName ?? <span className="text-amber-700">{t("rsk.ov.noOwner")}</span>}</ViewItem>
+            <ViewItem label={t("rsk.stav")}>{t.lbl(RISK_LABELS.status[d.status])}</ViewItem>
+          </ViewSection>
+          <ViewSection title={t("rsk.ov.affected")} cols={1}>
+            <ViewItem label={t("rsk.aktiva")}>
+              <Chips empty={t("rsk.ov.none")}>
+                {d.assets.map((a) => (
+                  <Chip key={a.id}>
+                    <Link to="/assets/$assetId" params={{ assetId: a.id }} className="hover:text-brand-700">
+                      {a.name}
+                    </Link>
+                  </Chip>
+                ))}
+              </Chips>
+            </ViewItem>
+            {mod("processes") && can("processes:read") && (
+              <ViewItem label={t("rsk.procesy")}>
+                <Chips empty={t("rsk.zadneProcesy")}>
+                  {d.processes.map((p) => (
+                    <Chip key={p.id}>
+                      <Link to="/processes/$processId" params={{ processId: p.id }} className="hover:text-brand-700">
+                        {p.code ? `${p.code} ` : ""}
+                        {p.name}
+                      </Link>
+                    </Chip>
+                  ))}
+                </Chips>
+              </ViewItem>
+            )}
+            {mod("vulnerabilities") && d.cves.length > 0 && (
+              <ViewItem label="CVE">
+                <Chips>
+                  {d.cves.map((c) => (
+                    <Chip key={c.id}>
+                      <SeverityBadge severity={c.severity as Severity} /> {c.cveId}
+                    </Chip>
+                  ))}
+                </Chips>
+              </ViewItem>
+            )}
+            {mod("controls") && can("controls:read") && (
+              <ViewItem label={t("rsk.ov.controls", { done: implemented, n: d.controls.length })}>
+                <Chips empty={t("rsk.zadnaOpatreni")}>
+                  {d.controls.map((c) => (
+                    <Chip key={c.id}>
+                      <Link to="/controls/$controlId" params={{ controlId: c.id }} className="hover:text-brand-700">
+                        {c.code ? `${c.code} ` : ""}
+                        {c.name}
+                      </Link>
+                      <Badge tone={c.status === "implemented" ? "green" : "amber"}>{t.lbl(CONTROL_LABELS.status[c.status as ControlStatus])}</Badge>
+                    </Chip>
+                  ))}
+                </Chips>
+              </ViewItem>
+            )}
+          </ViewSection>
+        </div>
+      </div>
+    </div>
   );
 }
 

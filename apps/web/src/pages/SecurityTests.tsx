@@ -1,6 +1,6 @@
 import { TransferButton } from "@/components/transfer";
 import { ProcessGuide } from "@/components/processGuide";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, Kpi } from "@/components/ui";
 import { askConfirm } from "@/components/ui/overlay";
 import { Tabs, useTab } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
@@ -78,14 +78,7 @@ function SummaryTiles({ onFindings, onRuns, onProbes }: { onFindings: () => void
   const q = useQuery({ queryKey: ["sectests", "overview"], queryFn: api.secTests.overview, staleTime: 30_000 });
   const s = q.data;
   if (!s) return null;
-  const tile = (label: string, value: ReactNode, color: string | null, onClick: () => void, sub?: string) => (
-    <button type="button" onClick={onClick} className="relative overflow-hidden rounded-xl border border-slate-200/80 bg-white p-4 text-left shadow-[var(--shadow-card)] transition hover:-translate-y-0.5 hover:shadow-md">
-      {color && <span className="absolute inset-x-0 top-0 h-1" style={{ background: color }} aria-hidden />}
-      <div className="text-[13px] font-medium text-slate-500 first-letter:uppercase">{label}</div>
-      <div className="mt-1 text-[28px] font-semibold leading-none tabular-nums text-slate-900">{value}</div>
-      {sub && <div className="mt-1.5 text-xs text-slate-500">{sub}</div>}
-    </button>
-  );
+  const tile = (label: string, value: ReactNode, color: string | null, onClick: () => void, sub?: string) => <Kpi label={label} value={value} accent={color} onClick={onClick} note={sub} />;
   const online = s.probes.online;
   return (
     <div className="mb-5 grid gap-3 sm:grid-cols-3 xl:grid-cols-6" data-testid="st-tiles">

@@ -160,11 +160,6 @@ export function AssetGraphPage() {
 
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/assets" className="hover:text-brand-700">
-          {t("ag.back")}
-        </Link>
-      </div>
       <PageHeader title={t("ag.title")} subtitle={t("ag.subtitle")} />
       <ErrorBox error={q.error} />
       {data?.truncated && <p className="mb-3 text-sm text-amber-800">{t("ag.truncated", { n: data.nodes.filter((n) => n.kind === "asset").length })}</p>}

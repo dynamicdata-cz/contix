@@ -8,7 +8,8 @@ import type { DiscoveredAsset } from "./types";
 export type IngestResult =
   | { action: "created"; assetId: string }
   | { action: "updated"; assetId: string; reason: string }
-  | { action: "conflict"; candidates: string[] };
+  | { action: "conflict"; candidates: string[] }
+  | { action: "unmatched" };
 
 /** Zapíše jednu nalezenou položku do inventáře (vytvoří / aktualizuje / nahlásí konflikt). */
 export async function ingestDiscovered(db: Db, item: DiscoveredAsset, companyId?: string): Promise<IngestResult> {
@@ -56,6 +57,7 @@ export async function ingestDiscovered(db: Db, item: DiscoveredAsset, companyId?
       }
     }
 
+    if (!assetId && item.createIfMissing === false) return { action: "unmatched" };
     if (assetId) {
       const [existing] = await tx.select().from(assets).where(eq(assets.id, assetId));
       if (!existing) throw new Error(`asset ${assetId} disappeared`);

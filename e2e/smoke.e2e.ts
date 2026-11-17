@@ -426,7 +426,7 @@ test("legislativa: předpis EU z EUR-Lex (náhradní CELLAR)", async () => {
 
 test("dodavatel: bezpečnostní dotazník – odkaz, vyplnění dodavatelem bez přihlášení, vyhodnocení", async ({ browser }) => {
   const sup = await (await page.request.post("/api/suppliers", { data: { name: "E2E Cloud s.r.o.", significant: true }, headers: { origin: new URL(page.url()).origin } })).json();
-  await page.goto(`/suppliers/${sup.id}`);
+  await page.goto(`/suppliers/${sup.id}?tab=contracts`);
   await page.getByRole("button", { name: "Poslat dotazník" }).click();
   const dlg = page.getByRole("dialog", { name: "Poslat bezpečnostní dotazník" });
   await dlg.getByLabel("Rozsah dotazníku").selectOption("cz410");
@@ -493,7 +493,7 @@ test("dodavatel: bezpečnostní dotazník – odkaz, vyplnění dodavatelem bez 
 
 test("akce a úkoly: úkol u dodavatele, jednotný přehled, splnění", async () => {
   const sup = await (await page.request.post("/api/suppliers", { data: { name: "E2E Úkoly a.s." }, headers: { origin: new URL(page.url()).origin } })).json();
-  await page.goto(`/suppliers/${sup.id}`);
+  await page.goto(`/suppliers/${sup.id}?tab=links`);
   await page.getByRole("button", { name: "Přidat úkol" }).click();
   const dlg = page.getByRole("dialog", { name: "Nový úkol" });
   await dlg.getByLabel("Co je potřeba udělat").fill("E2E doplnit SLA do smlouvy");
@@ -1062,7 +1062,7 @@ test("DORA registr informací: poskytovatel IKT, údaje smlouvy, kontrola úplno
   const sup = await (await page.request.post("/api/suppliers", { data: { name: "E2E Cloud DORA s.r.o.", ico: "27074358" }, headers })).json();
   await page.request.post(`/api/suppliers/${sup.id}/contracts`, { data: { title: "E2E SaaS", number: "E2E-DORA-1", validFrom: "2025-01-01" }, headers });
   // příznak poskytovatele IKT na kartě dodavatele
-  await page.goto(`/suppliers/${sup.id}`);
+  await page.goto(`/suppliers/${sup.id}?tab=regulation`);
   const card = page.getByTestId("dora-provider-card");
   await card.getByRole("button", { name: "Označit jako poskytovatele IKT" }).click();
   const pd = page.getByRole("dialog", { name: "Poskytovatel služeb IKT (DORA)" });
@@ -1192,7 +1192,7 @@ test("třídění seznamů: pohled incidentů, seskupení fronty SOC, detail CVE
   await page.goto("/vulnerabilities/cve/CVE-2021-44228");
   await expect(page.getByTestId("vuln-overview")).toContainText("KEV");
   await expect(page.getByTestId("vuln-advice")).toBeVisible();
-  await expect(page.getByTestId("breadcrumbs")).toContainText("Detail");
+  await expect(page.getByTestId("breadcrumbs")).toContainText("CVE-2021-44228"); // poslední položka = název stránky (v1.84)
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
@@ -1329,6 +1329,7 @@ test("rizikový scénář s více hrozbami a zranitelnostmi", async () => {
   await chooseFirst(page.getByTestId("more-weaknesses").getByRole("combobox"));
   await page.getByRole("button", { name: "Založit riziko" }).click();
   await expect(page).toHaveURL(/\/risks\/[0-9a-f-]{36}$/);
+  await page.getByTestId("detail-edit").click(); // detail se otevře jako přehled (v1.84)
   await expect(page.getByTestId("more-threats").getByRole("button", { name: "Odebrat ze scénáře" })).toHaveCount(2);
   await page.goto("/risks");
   await expect(page.locator("tr", { hasText: "Únik dat z CRM" })).toContainText("+2");
@@ -1605,7 +1606,7 @@ test("průběžné monitorování: nový monitor, běh, historie", async () => {
 test("zpráva o ujištění dodavatele: nová zpráva, CUEC, mezery", async () => {
   const headers = { origin: new URL(page.url()).origin };
   const sup = await (await page.request.post("/api/suppliers", { data: { name: "E2E Cloud s.r.o.", significant: true }, headers })).json();
-  await page.goto(`/suppliers/${sup.id}`);
+  await page.goto(`/suppliers/${sup.id}?tab=contracts`);
   const card = page.getByTestId("supplier-reports");
   await card.getByRole("button", { name: "Nová zpráva" }).click();
   const dlg = page.getByRole("dialog");
@@ -1723,6 +1724,7 @@ test("ovládání: Ctrl+K, filtry v adrese, potvrzovací dialog, neuložené zm�
   await expect(dlg).toBeHidden();
   await expect(page.getByRole("heading", { name: "E2E smazat dialog", level: 1 })).toBeVisible();
   // neuložené změny: odchod se potvrdí, „Zrušit“ ponechá stránku
+  await page.getByTestId("detail-edit").click();
   await page.getByLabel("Název").first().fill("E2E smazat dialog – upraveno");
   await page.getByRole("navigation").getByRole("link", { name: "Rizika" }).first().click();
   await expect(dlg).toContainText("Neuložené změny");
@@ -2219,11 +2221,21 @@ test("cesta k souladu a panel Jak postupovat v modulech (v1.42)", async () => {
   await page.getByTestId("st-batches").getByRole("link").first().click();
   await expect(page.getByTestId("st-batch").getByText("čeká na sondu")).toHaveCount(4);
   // vzhled výstupů (v1.59): logo a zápatí společnosti
+  // pomalá odpověď serveru (jako na pomalém runneru): pozdě načtená data nesmí smazat právě vybrané logo
+  const slowBranding = async (route: import("@playwright/test").Route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue();
+  };
+  await page.route("**/api/branding/**", slowBranding);
+  const brandingLoaded = page.waitForResponse((r) => r.url().includes("/api/branding/") && r.request().method() === "GET");
   await page.goto("/admin/companies");
   const brand = page.getByTestId("branding-card");
   await brand.getByLabel("Nahrát logo (PNG, JPEG)").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64") });
   // logo se čte asynchronně – nejdřív musí být v náhledu, pak uložit (na pomalém runneru jinak uloží bez loga)
   await expect(brand.getByTestId("branding-preview").locator("img")).toBeVisible();
+  await brandingLoaded;
+  await expect(brand.getByTestId("branding-preview").locator("img")).toBeVisible();
+  await page.unroute("**/api/branding/**", slowBranding);
   await brand.getByLabel("Text zápatí").fill("Interní E2E");
   await expect(brand.getByTestId("branding-save")).toBeEnabled();
   await brand.getByTestId("branding-save").click();
@@ -2358,6 +2370,63 @@ test("ukázková data z Administrace: založit a odstranit (v1.81)", async () =>
   // potvrzení odsouhlasí obsluha dialogu (addLocatorHandler výše)
   await card.getByTestId("demo-remove").click();
   await expect(card.getByTestId("demo-create")).toBeVisible({ timeout: 30_000 });
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("agent CONTIX: server bez aktiva, založení aktiva, balíčky a plánované úlohy (ADR-177)", async () => {
+  const { generateKeyPairSync, sign, createHash } = await import("node:crypto");
+  // kanonický JSON (RFC 8785) pro jednoduché hodnoty – stejné řazení klíčů jako agentProtocol.canonicalJson
+  const canon = (v: unknown): string => (Array.isArray(v) ? `[${v.map(canon).join(",")}]` : v && typeof v === "object" ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon((v as Record<string, unknown>)[k])}`).join(",")}}` : JSON.stringify(v));
+  const rawPub = (k: import("node:crypto").KeyObject) => k.export({ format: "der", type: "spki" }).subarray(12).toString("base64");
+  const conc = generateKeyPairSync("ed25519");
+  const made = await (await page.request.post("/api/admin/connections/concentrator", { data: { name: "Koncentrátor E2E", zone: "e2e", companyId: null, autoApprove: true } })).json();
+  const reg = await (await page.request.post("/api/public/agent/v1/register", { data: { code: made.code, publicKey: rawPub(conc.publicKey), hostname: "ctx-konc-e2e", version: "0.2.1" } })).json();
+  const signed = async (path: string, body: unknown) => {
+    const text = JSON.stringify(body);
+    const date = new Date().toISOString();
+    const full = `/api/public/agent/v1${path}`;
+    const sig = sign(null, Buffer.from(`CONTIX-CONCENTRATOR-V1\nPOST\n${full}\n${date}\n${createHash("sha256").update(text).digest("hex")}`), conc.privateKey).toString("base64");
+    const r = await page.request.post(full, { headers: { "content-type": "application/json", "x-contix-concentrator": reg.concentratorId, "x-contix-date": date, "x-contix-signature": sig }, data: text });
+    expect(r.status()).toBe(200);
+    return r.json();
+  };
+  const key = generateKeyPairSync("ed25519");
+  const hostId = "e2ea9e17e2ea9e17e2ea9e17e2ea9e17";
+  const agent = await signed("/agents", { hostId, hostname: "e2e-agent-01", os: "Ubuntu 24.04", version: "0.2.1", publicKey: rawPub(key.publicKey) });
+  expect(agent.status).toBe("approved");
+  const m = { v: 1, agent: agent.agentId, seq: 1, ts: new Date().toISOString(), kind: "snapshot", payload: { host: { hostname: "e2e-agent-01", hostId, os: "Ubuntu 24.04", kernel: "6.8", ips: ["10.77.9.9"] }, modules: { packages: { "openssl:amd64": { name: "openssl", version: "3.0.13", arch: "amd64" } }, accounts: Object.fromEntries(["root", "radek", "deploy", "backup", "daemon", "bin", "sys", "nobody", ...Array.from({ length: 14 }, (_, i) => `user${i}`)].map((n, i) => [n, { name: n, uid: n === "root" ? 0 : 1000 + i, home: `/home/${n}`, shell: ["daemon", "bin", "sys", "nobody"].includes(n) ? "/usr/sbin/nologin" : "/bin/bash", login: !["daemon", "bin", "sys", "nobody"].includes(n), admin: n === "radek" || n === "root" }])), ssh_keys: Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`k${i}`, { user: i ? "radek" : "root", file: "authorized_keys", type: "ssh-ed25519", fingerprint: `SHA256:e2e${i}`, comment: i % 2 ? "" : `pc${i}` }])), services: { "bad.service": { name: "bad.service", active: "failed", sub: "failed", enabled: "enabled" } }, scheduled: { "timer:apt-daily.timer": { source: "systemd timer", schedule: "daily", program: "apt-daily.service", state: "active" } }, firewall: { firewall: { tool: "nftables", rulesHash: "d".repeat(64), ruleCount: 4, inputPolicy: "drop" } } } } };
+  await signed("/batches", { messages: [{ ...m, sig: sign(null, Buffer.from(canon(m)), key.privateKey).toString("base64") }] });
+  // zpracování běží na pozadí – odkaz u agenta se objeví, jakmile je inventář hotový
+  await expect(async () => {
+    await page.goto("/admin/connectors");
+    await expect(page.getByTestId("agent-host-e2e-agent-01")).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 20_000 });
+  await expect(page.getByTestId("agent-host-e2e-agent-01")).toContainText("Server bez aktiva");
+  await page.getByTestId("agent-host-e2e-agent-01").click();
+  const hd = page.getByTestId("host-detail");
+  await expect(hd.getByTestId("host-no-asset")).toBeVisible();
+  await hd.getByRole("tab", { name: "Systém" }).click();
+  await expect(hd.getByTestId("host-packages")).toContainText("openssl");
+  await expect(hd.getByTestId("host-scheduled")).toContainText("apt-daily.service");
+  await hd.getByTestId("host-asset-create").click();
+  await expect(hd.getByRole("link", { name: "Aktivum: e2e-agent-01" })).toBeVisible();
+  await expect(hd.getByTestId("host-asset-actions")).toHaveCount(0);
+  // stručný přehled u aktiva: dlaždice, seskupené nálezy, zkrácené seznamy s odkazem do detailu
+  await hd.getByRole("link", { name: "Aktivum: e2e-agent-01" }).click();
+  const inv = page.getByTestId("host-inventory");
+  await expect(inv.getByTestId("host-inventory-stats")).toContainText("Účty s přihlášením");
+  await expect(inv.getByText("nobody")).toHaveCount(0); // systémové účty bez přihlášení se nezobrazují
+  await expect(inv.getByRole("link", { name: /a dalších \d+ v detailu serveru/ }).first()).toBeVisible();
+  if (process.env.E2E_SHOTS) await inv.screenshot({ path: `${process.env.E2E_SHOTS}/host-inventory-agent.png` });
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/asset-detail-agent.png`, fullPage: true });
+  // mapa propojení v Konektorech: koncentrátor s agentem → CONTIX, klik na server otevře detail
+  await page.goto("/admin/connectors");
+  const map = page.getByTestId("integration-map");
+  await expect(map.getByTestId(`map-node-agent-${agent.agentId}`)).toBeVisible();
+  await expect(map.getByTestId("map-node-contix")).toBeVisible();
+  if (process.env.E2E_SHOTS) await map.screenshot({ path: `${process.env.E2E_SHOTS}/integration-map.png` });
+  await map.getByTestId(`map-node-agent-${agent.agentId}`).click();
+  await expect(page.getByTestId("host-detail")).toBeVisible();
   expect(errors, errors.join("\n")).toEqual([]);
 });
 

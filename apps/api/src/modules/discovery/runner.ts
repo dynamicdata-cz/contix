@@ -52,7 +52,7 @@ export async function startRun<P>(
           const r = await ingestDiscovered(db, item, companyId);
           if (r.action === "created") stats.created++;
           else if (r.action === "updated") stats.updated++;
-          else {
+          else if (r.action === "conflict") {
             stats.conflicts++;
             ctx.log(`konflikt: "${item.name}" odpovídá více aktivům (${r.candidates.join(", ")})`);
           }

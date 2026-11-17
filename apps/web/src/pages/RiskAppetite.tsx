@@ -23,11 +23,6 @@ export function RiskAppetitePage() {
   const q = useQuery({ queryKey: ["risk-appetite"], queryFn: api.risks.appetite });
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/risks" className="hover:text-brand-700">
-          {t("rsk.rizika")}
-        </Link>
-      </div>
       <PageHeader nav={riskNav} title={t("rap.title")} subtitle={t("rap.subtitle")} />
       <ErrorBox error={q.error} />
       {q.data && (

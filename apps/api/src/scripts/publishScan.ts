@@ -30,8 +30,8 @@ export const PUBLISH_RULES: { id: string; re: RegExp; files?: RegExp }[] = [
   { id: "secret-assignment", re: /^\s*(?:export\s+|-\s+)?[A-Za-z0-9_]*(?:PASSWORD|SECRET|API_KEY|TOKEN|password|secret|api_key|token)\s*[=:]\s*(?!<|\$\{|\$\(|"?\$|changeme|change-me|CHANGE|xxx|XXX|""|''|null|~)['"]?[^\s'"#]{8,}/, files: CONFIG_FILE },
 ];
 
-/** Soubory, které do veřejného repozitáře nepatří nikdy (podle názvu). */
-const FORBIDDEN_FILE = /(^|\/)(\.env(\.[^/]*)?|server\.env|.*\.(pem|key|p12|pfx|jks|kdbx)|id_(rsa|ed25519|ecdsa)(\.pub)?|\.npmrc|\.netrc)$/;
+/** Soubory, které do veřejného repozitáře nepatří nikdy (podle názvu) – včetně lokálních pokynů pro AI asistenty (ADR-178). */
+const FORBIDDEN_FILE = /(^|\/)(\.env(\.[^/]*)?|server\.env|.*\.(pem|key|p12|pfx|jks|kdbx)|id_(rsa|ed25519|ecdsa)(\.pub)?|\.npmrc|\.netrc|CLAUDE\.md|\.claude\/.*)$/;
 const ALLOWED_FILE = /(^|\/)(\.env\.example|server\.env\.example)$/;
 const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const BINARY_EXT = /\.(png|jpe?g|gif|webp|ico|pdf|docx|xlsx|pptx|zip|gz|woff2?|ttf|otf)$/i;

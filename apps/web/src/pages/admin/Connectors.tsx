@@ -1,11 +1,13 @@
+import { Link } from "@tanstack/react-router";
 import { fmtDate } from "@/lib/utils";
 import { NetboxJiraCards } from "@/components/integrations";
+import { IntegrationMap } from "@/components/integrationMap";
 import { useT } from "@/lib/i18n";
 import { Badge, Button, Card, CardHeader, Checkbox, ErrorBox, Field, Input, Select, SuccessBox, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
-import type { CollectorConnectionDto, CompanyDto, ProbeConnectionDto, ConnectorSettingsDto, ConnectorTestResult, WazuhConnectionDto } from "@contix/shared";
+import type { AgentDto, CollectorConnectionDto, CompanyDto, ConcentratorConnectionDto, ProbeConnectionDto, ConnectorSettingsDto, ConnectorTestResult, WazuhConnectionDto } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Crosshair, Plus, Radar, Server, ShieldCheck, Trash2, XCircle } from "lucide-react";
+import { CheckCircle2, Crosshair, Network, Plus, Radar, Server, ShieldCheck, Trash2, XCircle } from "lucide-react";
 import { askConfirm } from "@/components/ui/overlay";
 import { useEffect, useState } from "react";
 
@@ -14,8 +16,10 @@ export function AdminConnectorsPage() {
   if (!q.data) return <ErrorBox error={q.error} />;
   return (
     <div className="space-y-6">
+      <IntegrationMap />
       <WazuhConnections />
       <Collectors />
+      <Concentrators />
       <ProbesAdmin />
       <NetboxJiraCards />
       <div className="grid gap-6 xl:grid-cols-2">
@@ -122,6 +126,174 @@ echo '17 */6 * * * root /usr/local/sbin/contix-collect.py >/dev/null' | sudo tee
         </div>
         <ErrorBox error={q.error ?? create.error ?? rotate.error ?? toggle.error ?? remove.error} />
         <p className="text-xs text-slate-500">{t("col.what")}</p>
+      </div>
+    </Card>
+  );
+}
+
+/** Koncentrátory a agenti (ADR-177): registrační kód jen jednou, schvalování agentů (karanténa do schválení). */
+function Concentrators() {
+  const t = useT();
+  const qc = useQueryClient();
+  const [code, setCode] = useState<{ id: string; code: string; codeExpiresAt: string } | null>(null);
+  // dokud je kód zobrazený, obnovovat stav – po registraci koncentrátoru kód zmizí sám
+  const q = useQuery({ queryKey: ["admin", "connections"], queryFn: api.admin.connections, refetchInterval: code ? 5000 : false });
+  const ag = useQuery({ queryKey: ["admin", "agents"], queryFn: api.admin.agents });
+  const companies = useQuery({ queryKey: ["companies"], queryFn: api.companies.list });
+  const [name, setName] = useState("");
+  const [zone, setZone] = useState("");
+  const [companyId, setCompanyId] = useState("");
+  const [autoApprove, setAutoApprove] = useState(false);
+  const used = !!code && (q.data?.concentrators ?? []).some((c) => c.id === code.id && c.registered && !c.codeExpiresAt);
+  useEffect(() => {
+    if (used) setCode(null);
+  }, [used]);
+  const done = () => (qc.invalidateQueries({ queryKey: ["admin", "connections"] }), qc.invalidateQueries({ queryKey: ["admin", "agents"] }));
+  const create = useMutation({
+    mutationFn: () => api.admin.createConcentrator({ name, zone, companyId: companyId || null, autoApprove }),
+    onSuccess: (r) => {
+      setCode({ id: r.id, code: r.code, codeExpiresAt: r.codeExpiresAt });
+      setName("");
+      setZone("");
+      setAutoApprove(false);
+      done();
+    },
+  });
+  const renew = useMutation({ mutationFn: (id: string) => api.admin.renewConcentratorCode(id).then((r) => ({ ...r, id })), onSuccess: (r) => (setCode({ id: r.id, code: r.code, codeExpiresAt: r.codeExpiresAt }), done()) });
+  const toggle = useMutation({
+    mutationFn: (c: ConcentratorConnectionDto) => api.admin.updateConcentrator(c.id, { name: c.name, zone: c.zone, companyId: c.companyId, autoApprove: c.autoApprove, enabled: !c.enabled }),
+    onSuccess: done,
+  });
+  const remove = useMutation({
+    mutationFn: async (c: ConcentratorConnectionDto) => {
+      if (await askConfirm(t("konc.deleteConfirm", { name: c.name }), { danger: true })) await api.admin.deleteConcentrator(c.id);
+    },
+    onSuccess: done,
+  });
+  const setStatus = useMutation({
+    mutationFn: async ({ a, status }: { a: AgentDto; status: "approved" | "blocked" }) => {
+      if (status === "blocked" && !(await askConfirm(t("konc.blockConfirm", { name: a.hostname }), { danger: true }))) return;
+      await api.admin.setAgentStatus(a.id, status);
+    },
+    onSuccess: done,
+  });
+  const names = new Map((companies.data ?? []).map((c) => [c.id, c.name]));
+  const tone = { pending: "amber", approved: "green", blocked: "red" } as const;
+  const url = typeof window === "undefined" ? "" : window.location.origin;
+  const agents = ag.data?.agents ?? [];
+  return (
+    <Card data-testid="concentrators">
+      <CardHeader title={t("konc.title")} subtitle={t("konc.subtitle")} action={<Network className="text-brand-600" size={22} />} />
+      <div className="space-y-4 p-5">
+        {(q.data?.concentrators ?? []).map((c) => (
+          <div key={c.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-md border border-slate-200 px-4 py-3" data-testid={`concentrator-${c.name}`}>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold text-slate-900">{c.name}</span>
+                <Badge tone="blue">
+                  {t("konc.zone")}: {c.zone}
+                </Badge>
+                {c.enabled ? <Badge tone="green">{t("con.zapnuto")}</Badge> : <Badge>{t("con.vypnuto")}</Badge>}
+                {c.registered ? <Badge tone="green">{t("konc.registered")}</Badge> : <Badge tone="amber">{t("konc.notRegistered")}</Badge>}
+              </div>
+              <div className="text-xs text-slate-500">
+                {c.companyId ? names.get(c.companyId) ?? c.companyId : t("cn.scope.group")}
+                {c.hostname ? ` · ${t("konc.host", { host: c.hostname })}` : ""}
+                {c.keyFingerprint ? ` · ${t("konc.key", { fp: c.keyFingerprint })}` : ""}
+                {c.lastSeenAt ? ` · ${t("konc.last", { date: fmtDate(c.lastSeenAt) })}` : ""}
+              </div>
+              <div className="text-xs text-slate-500">
+                {t("konc.agents", { approved: c.agents.approved, pending: c.agents.pending, blocked: c.agents.blocked })}
+                {c.status ? ` · ${t("konc.queue", { n: c.status.queueFiles })}` : ""}
+                {c.version ? ` · ${c.version}` : ""}
+              </div>
+              {c.status?.lastError && <div className="text-xs text-red-700">{t("konc.lastError", { error: c.status.lastError })}</div>}
+            </div>
+            <Button variant="secondary" onClick={() => toggle.mutate(c)}>
+              {c.enabled ? t("col.disable") : t("col.enable")}
+            </Button>
+            <Button variant="secondary" onClick={() => renew.mutate(c.id)}>
+              {t("konc.newCode")}
+            </Button>
+            <Button variant="ghost" className="text-red-700" onClick={() => remove.mutate(c)}>
+              <Trash2 size={14} />
+            </Button>
+          </div>
+        ))}
+        {code && (
+          <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900" data-testid="concentrator-code">
+            <p className="font-semibold">{t("konc.codeOnce", { date: fmtDate(code.codeExpiresAt) })}</p>
+            <code className="block break-all rounded bg-white px-2 py-1 text-slate-900">{code.code}</code>
+            <p>{t("konc.install")}</p>
+            <pre className="overflow-x-auto rounded bg-white p-2 text-xs text-slate-800">{`sudo sh packaging/install-concentrator.sh --url ${url} --code ${code.code} --binary ./contix-agent`}</pre>
+            <Button variant="ghost" onClick={() => setCode(null)}>
+              {t("konc.hideCode")}
+            </Button>
+          </div>
+        )}
+        <div className="flex flex-wrap items-end gap-3 border-t border-slate-100 pt-4">
+          <Field label={t("cn.name")} className="w-56">
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("konc.namePh")} />
+          </Field>
+          <Field label={t("konc.zone")} className="w-40">
+            <Input value={zone} onChange={(e) => setZone(e.target.value)} placeholder={t("konc.zonePh")} />
+          </Field>
+          <Field label={t("cn.scope")} className="w-64">
+            <Select value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+              <option value="">{t("cn.scope.group")}</option>
+              {(companies.data ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Checkbox checked={autoApprove} onChange={setAutoApprove} label={t("konc.autoApprove")} />
+          <Button disabled={!name.trim() || !zone.trim() || create.isPending} onClick={() => create.mutate()}>
+            <Plus size={15} /> {t("konc.create")}
+          </Button>
+        </div>
+        <div className="border-t border-slate-100 pt-4" data-testid="agents">
+          <h3 className="mb-2 text-sm font-semibold text-slate-900">{t("konc.agentsTitle")}</h3>
+          {!agents.length && <p className="text-sm text-slate-500">{t("konc.noAgents")}</p>}
+          <div className="space-y-2">
+            {agents.map((a) => (
+              <div key={a.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-slate-200 px-3 py-2 text-sm" data-testid={`agent-${a.hostname}`}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-slate-900">{a.hostname}</span>
+                    <Badge tone={tone[a.status]}>{t(`konc.st.${a.status}`)}</Badge>
+                    <span className="text-xs text-slate-500">
+                      {a.concentratorName} · {a.zone}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-500">
+                    {[a.os, a.version, t("konc.key", { fp: a.keyFingerprint }), t("konc.events", { n: a.events }), a.quarantined ? t("konc.quarantined", { n: a.quarantined }) : "", a.lastSeenAt ? t("konc.last", { date: fmtDate(a.lastSeenAt) }) : ""]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </div>
+                  {a.inventoryId && (
+                    <Link to="/discovery/hosts/$hostId" params={{ hostId: a.inventoryId }} className="text-xs text-brand-700 hover:underline" data-testid={`agent-host-${a.hostname}`}>
+                      {a.assetId ? t("konc.hostLinked") : t("konc.hostUnlinked")}
+                    </Link>
+                  )}
+                </div>
+                {a.status !== "approved" && (
+                  <Button variant="secondary" onClick={() => setStatus.mutate({ a, status: "approved" })}>
+                    {t("konc.approve")}
+                  </Button>
+                )}
+                {a.status !== "blocked" && (
+                  <Button variant="ghost" className="text-red-700" onClick={() => setStatus.mutate({ a, status: "blocked" })}>
+                    {t("konc.block")}
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+        <ErrorBox error={q.error ?? ag.error ?? create.error ?? renew.error ?? toggle.error ?? remove.error ?? setStatus.error} />
+        <p className="text-xs text-slate-500">{t("konc.what")}</p>
       </div>
     </Card>
   );

@@ -1,11 +1,12 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { EditActions, FormView } from "@/components/detailView";
 import { ProcessGuide } from "@/components/processGuide";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { BiaChainCard } from "./Resilience";
 import { useT, lbl } from "@/lib/i18n";
 import { ContinuityTabs } from "./Plans";
 import { HEALTH_COLOR, STATUS_COLORS } from "@/components/health";
-import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Field, Input, PageHeader, Select, SuccessBox, Textarea } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Field, Input, PageHeader, Select, SuccessBox, Textarea, PageTitle } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { cn, fmtDay } from "@/lib/utils";
@@ -148,7 +149,10 @@ function BiaEditor({ bia }: { bia: BiaDetail }) {
   const can = useCan();
   const qc = useQueryClient();
   const nav = useNavigate();
-  const edit = bia.canEdit;
+  const canEdit = bia.canEdit;
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Nový záznam rovnou ve formuláři. */
+  const [editing, setEditing] = useState(false);
+  const edit = canEdit && editing;
   const [f, setF] = useState({
     impacts: bia.impacts,
     mtpdHours: bia.mtpdHours,
@@ -161,11 +165,13 @@ function BiaEditor({ bia }: { bia: BiaDetail }) {
     assessedAt: bia.assessedAt,
     status: bia.status,
   });
+  const [initialForm] = useState(() => f);
   const save = useMutation({
     mutationFn: () => api.bia.update(bia.id, { ...f, minServiceLevel: f.minServiceLevel || null, peakPeriods: f.peakPeriods || null, dependencies: f.dependencies || null, notes: f.notes || null }),
     onSuccess: (d) => {
       qc.setQueryData(["bia", d.id], d);
       qc.invalidateQueries({ queryKey: ["bia"] });
+      setEditing(false);
     },
   });
   const del = useMutation({
@@ -189,14 +195,9 @@ function BiaEditor({ bia }: { bia: BiaDetail }) {
 
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/bia" className="hover:text-brand-700">
-          {t("bia.kontinuitaBia")}
-        </Link>
-      </div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{t("bia.analyzaDopadu", { processName: bia.processName })}</h1>
+          <PageTitle>{t("bia.analyzaDopadu", { processName: bia.processName })}</PageTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
             <Badge tone={bia.status === "approved" ? "green" : "amber"}>{bia.status === "approved" ? t("bia.schvaleno") : t("bia.navrh")}</Badge>
             <Link to="/processes/$processId" params={{ processId: bia.processId }} className="text-brand-600 hover:underline">
@@ -217,14 +218,20 @@ function BiaEditor({ bia }: { bia: BiaDetail }) {
               <Trash2 size={15} />
             </Button>
           )}
-          {edit && (
-            <Button disabled={save.isPending} onClick={() => save.mutate()}>
-              {t("bia.ulozit")}
-            </Button>
-          )}
+          <EditActions
+              isNew={false}
+              editing={editing}
+              canEdit={canEdit}
+              onEdit={() => setEditing(true)}
+              onCancel={() => (setF(initialForm), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={false}
+              saveLabel={t("bia.ulozit")}
+            />
         </div>
       </div>
-      {save.isSuccess && <SuccessBox>{t("bia.ulozeno")}</SuccessBox>}
+      {save.isSuccess && !editing && <SuccessBox>{t("bia.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error} />
       {bia.warnings.length > 0 && (
         <div className="mb-4 space-y-1 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -236,6 +243,7 @@ function BiaEditor({ bia }: { bia: BiaDetail }) {
         </div>
       )}
 
+      <FormView editing={edit}>
       <Card className="mb-6 overflow-hidden">
         <CardHeader
           title={t("bia.dopadyVypadkuVCase")}
@@ -366,6 +374,7 @@ function BiaEditor({ bia }: { bia: BiaDetail }) {
           )}
         </Card>
       </div>
+      </FormView>
     </>
   );
 }

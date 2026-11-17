@@ -1,11 +1,14 @@
-import { Badge, Card, CardHeader, EmptyState, ErrorBox, Input, PageHeader, Select } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Input, Kpi, PageHeader, Select } from "@/components/ui";
+import { toast } from "@/components/ui/overlay";
+import { AssetPicker, type PickedAsset } from "@/components/pickers";
+import { useCan } from "@/lib/auth";
 import { Tabs, useTab } from "@/components/ui/tabs";
 import { FindingsTable } from "@/pages/Findings";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { fmtDate } from "@/lib/utils";
 import { HOST_CHANGE_LABELS, HOST_FINDING_GUIDE, HOST_FINDING_LABELS, type HostDetailDto, type HostFinding, type HostInventory } from "@contix/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useState, type ReactNode } from "react";
@@ -41,9 +44,14 @@ export function HostDetailPage() {
             <Link to="/assets/$assetId" params={{ assetId: h.assetId }} className="text-sm text-brand-700 hover:underline">
               {t("hd.asset", { name: h.assetName ?? h.hostname })}
             </Link>
-          ) : undefined
+          ) : (
+            <span className="text-sm text-slate-500" data-testid="host-no-asset">
+              {t("hd.noAsset")}
+            </span>
+          )
         }
       />
+      {!h.assetId && <AssetActions h={h} />}
       <Card className="mb-4 p-5">
         <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
           <Fact label={t("hd.ips")}>{d.host.ips.join(", ") || "—"}</Fact>
@@ -116,12 +124,7 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Tile({ label, children, onClick }: { label: string; children: ReactNode; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-left shadow-sm hover:border-brand-300">
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="text-xl font-semibold text-slate-900">{children}</div>
-    </button>
-  );
+  return <Kpi label={label} value={children} onClick={onClick} />;
 }
 
 function uptime(s: number | null | undefined) {
@@ -367,12 +370,120 @@ function Network({ d, reachable }: { d: HostInventory; reachable: HostDetailDto[
   );
 }
 
+/** Server bez aktiva (agent nenašel jednoznačnou shodu): založit aktivum z inventáře, nebo spárovat s existujícím. */
+function AssetActions({ h }: { h: HostDetailDto }) {
+  const t = useT();
+  const can = useCan();
+  const qc = useQueryClient();
+  const [pick, setPick] = useState<PickedAsset[]>([]);
+  const [pairing, setPairing] = useState(false);
+  const attach = useMutation({
+    mutationFn: (assetId: string | null) => api.hosts.attachAsset(h.id, assetId),
+    onSuccess: (d, assetId) => {
+      qc.setQueryData(["hosts", h.id], d);
+      void qc.invalidateQueries({ queryKey: ["hosts"] });
+      void qc.invalidateQueries({ queryKey: ["assets"] });
+      toast(assetId ? t("hd.assetLinked", { name: d.assetName ?? "" }) : t("hd.assetCreated", { name: d.assetName ?? "" }));
+    },
+  });
+  if (!can("assets:write")) return null;
+  return (
+    <Card className="mb-4 border-amber-200 bg-amber-50/60 p-5" data-testid="host-asset-actions">
+      <p className="text-sm text-slate-700">{t("hd.noAssetHelp")}</p>
+      <div className="mt-3 flex flex-wrap items-start gap-2">
+        <Button onClick={() => attach.mutate(null)} disabled={attach.isPending} data-testid="host-asset-create">
+          {t("hd.createAsset")}
+        </Button>
+        {!pairing && (
+          <Button variant="secondary" onClick={() => setPairing(true)} disabled={attach.isPending}>
+            {t("hd.linkAsset")}
+          </Button>
+        )}
+      </div>
+      {pairing && (
+        <div className="mt-3 max-w-xl space-y-2">
+          <AssetPicker value={pick} onChange={(v) => setPick(v.slice(-1))} />
+          <div className="flex gap-2">
+            <Button onClick={() => pick[0] && attach.mutate(pick[0].id)} disabled={!pick[0] || attach.isPending} data-testid="host-asset-link">
+              {t("hd.linkConfirm")}
+            </Button>
+            <Button variant="secondary" onClick={() => (setPairing(false), setPick([]))}>
+              {t("common.cancelAction")}
+            </Button>
+          </div>
+        </div>
+      )}
+      {attach.error && <ErrorBox error={attach.error} />}
+    </Card>
+  );
+}
+
 function SystemTab({ d }: { d: HostInventory }) {
   const t = useT();
   const sd = d.sshd;
   const sy = d.system;
   const yn = (v: boolean | null | undefined, bad: boolean) => (v == null ? "—" : <Badge tone={v === bad ? "red" : "green"}>{v ? "yes" : "no"}</Badge>);
-  if (!sd && !sy) return <EmptyState>{t("hd.oldCollector")}</EmptyState>;
+  const agent = d.collectorVersion.startsWith("agent");
+  if (!sd && !sy && !agent) return <EmptyState>{t("hd.oldCollector")}</EmptyState>;
+  return (
+    <div className="space-y-4">
+      {agent && <AgentSystem d={d} />}
+      {(sd || sy) && <SshdUpdates d={d} yn={yn} />}
+    </div>
+  );
+}
+
+/** Balíčky a plánované úlohy (agent CONTIX, ADR-177). */
+function AgentSystem({ d }: { d: HostInventory }) {
+  const t = useT();
+  const [q, setQ] = useState("");
+  const f = q.trim().toLowerCase();
+  const pkgs = f ? d.packages.filter((p) => p.name.toLowerCase().includes(f) || p.version.toLowerCase().includes(f)) : d.packages;
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card>
+        <CardHeader title={t("hd.packages", { n: d.packages.length })} />
+        <div className="p-5 pt-0">
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("hd.packagesFilter")} aria-label={t("hd.packagesFilter")} className="mb-2" />
+          <ul className="max-h-96 space-y-0.5 overflow-y-auto text-xs" data-testid="host-packages">
+            {pkgs.slice(0, 500).map((p) => (
+              <li key={`${p.name}:${p.arch}`}>
+                <code>{p.name}</code> <span className="text-slate-500">{p.version}</span> {p.arch && <span className="text-slate-400">{p.arch}</span>}
+              </li>
+            ))}
+          </ul>
+          {pkgs.length > 500 && <p className="mt-2 text-xs text-slate-500">{t("hd.packagesMore", { n: pkgs.length - 500 })}</p>}
+        </div>
+      </Card>
+      <Card>
+        <CardHeader title={t("hd.scheduled", { n: d.scheduled.length })} subtitle={t("hd.scheduledHint")} />
+        {d.scheduled.length ? (
+          <table className="w-full text-xs" data-testid="host-scheduled">
+            <tbody>
+              {d.scheduled.map((s, i) => (
+                <tr key={i} className="border-t border-slate-100">
+                  <td className="px-5 py-1.5">
+                    <code>{s.program || s.source}</code>
+                    <div className="text-slate-400">{s.source}</div>
+                  </td>
+                  <td className="py-1.5">{s.user}</td>
+                  <td className="py-1.5 pr-5 font-mono">{s.schedule || s.state}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <p className="p-5 text-sm text-slate-500">—</p>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function SshdUpdates({ d, yn }: { d: HostInventory; yn: (v: boolean | null | undefined, bad: boolean) => ReactNode }) {
+  const t = useT();
+  const sd = d.sshd;
+  const sy = d.system;
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>

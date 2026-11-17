@@ -25,11 +25,6 @@ export function AssetDuplicatesPage() {
       <PageHeader
         title={t("ast.duplicityAktiv")}
         subtitle={t("ast.dvojiceAktivKtereJsouNejspis")}
-        actions={
-          <Link to="/assets" className="inline-flex items-center gap-1 text-sm text-brand-700 hover:underline">
-            <ArrowLeft size={14} /> {t("ast.aktiva")}
-          </Link>
-        }
       />
       <ErrorBox error={q.error ?? dismiss.error} />
       {!pairs.length ? (

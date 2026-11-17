@@ -28,11 +28,6 @@ export function AuditReadinessPage() {
   const d = q.data;
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/compliance-path" className="hover:text-brand-700">
-          {t("gd.page.title")}
-        </Link>
-      </div>
       <PageHeader
         title={t("gd.audit.title")}
         subtitle={t("gd.audit.subtitle")}

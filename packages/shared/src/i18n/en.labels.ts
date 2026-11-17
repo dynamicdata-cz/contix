@@ -2447,6 +2447,7 @@ export const EN_LABELS: Record<string, string> = {
   "lbl:Inventář je větší než 4 MB": "The inventory is larger than 4 MB",
   "lbl:Inventář není platný JSON": "The inventory is not valid JSON",
   "lbl:Sběrač ze serverů": "Server collector",
+  "lbl:Agent CONTIX": "CONTIX agent",
   "lbl:Další účet s UID 0 (práva roota)": "Another account with UID 0 (root rights)",
   "lbl:Slabý SSH klíč (DSA nebo RSA kratší než 3072 bitů)": "Weak SSH key (DSA or RSA shorter than 3072 bits)",
   "lbl:SSH klíč pro přímé přihlášení roota": "SSH key for direct root login",
@@ -2724,4 +2725,9 @@ export const EN_LABELS: Record<string, string> = {
   "lbl:Ukázková společnost neexistuje.": "The demo company does not exist.",
   "lbl:V ukázkové společnosti jsou uživatelé – nejdřív je přesuňte nebo smažte.": "There are users in the demo company – move or delete them first.",
   "lbl:Vedoucí útvaru a garant": "Unit head and owner",
+  "lbl:Požadavek koncentrátoru je příliš velký": "The concentrator request is too large",
+  "lbl:Požadavek koncentrátoru není platný JSON": "The concentrator request is not valid JSON",
+  "lbl:Neplatný podpis nebo neznámý koncentrátor": "Invalid signature or unknown concentrator",
+  "lbl:Neplatný, použitý nebo prošlý registrační kód koncentrátoru": "Invalid, used or expired concentrator registration code",
+  "lbl:Agent nenalezen": "Agent not found",
 };

@@ -382,7 +382,7 @@ export function Layout() {
       </aside>
       <main className="flex-1 overflow-y-auto">
         <TopBar onMenu={() => setDrawer(true)} pending={pending} onLogout={() => logout.mutate()} />
-        <div className="mx-auto max-w-7xl px-4 pb-24 pt-5 md:px-8">
+        <div className="app-main mx-auto max-w-7xl px-4 pb-24 pt-5 md:px-8">
           <Breadcrumbs />
           {/* po načtení vlastních rámců se stránka vykreslí znovu (memoizované seznamy požadavků) */}
           {fwCatalog.isPending ? null : <Outlet key={frameworkRegistryVersion} />}

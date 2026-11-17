@@ -1,0 +1,24 @@
+{
+  "description": "Protocol v1 change message signed with the PUBLIC TEST KEY (seed 0x00..0x1f). Never use this key outside tests.",
+  "publicKey": "A6EHv/POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg=",
+  "canonical": "{\"agent\":\"a8f3c2d1-example\",\"kind\":\"change\",\"payload\":{\"detected\":\"2026-11-17T08:12:40Z\",\"item\":{\"port\":8443,\"process\":\"contix-agent\",\"proto\":\"tcp\"},\"module\":\"ports\",\"note\":\"Příliš žluťoučký kůň <&>\",\"op\":\"add\"},\"seq\":18234,\"ts\":\"2026-11-17T08:12:44Z\",\"v\":1}",
+  "message": {
+    "v": 1,
+    "agent": "a8f3c2d1-example",
+    "seq": 18234,
+    "ts": "2026-11-17T08:12:44Z",
+    "kind": "change",
+    "payload": {
+      "module": "ports",
+      "op": "add",
+      "item": {
+        "port": 8443,
+        "proto": "tcp",
+        "process": "contix-agent"
+      },
+      "detected": "2026-11-17T08:12:40Z",
+      "note": "Příliš žluťoučký kůň \u003c\u0026\u003e"
+    },
+    "sig": "lJ/OxHO9MK2Smz2xdMdWnsbuW7ylNowrvF1StSBaYO8OwhmSOMUxQLdNiXosb2OlcAEcsJQ8X9K1gV33JP7vAA=="
+  }
+}

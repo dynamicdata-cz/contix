@@ -1,4 +1,5 @@
 import { SuggestInput } from "@/components/combobox";
+import { EditActions, FormView } from "@/components/detailView";
 import { useFormGuard } from "@/lib/unsaved";
 import { ProcessGuide } from "@/components/processGuide";
 import { askConfirm } from "@/components/ui/overlay";
@@ -8,7 +9,7 @@ import { TasksCard } from "@/components/tasks";
 import { CompanyCell, TargetCompanyField, useGroupView, useTargetCompany } from "@/components/company";
 import { AssetPicker, IdMultiSelect, PositionSelect, type PickedAsset } from "@/components/pickers";
 import { TransferButton } from "@/components/transfer";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, PageHeader, Select, SuccessBox, Textarea, toggle, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, PageHeader, Select, SuccessBox, Textarea, toggle, type Tone, PageTitle } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -273,7 +274,10 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
   const qc = useQueryClient();
   const nav = useNavigate();
   const target = useTargetCompany();
-  const edit = a ? a.canEdit : can("aiact:write");
+  const canEdit = a ? a.canEdit : can("aiact:write");
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Nový záznam rovnou ve formuláři. */
+  const [editing, setEditing] = useState(!a);
+  const edit = canEdit && editing;
   const processes = useQuery({ queryKey: ["processes", "", ""], queryFn: () => api.processes.list({}), enabled: mod("processes") && can("processes:read") });
   const suppliers = useQuery({ queryKey: ["suppliers", "all"], queryFn: () => api.suppliers.list({ withGroup: "1" }), enabled: mod("suppliers") && can("suppliers:read") });
   const activities = useQuery({ queryKey: ["gdpr", "all"], queryFn: () => api.gdpr.list("all"), enabled: mod("gdpr") && can("gdpr:read") });
@@ -307,6 +311,7 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
     riskIds: a?.risks.map((x) => x.id) ?? [],
     controlIds: a?.controls.map((x) => x.id) ?? [],
   });
+  const [initialForm] = useState(() => f);
   const [sc, setSc] = useState<AiScreening>(a?.screening ?? EMPTY_SCREENING);
   const [scTouched, setScTouched] = useState(false);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
@@ -352,6 +357,7 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
     mutationFn: () => (a ? api.aiact.update(a.id, body()) : api.aiact.create(body())),
     onSuccess: (d) => {
       onSaved(d);
+      if (a) setEditing(false);
       if (!a) nav({ to: "/aiact/$systemId", params: { systemId: d.id } });
     },
   });
@@ -368,14 +374,9 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
   const statuses = AI_SYSTEM_STATUSES.filter((s) => s === f.status || (s !== "approved" && s !== "rejected"));
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/aiact" className="hover:text-brand-700">
-          {t("aia.title")}
-        </Link>
-      </div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{a ? `${a.code ? `${a.code} ` : ""}${a.name}` : t("aia.newSystemTitle")}</h1>
+          <PageTitle>{a ? `${a.code ? `${a.code} ` : ""}${a.name}` : t("aia.newSystemTitle")}</PageTitle>
           {a && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <Badge tone={statusTone[a.status]}>{t.lbl(AIACT_LABELS.status[a.status])}</Badge>
@@ -388,7 +389,7 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
         </div>
         <div className="flex gap-2">
           {a && can("aiact:write") && <TransferButton entity="ai_systems" id={a.id} companyId={a.companyId} />}
-          {a && edit && a.decision && (
+          {a && canEdit && a.decision && (
             <Button variant="secondary" disabled={review.isPending} onClick={() => review.mutate()}>
               <CheckCircle2 size={15} /> {t("aia.confirmReview")}
             </Button>
@@ -398,14 +399,20 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
               <Trash2 size={15} />
             </Button>
           )}
-          {edit && (
-            <Button disabled={!f.name.trim() || save.isPending} onClick={() => save.mutate()}>
-              {a ? t("aia.save") : t("common.create")}
-            </Button>
-          )}
+          <EditActions
+              isNew={!a}
+              editing={editing}
+              canEdit={canEdit}
+              onEdit={() => setEditing(true)}
+              onCancel={() => (setF(initialForm), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={!f.name.trim()}
+              saveLabel={a ? t("aia.save") : t("common.create")}
+            />
         </div>
       </div>
-      {save.isSuccess && a && <SuccessBox>{t("aia.saved")}</SuccessBox>}
+      {save.isSuccess && !editing && a && <SuccessBox>{t("aia.saved")}</SuccessBox>}
       <ErrorBox error={save.error ?? review.error ?? del.error} />
       {a && a.gaps.length > 0 && (
         <Card className="mb-6 border-amber-200 bg-amber-50/50 p-4" data-testid="aiact-gaps">
@@ -419,6 +426,7 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
       )}
 
       <div className="grid items-start gap-6 lg:grid-cols-2">
+      <FormView editing={edit}>
         <Card>
           <CardHeader title={t("aia.basics")} subtitle={t("aia.basicsSub")} />
           <fieldset disabled={!edit} {...guard.bind} className="space-y-4 p-5">
@@ -518,8 +526,10 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
             </Field>
           </fieldset>
         </Card>
+      </FormView>
 
         <div className="space-y-6">
+          <FormView editing={edit} className="space-y-6">
           <Card data-testid="aiact-screening">
             <CardHeader title={t("aia.screening")} subtitle={t("aia.screeningSub")} />
             <fieldset disabled={!edit} {...guard.bind} className="space-y-5 p-5">
@@ -639,6 +649,7 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
             </fieldset>
           </Card>
 
+          </FormView>
           {a && <DecisionCard a={a} />}
         </div>
       </div>

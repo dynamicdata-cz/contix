@@ -6,7 +6,7 @@ import { useT } from "@/lib/i18n";
 import { CompanyCell, TargetCompanyField, useGroupView, useTargetCompany } from "@/components/company";
 import { AssetPicker, IdMultiSelect, PositionSelect, type PickedAsset } from "@/components/pickers";
 import { TransferButton } from "@/components/transfer";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Kpi, PageHeader, Select, SuccessBox, Textarea, type Tone, PageTitle } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
 import { fmtDay } from "@/lib/utils";
@@ -31,6 +31,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { AlertTriangle, CheckCircle2, FileDown, Plus, Printer, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { Tabs, useTab } from "@/components/ui/tabs";
+import { Chip, Chips, EditActions, Prose, ViewItem, ViewSection } from "@/components/detailView";
 
 const statusTone: Record<ActivityStatus, Tone> = { draft: "amber", active: "green", retired: "slate" };
 const levelTone = { low: "green", medium: "amber", high: "red" } as const;
@@ -203,6 +205,10 @@ function ActivityEditor({ a }: { a: ProcessingActivityDto | null }) {
     reviewMonths: a?.reviewMonths ?? 12,
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Po uložení se editor znovu vytvoří (klíč updatedAt). */
+  const [initialForm] = useState(f);
+  const [editing, setEditing] = useState(!a);
+  const [tab, setTab] = useTab(["overview", "dpia", "tasks"] as const, "overview");
   const body = (): ProcessingActivityInput => ({
     ...(a ? {} : { companyId: target.companyId }),
     code: f.code || null,
@@ -247,14 +253,9 @@ function ActivityEditor({ a }: { a: ProcessingActivityDto | null }) {
   const dr = dpiaRequired(f.dpiaCriteria);
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/gdpr" className="hover:text-brand-700">
-          {t("gdpr.ochranaOsobnichUdaju")}
-        </Link>
-      </div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{a ? `${a.code ? `${a.code} ` : ""}${a.name}` : t("gdpr.novaCinnostZpracovani")}</h1>
+          <PageTitle>{a ? `${a.code ? `${a.code} ` : ""}${a.name}` : t("gdpr.novaCinnostZpracovani")}</PageTitle>
           {a && (
             <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
               <Badge tone={statusTone[a.status]}>{t.lbl(GDPR_LABELS.status[a.status])}</Badge>
@@ -278,14 +279,19 @@ function ActivityEditor({ a }: { a: ProcessingActivityDto | null }) {
               <Trash2 size={15} />
             </Button>
           )}
-          {edit && (
-            <Button disabled={!f.name.trim() || save.isPending} onClick={() => save.mutate()}>
-              {a ? t("gdpr.ulozit") : t("common.create")}
-            </Button>
-          )}
+          <EditActions
+            isNew={!a}
+            editing={editing}
+            canEdit={edit}
+            onEdit={() => (setTab("overview"), setEditing(true))}
+            onCancel={() => (setF(initialForm), setEditing(false))}
+            onSave={() => save.mutate()}
+            saving={save.isPending}
+            saveDisabled={!f.name.trim()}
+            saveLabel={a ? t("gdpr.ulozit") : t("common.create")}
+          />
         </div>
       </div>
-      {save.isSuccess && a && <SuccessBox>{t("gdpr.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? review.error ?? del.error} />
       {a && a.gaps.length > 0 && (
         <Card className="mb-6 border-amber-200 bg-amber-50/50 p-4">
@@ -298,6 +304,22 @@ function ActivityEditor({ a }: { a: ProcessingActivityDto | null }) {
         </Card>
       )}
 
+      {a && !editing && (
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          items={[
+            { key: "overview" as const, label: t("detail.tab.overview") },
+            { key: "dpia" as const, label: "DPIA", badge: a.dpiaRequired && a.dpia?.status !== "completed" ? <Badge tone="amber">!</Badge> : undefined },
+            { key: "tasks" as const, label: t("detail.tab.tasks") },
+          ]}
+        />
+      )}
+      {a && !editing && tab === "overview" && <ActivityOverview a={a} onTab={setTab} />}
+      {a && !editing && tab === "dpia" && (a.dpiaRequired || a.dpia ? <DpiaCard a={a} /> : <Card className="p-5 text-sm text-slate-500">{t("gdpr.ov.noDpia")}</Card>)}
+      {a && !editing && tab === "tasks" && <TasksCard kind="processing" id={a.id} />}
+
+      {(!a || editing) && (
       <div className="grid items-start gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("gdpr.zaznamOCinnostiZpracovani")} subtitle={t("gdpr.nalezitostiDleCl30Odst")} />
@@ -437,9 +459,132 @@ function ActivityEditor({ a }: { a: ProcessingActivityDto | null }) {
         </div>
       </div>
 
-      {a && (a.dpiaRequired || a.dpia) && <DpiaCard a={a} />}
-      {a && <TasksCard kind="processing" id={a.id} className="mt-6" />}
+      )}
     </>
+  );
+}
+
+/** Přehled činnosti zpracování (v1.84): stav, právní základ, DPIA a přezkum v dlaždicích, záznam čl. 30 vlevo, vazby vpravo. */
+function ActivityOverview({ a, onTab }: { a: ProcessingActivityDto; onTab: (k: "overview" | "dpia" | "tasks") => void }) {
+  const t = useT();
+  const mod = useModule();
+  const list = (v: string[]) => (v.length ? v.join(", ") : null);
+  const overdue = !!a.nextReview && a.nextReview < new Date().toISOString().slice(0, 10);
+  return (
+    <div className="mt-2 space-y-6" data-testid="gdpr-overview">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Kpi label={t("gdpr.stav")} value={<span className="text-lg">{t.lbl(GDPR_LABELS.status[a.status])}</span>} note={t.lbl(GDPR_LABELS.role[a.role])} />
+        <Kpi label={t("gdpr.pravniZakladCl6")} value={<span className="text-lg">{a.legalBasis ? t.lbl(GDPR_LABELS.legalBasis[a.legalBasis]) : "—"}</span>} tone={a.legalBasis ? "slate" : "amber"} />
+        <Kpi
+          label="DPIA"
+          value={<span className="text-lg">{a.dpia ? t.lbl(GDPR_LABELS.dpiaStatus[a.dpia.status]) : a.dpiaRequired ? t("gdpr.ov.dpiaMissing") : t("gdpr.ov.dpiaNotNeeded")}</span>}
+          tone={a.dpiaRequired && a.dpia?.status !== "completed" ? "amber" : "slate"}
+          note={t("gdpr.ov.criteria", { n: a.dpiaCriteria.length })}
+          onClick={() => onTab("dpia")}
+        />
+        <Kpi
+          label={t("gdpr.ov.review")}
+          value={<span className="text-lg">{a.nextReview ? fmtDay(a.nextReview) : "—"}</span>}
+          tone={overdue ? "amber" : "slate"}
+          note={a.lastReviewedAt ? t("gdpr.ov.lastReview", { date: fmtDay(a.lastReviewedAt) }) : t("gdpr.ov.neverReviewed")}
+        />
+      </div>
+      <div className="grid items-start gap-6 lg:grid-cols-3">
+        <div className="space-y-6 lg:col-span-2">
+          <ViewSection title={t("gdpr.zaznamOCinnostiZpracovani")} subtitle={t("gdpr.nalezitostiDleCl30Odst")}>
+            <ViewItem label={t("gdpr.bUcelZpracovani")} wide>
+              <Prose text={a.purpose} />
+            </ViewItem>
+            <ViewItem label={t("gdpr.upresneniPravnihoZakladu")} wide>
+              {a.legalBasisNote}
+            </ViewItem>
+            <ViewItem label={t("gdpr.cKategorieSubjektuUdaju")}>{list(a.dataSubjects)}</ViewItem>
+            <ViewItem label={t("gdpr.cKategorieOsobnichUdaju")}>{list(a.dataCategories)}</ViewItem>
+            <ViewItem label={t("gdpr.zvlastniKategorieCl9A")}>{a.specialCategories.length ? <span className="text-amber-800">{list(a.specialCategories)}</span> : t("gdpr.ov.noneSpecial")}</ViewItem>
+            <ViewItem label={t("gdpr.fLhutyProVymaz")}>{a.retention}</ViewItem>
+            <ViewItem label={t("gdpr.dKategoriePrijemcu")} wide>
+              <Prose text={a.recipients} />
+            </ViewItem>
+            <ViewItem label={t("gdpr.ePredaniDoTretichZemi")} wide>
+              <Prose text={a.thirdCountryTransfers} />
+            </ViewItem>
+            <ViewItem label={t("gdpr.gTechnickaAOrganizacniOpatreni")} wide>
+              <Prose text={a.securityMeasures} />
+            </ViewItem>
+          </ViewSection>
+        </div>
+        <div className="space-y-6">
+          <ViewSection title={t("gdpr.vazby")} subtitle={t("gdpr.kdeZpracovaniProbihaAKdo")} cols={1}>
+            <ViewItem label={t("gdpr.odpovednostFunkcniMisto")}>{a.ownerPositionName ?? <span className="text-amber-700">{t("rsk.ov.noOwner")}</span>}</ViewItem>
+            {mod("processes") && (
+              <ViewItem label={t("gdpr.procesy")}>
+                <Chips empty={t("rsk.ov.none")}>
+                  {a.processes.map((p) => (
+                    <Chip key={p.id}>
+                      <Link to="/processes/$processId" params={{ processId: p.id }} className="hover:text-brand-700">
+                        {p.code ? `${p.code} ` : ""}
+                        {p.name}
+                      </Link>
+                    </Chip>
+                  ))}
+                </Chips>
+              </ViewItem>
+            )}
+            <ViewItem label={t("gdpr.aktivaInformacniSystemyUlozisteEvidence")}>
+              <Chips empty={t("rsk.ov.none")}>
+                {a.assets.map((x) => (
+                  <Chip key={x.id}>
+                    <Link to="/assets/$assetId" params={{ assetId: x.id }} className="hover:text-brand-700">
+                      {x.name}
+                    </Link>
+                  </Chip>
+                ))}
+              </Chips>
+            </ViewItem>
+            {mod("suppliers") && (
+              <ViewItem label={t("gdpr.zpracovateleDodavateleCl28")}>
+                <Chips empty={t("rsk.ov.none")}>
+                  {a.suppliers.map((x) => (
+                    <Chip key={x.id}>
+                      <Link to="/suppliers/$supplierId" params={{ supplierId: x.id }} className="hover:text-brand-700">
+                        {x.name}
+                      </Link>
+                    </Chip>
+                  ))}
+                </Chips>
+              </ViewItem>
+            )}
+            {mod("controls") && (
+              <ViewItem label={t("gdpr.bezpecnostniOpatreniZKataloguCl")}>
+                <Chips empty={t("rsk.ov.none")}>
+                  {a.controls.map((c) => (
+                    <Chip key={c.id}>
+                      <Link to="/controls/$controlId" params={{ controlId: c.id }} className="hover:text-brand-700">
+                        {c.code ? `${c.code} ` : ""}
+                        {c.name}
+                      </Link>
+                    </Chip>
+                  ))}
+                </Chips>
+              </ViewItem>
+            )}
+          </ViewSection>
+          <ViewSection title={t("gdpr.potrebaPosouzeniVlivuDpia")} cols={1}>
+            <ViewItem label={t("gdpr.ov.criteriaMet")}>
+              {a.dpiaCriteria.length ? (
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {a.dpiaCriteria.map((k) => (
+                    <li key={k}>{t.lbl(GDPR_LABELS.criteria[k])}</li>
+                  ))}
+                </ul>
+              ) : (
+                t("gdpr.ov.noCriteria")
+              )}
+            </ViewItem>
+          </ViewSection>
+        </div>
+      </div>
+    </div>
   );
 }
 

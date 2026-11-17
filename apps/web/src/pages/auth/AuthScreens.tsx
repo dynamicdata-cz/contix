@@ -20,33 +20,35 @@ const SSO_ERRORS: Record<string, string> = {
 };
 
 /**
- * Přihlašovací obrazovky v duchu loga (v1.77, ADR-170): tmavý zaoblený rámeček jako značka „cx“, inkoustová hlavní
- * tlačítka a zaměření polí místo barvy motivu, logo nad kartou na střed. Barvy jen slate (tmavý režim je přepíše).
+ * Přihlašovací obrazovky (v1.84, sjednocený vzhled): tmavý podklad v barvě motivu navazuje na tmavý boční panel
+ * aplikace, bílá karta, hlavní tlačítko v barvě motivu jako všude v aplikaci. Logo nad kartou světlé (`auth-brand`).
  */
-export const AUTH_PRIMARY = "bg-slate-900 text-slate-50 shadow-none hover:bg-slate-700 focus-visible:ring-slate-400";
+export const AUTH_PRIMARY = "py-2.5";
 
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   const t = useT();
   return (
-    <div className="auth-ink relative flex min-h-full items-center justify-center overflow-hidden bg-slate-100 px-4 py-12">
+    <div className="auth-ink auth-night relative flex min-h-full items-center justify-center overflow-hidden px-4 py-12">
       {/* značka jako jemný vodoznak – opakuje rámeček loga */}
-      <div aria-hidden className="pointer-events-none absolute -bottom-40 -right-40 opacity-[0.045]">
+      <div aria-hidden className="auth-brand pointer-events-none absolute -bottom-40 -right-40 opacity-[0.06]">
         <ContixMark className="h-[34rem] w-[34rem]" title="" />
       </div>
       <div className="relative w-full max-w-[26rem]">
-        <div className="mb-7 flex flex-col items-center gap-3">
+        <div className="auth-brand mb-7 flex flex-col items-center gap-3">
           <ContixMark className="h-16 w-16" />
           <div className="flex flex-col items-center gap-1">
             <ContixWordmark className="block h-6 w-auto" title={t("my.contix")} />
             <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">{t("auth.tagline")}</div>
           </div>
         </div>
-        <div className="rounded-[1.75rem] border-2 border-slate-900 bg-white p-8 shadow-[0_18px_40px_-24px_rgb(15_23_42/0.45)]">
+        <div className="rounded-2xl bg-white p-8 shadow-[0_30px_60px_-30px_rgb(0_0_0/0.65)]">
           <h1 className="text-xl font-bold tracking-tight text-slate-900">{title}</h1>
           {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
           <div className="mt-6 space-y-4">{children}</div>
         </div>
-        <LanguageSwitch />
+        <div className="auth-brand">
+          <LanguageSwitch />
+        </div>
       </div>
     </div>
   );

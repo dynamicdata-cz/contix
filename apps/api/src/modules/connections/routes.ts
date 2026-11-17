@@ -1,4 +1,4 @@
-import { CollectorConnectionInput, CollectorInstallerInput, ProbeConnectionInput, JiraConnectionInput, NetboxConnectionInput, WazuhConnectionInput, type ConnectorTestResult } from "@contix/shared";
+import { AgentStatusInput, CollectorConnectionInput, CollectorInstallerInput, ConcentratorConnectionInput, ProbeConnectionInput, JiraConnectionInput, NetboxConnectionInput, WazuhConnectionInput, type ConnectorTestResult } from "@contix/shared";
 import { listNetbox, netboxDtos, saveNetbox, testNetbox } from "./netbox";
 import { jiraDtos, listJira, saveJira, testJira } from "./jira";
 import { zValidator } from "@hono/zod-validator";
@@ -17,6 +17,8 @@ import { testIndexer } from "../vulnerabilities/sources";
 import { getWazuh, saveWazuh, wazuhDtos } from "./wazuh";
 import { buildCollectorInstaller, collectorDtos, collectorToken, rotateCollectorToken, saveCollector } from "../collector/service";
 import { buildProbeInstaller, probeDtos, probeToken, rotateProbeToken, saveProbe } from "../sectests/service";
+import { scheduleAgentProcessing } from "../agents/process";
+import { agentDtos, concentratorDtos, renewConcentratorCode, saveConcentrator, setAgentStatus } from "../agents/service";
 import { and } from "drizzle-orm";
 
 /* ============================================================
@@ -49,7 +51,7 @@ export function connectionAdminRoutes(deps: { db: Db; config: Config }) {
   });
 
   return new Hono<AppEnv>()
-    .get("/", requirePerm("admin:settings"), async (c) => c.json({ wazuh: await wazuhDtos(db, config), collectors: await collectorDtos(db), probes: await probeDtos(db), netbox: await netboxDtos(db, config), jira: await jiraDtos(db, config) }))
+    .get("/", requirePerm("admin:settings"), async (c) => c.json({ wazuh: await wazuhDtos(db, config), collectors: await collectorDtos(db), concentrators: await concentratorDtos(db), probes: await probeDtos(db), netbox: await netboxDtos(db, config), jira: await jiraDtos(db, config) }))
 
     /* ---- NetBox a JIRA (v1.53, ADR-150) ---- */
     .post("/netbox", requirePerm("admin:settings"), zValidator("json", NetboxConnectionInput), async (c) => {
@@ -168,6 +170,49 @@ export function connectionAdminRoutes(deps: { db: Db; config: Config }) {
       return c.body(body, 200, { "content-type": "text/x-shellscript; charset=utf-8", "content-disposition": 'attachment; filename="install-contix-collect.sh"', "cache-control": "no-store" });
     })
     /* ---- sonda bezpečnostních testů (v1.56, ADR-153) ---- */
+    /* ---- Koncentrátory a agenti (ADR-177): registrační kód se ukáže jen jednou, v DB jen otisk ---- */
+    .post("/concentrator", requirePerm("admin:settings"), zValidator("json", ConcentratorConnectionInput), async (c) => {
+      const input = c.req.valid("json");
+      await checkScope(input);
+      const r = await saveConcentrator(db, null, input);
+      await audit(db, { c, user: currentUser(c), action: "connection.created", entityType: "connection", entityId: r.id, details: { kind: "concentrator", name: input.name, zone: input.zone, companyId: input.companyId, autoApprove: input.autoApprove } });
+      return c.json({ id: r.id, code: r.code, codeExpiresAt: r.codeExpiresAt, concentrators: await concentratorDtos(db) }, 201);
+    })
+    .put("/concentrator/:id", requirePerm("admin:settings"), zValidator("json", ConcentratorConnectionInput), async (c) => {
+      const id = c.req.param("id");
+      if (!(await concentratorDtos(db)).some((x) => x.id === id)) throw new HTTPException(404, { message: "Připojení nenalezeno" });
+      const input = c.req.valid("json");
+      await checkScope(input);
+      await saveConcentrator(db, id, input);
+      await audit(db, { c, user: currentUser(c), action: "connection.updated", entityType: "connection", entityId: id, details: { kind: "concentrator", name: input.name, zone: input.zone, enabled: input.enabled, companyId: input.companyId, autoApprove: input.autoApprove } });
+      return c.json({ concentrators: await concentratorDtos(db) });
+    })
+    .post("/concentrator/:id/code", requirePerm("admin:settings"), async (c) => {
+      const id = c.req.param("id");
+      if (!(await concentratorDtos(db)).some((x) => x.id === id)) throw new HTTPException(404, { message: "Připojení nenalezeno" });
+      const r = await renewConcentratorCode(db, id);
+      await audit(db, { c, user: currentUser(c), action: "connection.token_rotated", entityType: "connection", entityId: id, details: { kind: "concentrator" } });
+      return c.json({ ...r, concentrators: await concentratorDtos(db) });
+    })
+    .delete("/concentrator/:id", requirePerm("admin:settings"), async (c) => {
+      const id = c.req.param("id");
+      const [row] = await db.select().from(connections).where(and(eq(connections.id, id), eq(connections.kind, "concentrator")));
+      if (!row) throw new HTTPException(404, { message: "Připojení nenalezeno" });
+      await db.delete(connections).where(eq(connections.id, id));
+      await audit(db, { c, user: currentUser(c), action: "connection.deleted", entityType: "connection", entityId: id, details: { kind: "concentrator", name: row.name } });
+      return c.json({ concentrators: await concentratorDtos(db) });
+    })
+    .get("/agents", requirePerm("admin:settings"), async (c) => c.json({ agents: await agentDtos(db) }))
+    .post("/agents/:id/status", requirePerm("admin:settings"), zValidator("json", AgentStatusInput), async (c) => {
+      const { status } = c.req.valid("json");
+      const row = await setAgentStatus(db, c.req.param("id"), status, currentUser(c).id);
+      if (!row) throw new HTTPException(404, { message: "Agent nenalezen" });
+      await audit(db, { c, user: currentUser(c), action: status === "approved" ? "agent.approved" : "agent.blocked", entityType: "agent", entityId: row.id, details: { hostname: row.hostname, keyFingerprint: row.keyFingerprint } });
+      // schválení uvolní karanténu – zprávy se hned promítnou do inventáře serveru (odpověď už ukáže spárování)
+      if (status === "approved") await scheduleAgentProcessing(db, [row.id]);
+      return c.json({ agents: await agentDtos(db), concentrators: await concentratorDtos(db) });
+    })
+
     .post("/probe", requirePerm("admin:settings"), zValidator("json", ProbeConnectionInput), async (c) => {
       const input = c.req.valid("json");
       await checkScope(input);

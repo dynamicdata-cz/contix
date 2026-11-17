@@ -1,4 +1,5 @@
 import { useFormGuard } from "@/lib/unsaved";
+import { EditActions, FormView } from "@/components/detailView";
 import { ProcessGuide } from "@/components/processGuide";
 import { askConfirm } from "@/components/ui/overlay";
 import { FrameworkBadge } from "@/components/frameworkBadge";
@@ -453,7 +454,10 @@ function ChangeEditor({ ch }: { ch: ChangeDetail | null }) {
   const mod = useModule();
   const qc = useQueryClient();
   const nav = useNavigate();
-  const edit = ch ? ch.canEdit : can("isms:write");
+  const canEdit = ch ? ch.canEdit : can("isms:write");
+  /** Detail se otevře jako přehled; formulář až po „Upravit“ (v1.84). Nový záznam rovnou ve formuláři. */
+  const [editing, setEditing] = useState(!ch);
+  const edit = canEdit && editing;
   const admin = can("isms:write");
   const [f, setF] = useState<Form>({
     code: ch?.code ?? "",
@@ -486,6 +490,7 @@ function ChangeEditor({ ch }: { ch: ChangeDetail | null }) {
     controlIds: ch?.controls.map((x) => x.id) ?? [],
     supplierIds: ch?.suppliers.map((x) => x.id) ?? [],
   });
+  const [initialForm] = useState(() => f);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
   const criteria = useQuery({ queryKey: ["isms", "criteria"], queryFn: api.isms.criteria });
   const processes = useQuery({ queryKey: ["processes", "", ""], queryFn: () => api.processes.list({}), enabled: mod("processes") && can("processes:read") });
@@ -524,6 +529,7 @@ function ChangeEditor({ ch }: { ch: ChangeDetail | null }) {
     onSuccess: (d) => {
       qc.invalidateQueries({ queryKey: ["isms"] });
       qc.setQueryData(["isms", "change", d.id], d);
+      if (ch) setEditing(false);
       if (!ch) nav({ to: "/isms/changes/$changeId", params: { changeId: d.id } });
     },
   });
@@ -540,11 +546,6 @@ function ChangeEditor({ ch }: { ch: ChangeDetail | null }) {
 
   return (
     <div {...guard.bind}>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/isms/changes" className="hover:text-brand-700">
-          {t("isms.rizeniZmen")}
-        </Link>
-      </div>
       <PageHeader
         title={ch ? `${ch.code ? `${ch.code} ` : ""}${ch.title}` : t("isms.novaZmena")}
         subtitle={
@@ -560,11 +561,17 @@ function ChangeEditor({ ch }: { ch: ChangeDetail | null }) {
                 <Trash2 size={16} />
               </Button>
             )}
-            {edit && (
-              <Button disabled={save.isPending || !f.title.trim()} onClick={() => save.mutate()}>
-                {ch ? t("isms.ulozit") : t("common.create")}
-              </Button>
-            )}
+            <EditActions
+              isNew={!ch}
+              editing={editing}
+              canEdit={canEdit}
+              onEdit={() => setEditing(true)}
+              onCancel={() => (setF(initialForm), setEditing(false))}
+              onSave={() => save.mutate()}
+              saving={save.isPending}
+              saveDisabled={!f.title.trim()}
+              saveLabel={ch ? t("isms.ulozit") : t("common.create")}
+            />
           </>
         }
       />
@@ -577,9 +584,10 @@ function ChangeEditor({ ch }: { ch: ChangeDetail | null }) {
           ))}
         </div>
       )}
-      {save.isSuccess && <SuccessBox>{t("isms.ulozeno")}</SuccessBox>}
+      {save.isSuccess && !editing && <SuccessBox>{t("isms.ulozeno")}</SuccessBox>}
       <ErrorBox error={save.error ?? del.error} />
 
+      <FormView editing={edit}>
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("isms.zmena")} />
@@ -801,6 +809,7 @@ function ChangeEditor({ ch }: { ch: ChangeDetail | null }) {
           )}
         </div>
       </Card>
+      </FormView>
       {ch && <TasksCard kind="change" id={ch.id} className="mt-6" />}
     </div>
   );

@@ -548,6 +548,66 @@ export const hostInventoryChanges = pgTable(
   (t) => [index("host_inventory_changes_inv_idx").on(t.inventoryId, t.collectedAt)],
 );
 
+/**
+ * Agenti (ADR-177, fáze 1): hostitel s agentem registrovaný koncentrátorem (připojení `concentrator`).
+ * Identita = koncentrátor + `host_id` (machine-id); veřejný klíč Ed25519 pro ověření podpisu zpráv.
+ * Stav `pending` = karanténa (zprávy se ukládají, nezpracovávají), `blocked` = zprávy se zahazují.
+ */
+export const agents = pgTable(
+  "agents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => connections.id, { onDelete: "cascade" }),
+    companyId: companyRef(),
+    hostId: varchar("host_id", { length: 255 }).notNull(),
+    hostname: varchar("hostname", { length: 255 }).notNull(),
+    os: varchar("os", { length: 200 }).notNull().default(""),
+    version: varchar("version", { length: 40 }).notNull().default(""),
+    /** Veřejný podpisový klíč Ed25519 (32 B, base64). */
+    publicKey: varchar("public_key", { length: 64 }).notNull(),
+    keyFingerprint: varchar("key_fingerprint", { length: 80 }).notNull(),
+    status: varchar("status", { length: 20 }).$type<"pending" | "approved" | "blocked">().notNull().default("pending"),
+    /** Nejvyšší souvisle přijaté `seq` (potvrzení koncentrátoru). */
+    ackSeq: bigint("ack_seq", { mode: "number" }).notNull().default(0),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    approvedBy: uuid("approved_by").references(() => users.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /** Nahrazen novou identitou (reinstalace = nový klíč): zprávy zůstávají, další se nepřijímají. */
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
+    /** Aktuální stav hostitele: poslední snímek + následné změny (zpracované zprávy schváleného agenta). */
+    state: jsonb("state").$type<Record<string, unknown>>(),
+    /** Inventář serveru v evidenci (Discovery → Servery), kam se stav agenta promítá. */
+    inventoryId: uuid("inventory_id").references(() => hostInventories.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("agents_host_uq").on(t.connectionId, t.hostId).where(sql`retired_at is null`), index("agents_company_idx").on(t.companyId)],
+);
+
+/** Přijaté zprávy agentů (append-only, ověřený podpis). Duplicita (agent, seq) se nezapíše. */
+export const agentEvents = pgTable(
+  "agent_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    companyId: companyRef(),
+    seq: bigint("seq", { mode: "number" }).notNull(),
+    kind: varchar("kind", { length: 20 }).notNull(),
+    ts: timestamp("ts", { withTimezone: true }).notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Agent v době příjmu neschválený – nezpracovávat do schválení. */
+    quarantined: boolean("quarantined").notNull().default(false),
+    /** Celá podepsaná zpráva (včetně `sig`) – lze kdykoli znovu ověřit. */
+    message: jsonb("message").$type<Record<string, unknown>>().notNull(),
+    /** Promítnuto do stavu hostitele (`processAgent`); null = čeká (karanténa, mezera v pořadí). */
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("agent_events_seq_uq").on(t.agentId, t.seq), index("agent_events_company_idx").on(t.companyId, t.receivedAt)],
+);
+
 /** Vzhled výstupů společnosti (v1.59, ADR-154): logo, barva, zápatí v PDF / tisku a ve Wordu. */
 export const companyBranding = pgTable("company_branding", {
   companyId: uuid("company_id")

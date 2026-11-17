@@ -20,16 +20,29 @@ export function BrandingCard({ companies }: { companies: CompanyDto[] }) {
   const [err, setErr] = useState<string | null>(null);
   /** Načítání souboru loga (FileReader je asynchronní) – uložit až po načtení. */
   const [reading, setReading] = useState(false);
+  /**
+   * Formulář se naplní z uložených dat jen jednou pro každou společnost – pozdější odpověď serveru
+   * (pomalé načtení, obnovení dotazu) nesmí přepsat rozpracované změny, např. právě vybrané logo.
+   * Logo se vrací na uložené jen při přepnutí společnosti a po obnovení výchozího vzhledu.
+   */
+  const [initFor, setInitFor] = useState<string | null>(null);
   useEffect(() => {
-    if (!d) return;
-    setLogo(undefined);
+    if (!d || initFor === companyId) return;
+    setInitFor(companyId);
     setAccent(d.own ? (d.accentColor ?? "") : "");
     setFooter(d.own ? d.footerText : "");
     setShowName(d.own ? d.showName : true);
-  }, [d]);
+  }, [d, companyId, initFor]);
   const done = () => qc.invalidateQueries({ queryKey: ["branding"] });
   const save = useMutation({ mutationFn: () => api.branding.save(companyId, { logo, accentColor: accent || null, footerText: footer, showName }), onSuccess: done });
-  const reset = useMutation({ mutationFn: () => api.branding.remove(companyId), onSuccess: done });
+  const reset = useMutation({
+    mutationFn: () => api.branding.remove(companyId),
+    onSuccess: () => {
+      setLogo(undefined);
+      setInitFor(null);
+      return done();
+    },
+  });
   const shown = logo === undefined ? d?.logo : logo;
   const name = companies.find((c) => c.id === companyId)?.name ?? "";
   const color = accent || (!d?.own && d?.accentColor) || "#cbd5e1";
@@ -39,7 +52,13 @@ export function BrandingCard({ companies }: { companies: CompanyDto[] }) {
       <div className="grid gap-6 p-5 lg:grid-cols-2">
         <div className="space-y-3">
           <Field label={t("br.company")}>
-            <Select value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+            <Select
+              value={companyId}
+              onChange={(e) => {
+                setCompanyId(e.target.value);
+                setLogo(undefined);
+              }}
+            >
               {companies.map((c) => (
                 <option key={c.id} value={c.id}>
                   {" ".repeat(c.depth * 3)}

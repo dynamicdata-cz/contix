@@ -1,4 +1,5 @@
 import { SuggestInput } from "@/components/combobox";
+import { FormView } from "@/components/detailView";
 import { askConfirm } from "@/components/ui/overlay";
 import { TagBar } from "@/components/tags";
 import { LinkedRecordsCard } from "@/components/linkedRecords";
@@ -10,7 +11,7 @@ import { TransferButton } from "@/components/transfer";
 import { HealthIndicator } from "@/components/health";
 import { AssetPicker, PartyPicker, PositionSelect, raciTone, UnitSelect, type PickedAsset, type RaciEntry } from "@/components/pickers";
 import { RiskLevelBadge } from "@/components/risk";
-import { Badge, Button, Card, CardHeader, criticalityTone, EmptyState, ErrorBox, Field, Input, Modal, Select, SuccessBox, Textarea } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, criticalityTone, EmptyState, ErrorBox, Field, Input, Modal, Select, SuccessBox, Textarea, PageTitle } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useMe, useModule } from "@/lib/auth";
 import { cn, fmtDate } from "@/lib/utils";
@@ -72,25 +73,19 @@ export function ProcessDetailPage() {
   return (
     <>
       <TagBar entityType="process" entityId={p.id} canEdit={can("processes:write")} />
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/processes" className="hover:text-brand-700">
-          {t("prc.procesy")}
-        </Link>
-        {p.parentId && (
-          <>
-            {" › "}
-            <Link to="/processes/$processId" params={{ processId: p.parentId }} className="hover:text-brand-700">
-              {t("prc.nadrazenyProces")}
-            </Link>
-          </>
-        )}
-      </div>
+      {p.parentId && (
+        <div className="mb-1 text-sm text-slate-500">
+          <Link to="/processes/$processId" params={{ processId: p.parentId }} className="hover:text-brand-700">
+            ↑ {t("prc.nadrazenyProces")}
+          </Link>
+        </div>
+      )}
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <PageTitle title={p.code ? `${p.code} ${p.name}` : p.name}>
             {p.code && <span className="mr-2 text-slate-400">{p.code}</span>}
             {p.name}
-          </h1>
+          </PageTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
             {me.companies.length > 1 && (
               <Badge tone="blue">
@@ -505,9 +500,12 @@ function CardTab({ p }: { p: ProcessDetail }) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["process", p.id] });
       qc.invalidateQueries({ queryKey: ["processes"] });
+      setEditing(false);
     },
   });
-  const ro = !p.canEdit;
+  /** Procesní karta se otevře jako přehled; úpravy až po „Upravit“ (v1.84). */
+  const [editing, setEditing] = useState(false);
+  const ro = !p.canEdit || !editing;
   const tx = (k: keyof ProcessInput, label: string, rows = 3, hint?: string) => (
     <Field label={label} hint={hint}>
       <Textarea rows={rows} disabled={ro} value={(f[k] as string) ?? ""} onChange={(e) => setF({ ...f, [k]: e.target.value || null })} />
@@ -516,7 +514,19 @@ function CardTab({ p }: { p: ProcessDetail }) {
 
   return (
     <Card>
-      <CardHeader title={t("prc.procesniKarta")} subtitle={t("prc.zakladniUdajeProcesuUcelHranice")} />
+      <CardHeader
+        title={t("prc.procesniKarta")}
+        subtitle={t("prc.zakladniUdajeProcesuUcelHranice")}
+        action={
+          p.canEdit &&
+          !editing && (
+            <Button variant="secondary" onClick={() => setEditing(true)} data-testid="detail-edit">
+              <Pencil size={15} /> {t("detail.edit")}
+            </Button>
+          )
+        }
+      />
+      <FormView editing={!ro}>
       <div className="space-y-5 p-5">
         {save.isSuccess && <SuccessBox>{t("prc.ulozeno")}</SuccessBox>}
         <ErrorBox error={save.error} />
@@ -602,13 +612,17 @@ function CardTab({ p }: { p: ProcessDetail }) {
           </div>
         )}
         {!ro && (
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => (setF(init()), setEditing(false))} data-testid="detail-cancel">
+              {t("detail.cancelEdit")}
+            </Button>
             <Button disabled={!f.name.trim() || save.isPending} onClick={() => save.mutate()}>
               {t("prc.ulozitKartu")}
             </Button>
           </div>
         )}
       </div>
+      </FormView>
     </Card>
   );
 }

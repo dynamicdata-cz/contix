@@ -1,9 +1,9 @@
 import { TOPBAR_COLORS, type TopbarColor } from "@contix/shared";
 /** Barevné motivy CONTIX – volba uživatele, uložená jen v prohlížeči (vzhled není citlivý ani sdílený). */
 export const THEMES = [
+  { key: "night", label: "Noc", hint: "Indigo, soumračná levandulová a tmavě modré karty (výchozí)", swatch: ["#5148e5", "#262840", "#eceef7"] },
   { key: "blue", label: "Modrá", hint: "Svěží modrá, chladné šedé tóny", swatch: ["#2c54d6", "#f6f8fb", "#ffffff"] },
   { key: "petrol", label: "Petrolej", hint: "Klidná zelenomodrá, teplé neutrální tóny", swatch: ["#157266", "#f7f6f3", "#ffffff"] },
-  { key: "night", label: "Noc", hint: "Indigo a tmavý boční panel", swatch: ["#5148e5", "#161931", "#f5f6fa"] },
 ] as const;
 export type ThemeKey = (typeof THEMES)[number]["key"];
 const KEY = "contix.theme";
@@ -11,9 +11,9 @@ const KEY = "contix.theme";
 export function getTheme(): ThemeKey {
   try {
     const v = localStorage.getItem(KEY);
-    return THEMES.some((t) => t.key === v) ? (v as ThemeKey) : "blue";
+    return THEMES.some((t) => t.key === v) ? (v as ThemeKey) : "night";
   } catch {
-    return "blue";
+    return "night";
   }
 }
 export function applyTheme(t: ThemeKey) {

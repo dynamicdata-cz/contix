@@ -6,8 +6,9 @@ import { and, count, desc, eq, inArray, max, sql, type SQL } from "drizzle-orm";
 import { decrypt, encrypt } from "../../auth/crypto";
 import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
-import { assets, connections, hostInventories, hostInventoryChanges } from "../../db/schema";
+import { assetSources, assets, connections, hostInventories, hostInventoryChanges } from "../../db/schema";
 import { ingestDiscovered } from "../discovery/ingest";
+import type { DiscoveredAsset } from "../discovery/types";
 import { reachablePorts } from "../sectests/service";
 
 /* ============================================================
@@ -81,35 +82,47 @@ export async function collectorDtos(db: Db): Promise<CollectorConnectionDto[]> {
   });
 }
 
-/** Příjem inventáře: aktivum (vytvoří / spáruje) + poslední inventář s nálezy. */
-export async function ingestInventory(db: Db, conn: typeof connections.$inferSelect, inv: HostInventory) {
-  const hostKey = (inv.host.machineId || inv.host.hostname).toLowerCase();
+/** Zdroj inventáře: sběrač (skript, token) nebo agent CONTIX přes koncentrátor (ADR-177). */
+export type InventorySource = "collector" | "agent";
+
+/** Záznam Discovery z inventáře serveru – stejný pro příjem i ruční založení aktiva. */
+function discoveredFromInventory(conn: typeof connections.$inferSelect, inv: HostInventory, hostKey: string, source: InventorySource, createIfMissing: boolean): DiscoveredAsset {
+  const companyId = conn.companyId ?? ROOT_COMPANY_ID;
+  return {
+    sourceType: source,
+    sourceRef: hostKey,
+    connectionId: conn.id,
+    companyId,
+    matchInCompany: !!conn.companyId,
+    createIfMissing,
+    name: inv.host.hostname,
+    assetType: "server",
+    hostname: inv.host.hostname,
+    fqdn: inv.host.fqdn,
+    ipAddresses: inv.host.ips,
+    osName: inv.host.os,
+    attributes: { [source]: { users: inv.users.length, sshKeys: inv.sshKeys.length, containers: inv.containers.length, packages: inv.packages.length, firewall: inv.firewall.tool, kernel: inv.host.kernel } },
+    raw: { host: inv.host, collectorVersion: inv.collectorVersion },
+    seenAt: new Date(inv.collectedAt),
+  };
+}
+
+export const inventoryHostKey = (inv: HostInventory) => (inv.host.machineId || inv.host.hostname).toLowerCase();
+
+/**
+ * Příjem inventáře: aktivum (vytvoří / spáruje) + poslední inventář s nálezy. Agenti (`createAsset: false`) aktivum
+ * nezakládají – bez jednoznačné shody zůstane server nespárovaný a správce ho založí nebo spáruje (`attachHostToAsset`).
+ */
+export async function ingestInventory(db: Db, conn: typeof connections.$inferSelect, inv: HostInventory, opts: { source?: InventorySource; createAsset?: boolean } = {}) {
+  const hostKey = inventoryHostKey(inv);
   const companyId = conn.companyId ?? ROOT_COMPANY_ID;
   const findings = evaluateHost(inv);
-  const r = await ingestDiscovered(
-    db,
-    {
-      sourceType: "collector",
-      sourceRef: hostKey,
-      connectionId: conn.id,
-      companyId,
-      matchInCompany: !!conn.companyId,
-      name: inv.host.hostname,
-      assetType: "server",
-      hostname: inv.host.hostname,
-      fqdn: inv.host.fqdn,
-      ipAddresses: inv.host.ips,
-      osName: inv.host.os,
-      attributes: { collector: { users: inv.users.length, sshKeys: inv.sshKeys.length, containers: inv.containers.length, firewall: inv.firewall.tool, kernel: inv.host.kernel } },
-      raw: { host: inv.host, collectorVersion: inv.collectorVersion },
-      seenAt: new Date(inv.collectedAt),
-    },
-    companyId,
-  );
-  const assetId = r.action === "conflict" ? null : r.assetId;
+  const [prev] = await db.select({ id: hostInventories.id, data: hostInventories.data, at: hostInventories.collectedAt, assetId: hostInventories.assetId }).from(hostInventories).where(and(eq(hostInventories.connectionId, conn.id), eq(hostInventories.hostKey, hostKey)));
+  const r = await ingestDiscovered(db, discoveredFromInventory(conn, inv, hostKey, opts.source ?? "collector", opts.createAsset ?? true), companyId);
+  // ručně spárovaný server (zdroj zapsán při spárování) zůstává u svého aktiva
+  const assetId = r.action === "created" || r.action === "updated" ? r.assetId : (prev?.assetId ?? null);
   const [asset] = assetId ? await db.select({ companyId: assets.companyId }).from(assets).where(eq(assets.id, assetId)) : [];
   const values = { connectionId: conn.id, companyId: asset?.companyId ?? companyId, assetId, hostKey, hostname: inv.host.hostname, collectedAt: new Date(inv.collectedAt), data: inv as unknown as Record<string, unknown>, findings: findings as unknown as Record<string, unknown>[], updatedAt: new Date() };
-  const [prev] = await db.select({ id: hostInventories.id, data: hostInventories.data, at: hostInventories.collectedAt }).from(hostInventories).where(and(eq(hostInventories.connectionId, conn.id), eq(hostInventories.hostKey, hostKey)));
   const [saved] = await db.insert(hostInventories).values(values).onConflictDoUpdate({ target: [hostInventories.connectionId, hostInventories.hostKey], set: values }).returning({ id: hostInventories.id });
   // změny od minulého inventáře (v1.55) – jen novější hlášení, jen když se něco změnilo; nejvýš 200 záznamů na server
   const old = prev ? normalizeInventory(prev.data) : null;
@@ -125,7 +138,37 @@ export async function ingestInventory(db: Db, conn: typeof connections.$inferSel
     await syncHostFindings(db, { id: saved!.id, companyId: values.companyId, assetId }, findings);
     if (assetId) await recomputeHealth(db).catch(() => undefined);
   }
-  return { assetId, action: r.action, findings: findings.length, high: findings.filter((f) => f.severity === "high").length };
+  return { inventoryId: saved!.id, assetId, action: r.action, findings: findings.length, high: findings.filter((f) => f.severity === "high").length };
+}
+
+/**
+ * Ruční přiřazení serveru k aktivu (ADR-177): `assetId` = spárovat s existujícím aktivem, null = založit aktivum
+ * z inventáře (bez shody nové, při jednoznačné shodě spáruje). Konflikt = vyhodí chybu `ambiguous`.
+ */
+export async function attachHostToAsset(db: Db, inventoryId: string, assetId: string | null): Promise<{ assetId: string; action: "linked" | "created" | "updated" } | { error: "not_found" | "ambiguous" }> {
+  const [row] = await db.select({ h: hostInventories, conn: connections }).from(hostInventories).innerJoin(connections, eq(connections.id, hostInventories.connectionId)).where(eq(hostInventories.id, inventoryId));
+  const inv = row ? normalizeInventory(row.h.data) : null;
+  if (!row || !inv) return { error: "not_found" };
+  const source: InventorySource = row.conn.kind === "concentrator" ? "agent" : "collector";
+  let target = assetId;
+  let action: "linked" | "created" | "updated" = "linked";
+  if (target) {
+    await db
+      .insert(assetSources)
+      .values({ assetId: target, sourceType: source, sourceRef: row.h.hostKey, connectionId: row.conn.id, raw: { host: inv.host }, lastSyncedAt: new Date() })
+      .onConflictDoUpdate({ target: [assetSources.sourceType, assetSources.sourceRef, assetSources.connectionId], set: { assetId: target, lastSyncedAt: new Date(), updatedAt: new Date() } });
+  } else {
+    const r = await ingestDiscovered(db, discoveredFromInventory(row.conn, inv, row.h.hostKey, source, true), row.conn.companyId ?? ROOT_COMPANY_ID);
+    if (r.action === "conflict" || r.action === "unmatched") return { error: "ambiguous" };
+    target = r.assetId;
+    action = r.action;
+  }
+  const [asset] = await db.select({ companyId: assets.companyId }).from(assets).where(eq(assets.id, target));
+  if (!asset) return { error: "not_found" };
+  await db.update(hostInventories).set({ assetId: target, companyId: asset.companyId, updatedAt: new Date() }).where(eq(hostInventories.id, inventoryId));
+  await syncHostFindings(db, { id: inventoryId, companyId: asset.companyId, assetId: target }, evaluateHost(inv));
+  await recomputeHealth(db).catch(() => undefined);
+  return { assetId: target, action };
 }
 
 /** Uložený inventář doplněný o výchozí hodnoty (starší sběrač neposílá všechna pole). */

@@ -19,6 +19,7 @@ import {
   Modal,
   Select,
   Textarea,
+  PageTitle,
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fmtDay } from "@/lib/utils";
@@ -119,25 +120,11 @@ function TestView({ t: tx }: { t: ControlTestDto }) {
   const shownResult = tx.result ?? tx.derivedResult;
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/controls/assurance" className="hover:text-brand-700">
-          {t("asr.testyADukazy")}
-        </Link>{" "}
-        ·{" "}
-        <Link
-          to="/controls/$controlId"
-          params={{ controlId: tx.controlId }}
-          className="hover:text-brand-700"
-        >
-          {tx.controlCode ? `${tx.controlCode} ` : ""}
-          {tx.controlName}
-        </Link>
-      </div>
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">
+          <PageTitle>
             {t.lbl(ASSURANCE_LABELS.testKind[tx.kind])}
-          </h1>
+          </PageTitle>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
             <Badge tone={testStatusTone[tx.status]}>
               {t.lbl(ASSURANCE_LABELS.status[tx.status])}

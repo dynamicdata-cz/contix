@@ -2,7 +2,7 @@
 import { SEVERITY_COLOR } from "@/components/health";
 import { RiskLevelBadge } from "@/components/risk";
 import { ExposureBadge, IntelBadge, SeverityBadge, SocStatusBadge, TacticStrip } from "@/components/soc";
-import { Badge, Card, CardHeader, EmptyState, ErrorBox, Input, PageHeader, Select, type Tone } from "@/components/ui";
+import { Badge, Card, CardHeader, EmptyState, ErrorBox, Input, PageHeader, Select, type Tone, Kpi as UiKpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { cn, fmtDate, fmtDay, useDebounced } from "@/lib/utils";
@@ -114,12 +114,7 @@ function ActivityChart({ daily }: { daily: SocHostDay[] }) {
 }
 
 function Kpi({ label, value, tone }: { label: string; value: number; tone?: "red" }) {
-  return (
-    <Card className="p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={cn("mt-1 text-2xl font-semibold tabular-nums", tone === "red" && value > 0 && "text-red-700")}>{value}</div>
-    </Card>
-  );
+  return <UiKpi label={label} value={value} tone={tone === "red" && value > 0 ? "red" : "slate"} />;
 }
 
 export function SocHostPage() {
@@ -133,11 +128,6 @@ export function SocHostPage() {
   const alerts = tactic ? d.alerts.filter((a) => a.mitreTactics.includes(tactic)) : d.alerts;
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/soc" search={{ tab: "hosts" } as never} className="hover:text-brand-700">
-          {t("soc.host.back")}
-        </Link>
-      </div>
       <PageHeader
         title={d.name}
         subtitle={d.asset ? [d.asset.os, d.asset.ipAddresses.join(", ")].filter(Boolean).join(" · ") || t("soc.host.assetLinked") : t("soc.host.agentOnly", { names: d.agentNames.join(", ") })}

@@ -74,6 +74,10 @@ export const HostInventoryInput = z.object({
       ruleCount: z.number().int().min(0).default(0),
     })
     .default({ tool: "none", rulesHash: null, savedHash: null, defaultInput: null, ruleCount: 0 }),
+  /** Nainstalované balíčky (agent CONTIX, ADR-177). */
+  packages: list(z.object({ name: s(200).min(1), version: s(200).default(""), arch: s(40).default("") }), 50000),
+  /** Plánované úlohy (agent CONTIX): cron bez příkazu (jen program a otisk řádku), systemd timery. */
+  scheduled: list(z.object({ source: s(300), user: s(100).default(""), schedule: s(200).default(""), program: s(300).default(""), state: s(40).default("") }), 2000),
   /** Systém (sběrač 1.1+): běh, restart, aktualizace. */
   system: z
     .object({
@@ -303,6 +307,10 @@ export interface HostChangeDto {
   collectedAt: string;
   changes: HostChange[];
 }
+
+/** Přiřazení serveru k aktivu (agenti CONTIX, ADR-177): id = spárovat s existujícím, null = založit aktivum z inventáře. */
+export const HostAssetInput = z.object({ assetId: z.string().uuid().nullable() });
+export type HostAssetInput = z.input<typeof HostAssetInput>;
 
 export interface HostDetailDto extends HostInventoryDto {
   changes: HostChangeDto[];

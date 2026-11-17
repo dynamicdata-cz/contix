@@ -2,7 +2,7 @@ import { askConfirm } from "@/components/ui/overlay";
 import { RelatedRecordsCard } from "@/components/records";
 /** Informační servis regulátora (ADR-087): RSS NÚKIB, otevřená data o incidentech, stav Národního MISP. */
 import { Legend, StackedBars, type Segment } from "@/components/charts";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone, Kpi as UiKpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
@@ -202,16 +202,7 @@ export function InfoServicePage() {
 
 const kpiTone = { red: "text-red-700", amber: "text-amber-700", slate: "text-slate-500" } as const;
 function Kpi({ icon, label, value, note, tone, onClick }: { icon: React.ReactNode; label: string; value: React.ReactNode; note: string; tone: keyof typeof kpiTone; onClick?: () => void }) {
-  const Tag = onClick ? "button" : "div";
-  return (
-    <Tag onClick={onClick} className={cn("rounded-lg border border-slate-200 bg-white p-4 text-left shadow-sm", onClick && "transition hover:border-brand-300 hover:shadow")}>
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-        {icon} {label}
-      </div>
-      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
-      <div className={cn("mt-0.5 text-xs", kpiTone[tone])}>{note}</div>
-    </Tag>
-  );
+  return <UiKpi icon={icon} label={label} value={value} note={note} noteTone={tone === "slate" ? undefined : tone} onClick={onClick} />;
 }
 
 function StatsCard({ d }: { d: InfoServiceDto }) {

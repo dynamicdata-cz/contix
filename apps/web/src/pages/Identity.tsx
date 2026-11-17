@@ -4,7 +4,7 @@ import { useT, lbl, tt } from "@/lib/i18n";
 import { CompanyCell, TargetCompanyField, useTargetCompany } from "@/components/company";
 import { ColumnChart, Legend, StackedBars } from "@/components/charts";
 import { SEVERITY_COLOR, SeverityBadge } from "@/components/health";
-import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, Kpi } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { cn, fmtDate, fmtDay, useDebounced } from "@/lib/utils";
@@ -129,13 +129,7 @@ function Overview({ data, onFindings, onSources }: { data: IdentityOverviewDto; 
     <>
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {tiles.map((tx) => (
-          <Card key={tx.label} className={cn("px-5 py-4", tx.onClick && "cursor-pointer transition hover:border-slate-300")} onClick={tx.onClick}>
-            <div className="flex items-center gap-2 text-xs text-slate-500">
-              {tx.icon}
-              {tx.label}
-            </div>
-            <div className={cn("mt-2 text-3xl font-semibold tabular-nums", tx.tone)}>{tx.value}</div>
-          </Card>
+          <Kpi key={tx.label} icon={tx.icon} label={tx.label} value={<span className={tx.value ? tx.tone : undefined}>{tx.value}</span>} onClick={tx.onClick} />
         ))}
       </div>
 

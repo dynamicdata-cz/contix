@@ -17,6 +17,7 @@ import {
   Input,
   PageHeader,
   Select,
+  Kpi,
 } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fmtDay, useDebounced } from "@/lib/utils";
@@ -97,11 +98,6 @@ export function AssurancePage() {
   );
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/controls" className="hover:text-brand-700">
-          {t("asr.opatreniAShoda")}
-        </Link>
-      </div>
       <PageHeader badge={<FrameworkBadge />}
         title={t("asr.testyADukazy")}
         subtitle={t("asr.overovaniUcinnostiOpatreniTestNavrhu")}
@@ -128,19 +124,18 @@ export function AssurancePage() {
       <ErrorBox error={ov.error ?? tests.error ?? ev.error} />
       <div className="mb-6 grid gap-4 sm:grid-cols-3 xl:grid-cols-5">
         {tiles.map((tx) => (
-          <Card key={tx.label} className="px-4 py-3">
-            <div className="text-xs text-slate-500">{tx.label}</div>
-            <div className="text-2xl font-semibold tabular-nums">
-              {tx.value}
-              {"of" in tx && tx.of != null && (
-                <span className="text-sm font-normal text-slate-400">
-                  {" "}
-                  / {tx.of}
-                </span>
-              )}
-            </div>
-            {tx.warn && <div className="text-xs text-amber-800">{tx.warn}</div>}
-          </Card>
+          <Kpi
+            key={tx.label}
+            label={tx.label}
+            value={
+              <>
+                {tx.value}
+                {"of" in tx && tx.of != null && <span className="text-sm font-normal text-slate-400"> / {tx.of}</span>}
+              </>
+            }
+            note={tx.warn || undefined}
+            noteTone="amber"
+          />
         ))}
       </div>
 
