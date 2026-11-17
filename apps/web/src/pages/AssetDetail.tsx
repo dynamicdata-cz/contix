@@ -1,6 +1,10 @@
 import { Tabs, useTab } from "@/components/ui/tabs";
+import { HostInventoryCard } from "@/components/hostInventory";
+import { AssetSecTestsCard } from "@/pages/SecurityTests";
+import { AssetFindingsCard } from "@/pages/Findings";
 import { askConfirm } from "@/components/ui/overlay";
 import { LinkedRecordsCard } from "@/components/linkedRecords";
+import { TagBar } from "@/components/tags";
 import { TasksCard } from "@/components/tasks";
 import { useT } from "@/lib/i18n";
 import { LinkedDocsCard } from "@/components/linkedDocs";
@@ -13,6 +17,7 @@ import { api } from "@/lib/api";
 import { HealthIndicator, SupportBadge, VulnCounts } from "@/components/health";
 import { VulnTable } from "@/components/VulnTable";
 import { AssetGrcCard } from "@/components/AssetGrcCard";
+import { AssetMapsCard } from "@/pages/SiteMaps";
 import { useCan, useModule } from "@/lib/auth";
 import { AssetScaCard } from "./Sca";
 import { cn, fmtDate } from "@/lib/utils";
@@ -66,15 +71,20 @@ export function AssetDetailPage() {
         sticky
         title={a.name}
         subtitle={`${t.lbl(LABELS.assetClass[a.assetClass])} aktivum · ${t.lbl(LABELS.assetType[a.assetType])} · ${t.lbl(LABELS.lifecycleStatus[a.lifecycleStatus])}`}
+        facts={[
+          { label: t("fx.owner"), value: a.owner?.displayName ?? a.ownerName ?? "—" },
+          (a.ownerUnitName || a.ownerName) && { label: t("ast.ownerUnit"), value: a.ownerUnitName ?? a.ownerName },
+          { label: t("fx.criticality"), value: <Badge tone={criticalityTone[a.criticality]}>{t.lbl(LABELS.criticality[a.criticality])}</Badge> },
+          { label: "C / I / A", value: `${eff.confidentiality ?? "—"} / ${eff.integrity ?? "—"} / ${eff.availability ?? "—"}` },
+          a.location && { label: t("fx.location"), value: a.location },
+          a.ipAddresses?.length > 0 && { label: "IP", value: a.ipAddresses.slice(0, 2).join(", ") + (a.ipAddresses.length > 2 ? ` +${a.ipAddresses.length - 2}` : "") },
+        ]}
+        more={[
+          ...(mod("soc") && can("soc:read") ? [{ label: t("soc.host.open"), icon: <Radar size={15} />, to: `/soc/hosts/${hostKeyOfAsset(a.id)}` }] : []),
+          ...(a.ownedHere && can("assets:delete") ? ["separator" as const, { label: t("ast.smazat"), icon: <Trash2 size={15} />, danger: true, disabled: del.isPending, onClick: async () => (await askConfirm(t("ast.smazatAktivum", { name: a.name }))) && del.mutate() }] : []),
+        ]}
         actions={
           <>
-            {mod("soc") && can("soc:read") && (
-              <Link to="/soc/hosts/$hostKey" params={{ hostKey: hostKeyOfAsset(a.id) }}>
-                <Button variant="secondary">
-                  <Radar size={15} /> {t("soc.host.open")}
-                </Button>
-              </Link>
-            )}
             {a.canEdit && (
               <Link to="/assets/$assetId/edit" params={{ assetId }}>
                 <Button variant="secondary">
@@ -83,16 +93,12 @@ export function AssetDetailPage() {
               </Link>
             )}
             {a.ownedHere && can("assets:write") && <TransferButton entity="assets" id={a.id} companyId={a.companyId} />}
-            {a.ownedHere && can("assets:delete") && (
-              <Button variant="danger" disabled={del.isPending} onClick={async () => (await askConfirm(t("ast.smazatAktivum", { name: a.name }))) && del.mutate()}>
-                <Trash2 size={15} /> {t("ast.smazat")}
-              </Button>
-            )}
           </>
         }
       />
       <ErrorBox error={del.error ?? unlink.error} />
 
+      <TagBar entityType="asset" entityId={a.id} canEdit={a.canEdit} />
       <HealthBanner asset={a} />
       <AssetSharingCard asset={a} />
       <Tabs
@@ -102,12 +108,13 @@ export function AssetDetailPage() {
           { key: "overview" as const, label: t("detail.tab.overview") },
           { key: "governance" as const, label: t("detail.tab.governance") },
           { key: "security" as const, label: t("detail.tab.security") },
-          { key: "tasks" as const, label: t("detail.tab.tasks") },
+          { key: "tasks" as const, label: t("ast.tab.findingsTasks") },
         ]}
       />
       {tab === "governance" && (
         <div className="grid gap-6 lg:grid-cols-3">
           <AssetGrcCard assetId={a.id} />
+          <AssetMapsCard assetId={a.id} />
           <LinkedRecordsCard target="asset" id={a.id} />
           <LinkedDocsCard kind="asset" id={a.id} />
         </div>
@@ -118,7 +125,12 @@ export function AssetDetailPage() {
           <AssetInfoItemsCard assetId={a.id} />
         </div>
       )}
-      {tab === "tasks" && <TasksCard kind="asset" id={a.id} />}
+      {tab === "tasks" && (
+        <div className="space-y-6">
+          {(can("sectests:read") || can("assets:read") || can("audits:read")) && <AssetFindingsCard assetId={a.id} />}
+          <TasksCard kind="asset" id={a.id} />
+        </div>
+      )}
 
       <div className={cn("grid gap-6 lg:grid-cols-3", tab !== "overview" && "hidden")}>
         {a.vulnCritical + a.vulnHigh + a.vulnMedium + a.vulnLow > 0 && (
@@ -189,17 +201,18 @@ export function AssetDetailPage() {
             <Item label={t("ast.integrita")}>{cia(a.integrity, eff.integrity)}</Item>
             <Item label={t("ast.dostupnost")}>{cia(a.availability, eff.availability)}</Item>
             <Item label={t("ast.garantVlastnik")}>{a.owner ? `${a.owner.displayName} (${a.owner.email})` : null}</Item>
-            <Item label={t("ast.odpovednyUtvar")}>{a.ownerName}</Item>
-            <Item label={t("ast.umisteni")}>{a.location}</Item>
-            <Item label={t("ast.prostredi")}>{a.environment ? t.lbl(LABELS.environment[a.environment]) : null}</Item>
-            <Item label={t("ast.stitky")}>
-              {a.tags.length ? (
-                <div className="flex flex-wrap gap-1">
-                  {a.tags.map((tx) => (
-                    <Badge key={tx}>{tx}</Badge>
-                  ))}
-                </div>
-              ) : null}
+            <Item label={t("ast.own.tech")}>
+              {a.technicalOwner ? `${a.technicalOwner.displayName} (${a.technicalOwner.email})` : a.owner ? <span className="text-slate-400">{t("ast.own.techFallback")}</span> : null}
+            </Item>
+            {a.technicalDeputy && <Item label={t("ast.own.deputy")}>{`${a.technicalDeputy.displayName} (${a.technicalDeputy.email})`}</Item>}
+            <Item label={t("ast.ownerUnit")}>
+              {a.ownerUnitId && a.ownerUnitName ? (
+                <Link to="/assets" search={{ unit: a.ownerUnitId } as never} className="text-brand-700 hover:underline" title={t("ast.ownerUnitAssets")}>
+                  {a.ownerUnitName}
+                </Link>
+              ) : (
+                a.ownerName
+              )}
             </Item>
           </dl>
         </Card>
@@ -238,6 +251,9 @@ export function AssetDetailPage() {
             ))}
           </ul>
         </Card>
+
+        <HostInventoryCard assetId={a.id} />
+        {mod("sectests") && can("sectests:read") && <AssetSecTestsCard assetId={a.id} />}
 
         <Card className="lg:col-span-3" data-testid="asset-dependencies">
           <CardHeader

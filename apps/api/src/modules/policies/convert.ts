@@ -145,6 +145,11 @@ async function call(path: string, body: Uint8Array, headers: Record<string, stri
 }
 export const convertToPdf = async (buf: Uint8Array, filename: string) => new Uint8Array(await (await call("/pdf", buf, { "x-filename": encodeURIComponent(filename) })).arrayBuffer());
 export const pdfToText = async (buf: Uint8Array) => (await call("/text", buf)).text();
+/** Podklad mapy (PDF / DXF / DWG) → obrázek (v1.25, ADR-122). */
+export async function convertToImage(buf: Uint8Array, filename: string): Promise<{ data: Uint8Array; mime: string }> {
+  const r = await call("/image", buf, { "x-filename": encodeURIComponent(filename) });
+  return { data: new Uint8Array(await r.arrayBuffer()), mime: (r.headers.get("content-type") ?? "image/png").split(";")[0]! };
+}
 
 /* ---------- zpracování souborů ---------- */
 

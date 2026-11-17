@@ -7,7 +7,8 @@ import { fmtDate } from "@/lib/utils";
 import { PERMISSIONS } from "@contix/shared";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { MODES, THEMES, getMode, getTheme, setMode, setTheme, type ModeKey, type ThemeKey } from "@/lib/theme";
+import { MODES, THEMES, getMode, getTheme, getTopbar, setMode, setTheme, setTopbar, type ModeKey, type ThemeKey } from "@/lib/theme";
+import { TOPBAR_COLORS, TOPBAR_LABELS, type TopbarColor } from "@contix/shared";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ChangePasswordForm } from "./auth/AuthScreens";
@@ -155,6 +156,7 @@ function ThemeCard() {
           })}
         </div>
       </div>
+      <TopbarPicker />
       <div className="grid gap-3 p-5 sm:grid-cols-3">
         {THEMES.map((t) => (
           <button
@@ -208,5 +210,33 @@ function LanguageCard() {
         })}
       </div>
     </Card>
+  );
+}
+
+/** Barva horní lišty – volba uživatele v prohlížeči; společnost ji může nastavit všem (v1.45, ADR-142). */
+function TopbarPicker() {
+  const t = useT();
+  const me = useMe();
+  const [cur, setCur] = useState<TopbarColor>(getTopbar);
+  const forced = me.companies.find((c) => c.id === me.activeCompanyId)?.topbarColor ?? null;
+  return (
+    <div className="border-t border-slate-100 px-5 py-4" data-testid="topbar-picker">
+      <div className="mb-2 text-sm font-medium text-slate-700">{t("profile.topbar")}</div>
+      {forced && <p className="mb-2 text-xs text-slate-500">{t("profile.topbarForced", { c: t.lbl(TOPBAR_LABELS[forced]) })}</p>}
+      <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t("profile.topbar")}>
+        {TOPBAR_COLORS.map((c) => (
+          <button
+            key={c}
+            type="button"
+            role="radio"
+            aria-checked={cur === c}
+            title={t.lbl(TOPBAR_LABELS[c])}
+            aria-label={t.lbl(TOPBAR_LABELS[c])}
+            onClick={() => (setTopbar(c), setCur(c))}
+            className={cn("h-8 w-12 rounded-md border", c === "default" ? "border-slate-300 bg-white" : `topbar-c-${c} border-transparent`, cur === c && "ring-2 ring-brand-400 ring-offset-2")}
+          />
+        ))}
+      </div>
+    </div>
   );
 }

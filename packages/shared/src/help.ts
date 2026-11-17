@@ -4,10 +4,11 @@
  * Text: jednoduchý Markdown (## nadpis, odstavce, - odrážky, 1. kroky, **tučně**).
  * ============================================================ */
 
-export const HELP_AUDIENCES = ["employee", "gestor", "manager", "admin"] as const;
+export const HELP_AUDIENCES = ["employee", "owner", "gestor", "manager", "admin"] as const;
 export type HelpAudience = (typeof HELP_AUDIENCES)[number];
 export const HELP_AUDIENCE_LABELS: Record<HelpAudience, string> = {
   employee: "Zaměstnanec",
+  owner: "Vedoucí útvaru a garant",
   gestor: "Gestor a schvalovatel dokumentů",
   manager: "Manažer kybernetické bezpečnosti",
   admin: "Správce systému",
@@ -30,7 +31,7 @@ export const HELP_TOPICS: HelpTopic[] = [
   {
     id: "start",
     title: "Začínáme s CONTIXem",
-    audience: ["employee", "gestor", "manager", "admin"],
+    audience: ["employee", "gestor", "manager", "admin", "owner"],
     routes: ["/"],
     summary: "Přihlášení, menu, výběr společnosti a kde najdete své úkoly.",
     body: `
@@ -44,17 +45,21 @@ Přihlaste se firemním účtem (tlačítko SSO, pokud ho organizace používá)
 - **Nahlásit událost** – když si všimnete něčeho podezřelého (ztráta notebooku, neobvyklé chování systému).
 - **Nahlásit phishing** – podezřelý e-mail předáte bezpečnostnímu týmu, nejlépe jako soubor .eml (v Outlooku přetáhněte zprávu na plochu). Na odkazy neklikejte a přílohy neotevírejte.
 - Tlačítko **Nápověda** (otazník vpravo dole) ukáže postupy k obrazovce, na které právě jste.
-- **Rychlé hledání** – klávesy **Ctrl+K** (na Macu **⌘K**) nebo pole **Hledat…** nahoře v menu: napište název nebo kód rizika, aktiva, dodavatele, opatření, incidentu, dokumentu, číslo CVE nebo název stránky a Enterem ji otevřete. Bez zadání ukáže naposledy otevřené záznamy; s AI asistentem nabídne i položení otázky.
+- **Rychlé hledání** – klávesy **Ctrl+K** (na Macu **⌘K**) nebo pole **Hledat…** v horní liště: napište název nebo kód rizika, aktiva, dodavatele, opatření, incidentu, dokumentu, číslo CVE nebo název stránky a Enterem ji otevřete. Bez zadání ukáže naposledy otevřené záznamy; s AI asistentem nabídne i položení otázky.
 - **Filtry seznamů** (rizika, aktiva, opatření, dodavatelé) a vybraná záložka se ukládají do adresy stránky – po návratu z detailu zůstanou a odkaz můžete poslat kolegovi. U rizik, opatření a dodavatelů řadíte kliknutím na záhlaví sloupce a kombinaci filtrů a řazení si uložíte jako **pohled** (i sdílený s kolegy).
 - Před smazáním nebo schválením se CONTIX zeptá v potvrzovacím okně (Esc = zrušit). Když ve formuláři zůstanou neuložené změny, při odchodu ze stránky vás upozorní.
 - Na telefonu otevřete menu tlačítkem ☰ vlevo nahoře.
+- **Horní lišta**: vlevo výběr společnosti, uprostřed hledání, vpravo zvonek s počtem úkolů (otevře Moje práce) a nabídka uživatele (profil, odhlášení).
+- **Oblíbené**: najeďte myší na položku menu a klikněte na hvězdičku – připne se do sekce Oblíbené nahoře v menu (pamatuje si to váš prohlížeč).
+- **Detail záznamu** (riziko, aktivum, incident, projekt) má pod nadpisem řádek klíčových údajů – vlastník, stav, termíny, kritičnost.
+- **Záhlaví stránky** má jednu hlavní akci; méně časté akce jsou pod tlačítkem **Další**. Části modulu (např. u Rizik registr, roční hodnocení, scénáře, ochota riskovat) jsou v řádku odkazů pod nadpisem.
 - **Vzhled**: v **Můj profil → Vzhled** zvolíte barevný motiv a **světlý, tmavý** nebo **podle systému** režim. Detail rizika, aktiva a opatření má pevnou hlavičku se stavem a akcemi a obsah rozdělený do záložek (Přehled, Zvládání / Testy, Vazby, Úkoly); vybraná záložka je v adrese stránky.
 
 ## Vazby mezi záznamy
 Navázané záznamy (procesy, rizika, opatření, dodavatelé, aktiva) jsou v detailu klikací – vedou rovnou na jejich detail. Karta **Kde je záznam použit** u aktiva, procesu, rizika, opatření a dodavatele ukazuje opačný směr: které incidenty, změny, plány kontinuity, BIA, AI systémy, činnosti zpracování, audity a jejich zjištění, zprávy a dotazníky dodavatelů, akce plánu zvládání nebo produkty CRA na záznam odkazují. Vidíte jen záznamy, ke kterým máte oprávnění.
 
 ## Skupina společností
-Pokud CONTIX spravuje více společností, zvolíte v horní části menu společnost, se kterou pracujete. Volba „celá skupina“ ukazuje souhrnné přehledy; nové záznamy se zakládají vždy do jedné konkrétní společnosti.
+Pokud CONTIX spravuje více společností, zvolíte v horní liště vlevo společnost, se kterou pracujete. Volba „celá skupina“ ukazuje souhrnné přehledy; nové záznamy se zakládají vždy do jedné konkrétní společnosti.
 
 ## Upozornění
 CONTIX vám může posílat e-maily nebo zprávy do Teams o blížících se termínech. Souhrn je ve **Moje povinnosti**; číslo u položky v menu ukazuje, kolik úkolů čeká.
@@ -63,12 +68,12 @@ CONTIX vám může posílat e-maily nebo zprávy do Teams o blížících se ter
   {
     id: "profile",
     title: "Můj profil: heslo a dvoufázové ověření",
-    audience: ["employee", "gestor", "manager", "admin"],
+    audience: ["employee", "gestor", "manager", "admin", "owner"],
     routes: ["/profile"],
     summary: "Změna hesla, zapnutí dvoufázového ověření (MFA) a údaje o účtu.",
     body: `
 ## Můj profil
-Odkaz se jménem vlevo dole otevře **Můj profil** – způsob přihlášení, poslední přihlášení a nastavení zabezpečení účtu.
+Nabídka se jménem vpravo nahoře otevře **Můj profil** – způsob přihlášení, poslední přihlášení a nastavení zabezpečení účtu. V části Vzhled zvolíte motiv, světlý / tmavý režim a **barvu horní lišty**; pokud ji nastavila společnost (správce v Administraci → Společnosti), platí její barva pro všechny.
 
 ## Dvoufázové ověření (MFA)
 1. Klikněte na **Nastavit MFA**.
@@ -88,13 +93,16 @@ U lokálního účtu zadejte současné a nové heslo. Po změně budete odhlá�
     summary: "Co ukazují dlaždice na úvodní obrazovce a jak z nich přejít k řešení.",
     body: `
 ## Dlaždice oblastí
-Úvodní **Přehled** shrnuje stav všech zapnutých oblastí: aktiva a zranitelnosti (kritické, bez podpory OS, v červeném stavu), rizika (nad hranicí bez ošetření, k přehodnocení, akce plánu po termínu), opatření a shoda (míra shody, neúčinné testy, prošlé důkazy), incidenty (otevřené události, hlášení po termínu), audity, dokumentace, školení, kontinuita, dodavatelé a GDPR. Z dlaždic se proklikem dostanete k příslušným záznamům.
+Úvodní **Přehled** shrnuje stav všech zapnutých oblastí: aktiva a zranitelnosti (kritické, bez podpory OS, v červeném stavu), rizika (nad hranicí bez ošetření, k přehodnocení, akce plánu po termínu), opatření a shoda (míra shody, neúčinné testy, prošlé důkazy), incidenty (otevřené události, hlášení po termínu), audity, dokumentace, školení, kontinuita, dodavatelé a GDPR. Z dlaždic se proklikem dostanete k příslušným záznamům. Oblasti jsou rozdělené na **Technickou bezpečnost** (aktiva, zranitelnosti, incidenty, identity, **bezpečnostní testy**, **servery ze sběrače**) a **Řízení a shodu**; barevný proužek a štítek ukazují stav (*V pořádku*, *Pozor*, *Vyžaduje řešení*) a u nadpisu sekce je počet oblastí, které vyžadují pozornost. Oblasti, které ještě nemají žádná data, jsou shrnuté v kartě **Zatím nevyplněné oblasti** – kliknutím začnete. Míru shody ukazuje prstenec s rozpadem splněno / částečně / nesplněno / neposouzeno.
 
 ## Lhůty a úkoly
 Karta **Lhůty a úkoly ze všech oblastí** ukazuje, co je po termínu nebo se blíží – za celou organizaci, ne jen za vás. Vlastní úkoly jsou ve **Moje povinnosti**.
 
 ## Vývoj ukazatelů
-Karta **Vývoj ukazatelů** ukazuje měsíční historii hlavních čísel – míru shody, nepřijatelná rizika, kritické zranitelnosti, povinnosti a výjimky po termínu, zjištění auditů. CONTIX ukládá jeden snímek za měsíc a společnost (běžný měsíc se průběžně aktualizuje, uzavřené měsíce se nemění); u každého ukazatele je změna proti předchozímu měsíci se slovem zlepšení / zhoršení. Přepínač **Tabulka** zobrazí čísla po měsících. Historie začíná dnem nasazení této verze. Podrobnější vývoj za 12 měsíců je ve **Zprávě pro vedení** (i v tisku a Wordu).
+Karta **Vývoj ukazatelů** ukazuje měsíční historii hlavních čísel – míru shody, nepřijatelná rizika, kritické zranitelnosti, povinnosti a výjimky po termínu, zjištění auditů. CONTIX ukládá jeden snímek za měsíc a společnost (běžný měsíc se průběžně aktualizuje, uzavřené měsíce se nemění); u každého ukazatele je změna proti předchozímu měsíci se slovem zlepšení / zhoršení. Historie začíná dnem nasazení této verze. Podrobnější vývoj je ve **Zprávě pro vedení** (i v tisku a Wordu).
+
+## Formát grafů
+Nad grafy zvolíte **typ** (čára, plocha, sloupce, tabulka), **období** (6, 12 nebo 24 měsíců) a **měřítko** – hodnoty, nebo změnu od začátku období (u počtů v %, u procentních ukazatelů v procentních bodech). Tlačítko **Ukazatele** vybere, které ukazatele se zobrazí a v jakém pořadí. **Export** stáhne graf jako obrázek (PNG), vektor (SVG – do prezentace) nebo data (CSV pro Excel). Nastavení si pamatuje váš prohlížeč pro každou kartu zvlášť. Ve **Zprávě pro vedení** se nastavení karty Vývoj ukazatelů použije i v tisku (graf) a ve Wordu (obrázek grafu u každého ukazatele s rozpětím min–max).
 
 ## Návrhy a skupina
 **Návrhy záznamů** počítají návrhy AI a Wazuhu čekající na posouzení (najdete je u příslušných záznamů). Při volbě „celá skupina“ ukazuje přehled souhrn za všechny společnosti a míru shody každé z nich podle jejího režimu.
@@ -103,7 +111,7 @@ Karta **Vývoj ukazatelů** ukazuje měsíční historii hlavních čísel – m
   {
     id: "my",
     title: "Moje práce",
-    audience: ["employee", "gestor", "manager"],
+    audience: ["employee", "gestor", "manager", "owner"],
     routes: ["/my"],
     summary: "Přehled všeho, co máte udělat, a jak úkol splnit.",
     body: `
@@ -111,16 +119,20 @@ Karta **Vývoj ukazatelů** ukazuje měsíční historii hlavních čísel – m
 Stránka **Moje práce** má záložky: **Moje povinnosti** (níže), **Úkoly a akce** (přehled akcí a úkolů s výchozím filtrem Moje) a **Tým** (lhůty v rozsahu vašich oprávnění).
 - **Dokumenty k seznámení** – nové nebo změněné dokumenty, které se týkají vaší funkce. Otevřete dokument, přečtěte ho a potvrďte seznámení.
 - **Moje školení** – kurzy, které máte absolvovat, s termínem.
-- **Úkoly mých funkčních míst** – termíny, za které odpovídá vaše funkční místo (přezkum dokumentu, akce plánu zvládání rizik, nápravné opatření z auditu, schválení dokumentu…).
+- **Fronta** – všechno, co máte udělat, seřazené podle naléhavosti (po termínu, dnes, brzy; pozdější na vyžádání): termíny vašich funkčních míst, žádosti o přístup a změny projektů ke schválení, úkoly v projektech. Filtry nahoře (Ke schválení, Po termínu, Tento týden, Dokumenty a školení) ukazují počty. U žádosti o přístup a změny projektu můžete **schválit** nebo **zamítnout** (s důvodem) přímo v řádku, úkol označíte tlačítkem **Hotovo**. Když akci z fronty provést nejde (např. konflikt SoD vyžaduje zdůvodnění), otevře se detail. Klávesy: **J / K** pohyb, **Enter** otevřít, **A** hlavní akce řádku.
+- Na **Přehledu** je karta **Dnes pro vás** s pěti nejnaléhavějšími položkami fronty.
 
 ## Jak úkol splnit
 Klikněte na položku – otevře se přímo místo, kde se úkol plní. Úkol z přehledu zmizí sám, jakmile je hotový (potvrzené seznámení, schválený dokument, uzavřené opatření). Barva ukazuje naléhavost: červeně je po termínu, oranžově se termín blíží. Na záložce **Úkoly a akce** zaškrtněte více úkolů a označte je najednou jako hotové nebo rozpracované.
+
+## Eskalace po termínu
+Když úkol nebo jiná povinnost podřízeného funkčního místa zůstane **7 dní po termínu**, uvidí ji ve frontě i v e-mailovém upozornění **vedoucí útvaru** (funkce označená jako vedoucí); každý další týden se posune o úroveň výš ve struktuře útvarů až k vedení. Položka má štítek **Eskalace n. úrovně · x dní po termínu** a nadřízený ji jen sleduje – splnit ji má původní odpovědná funkce. Eskalace se počítá z organizační struktury v **Organizace**, nic se nenastavuje.
 `,
   },
   {
     id: "docs-read",
     title: "Dokumenty: čtení, seznámení a test",
-    audience: ["employee", "gestor", "manager"],
+    audience: ["employee", "gestor", "manager", "owner"],
     routes: ["/docs"],
     module: "policies",
     summary: "Jak najít platný dokument, potvrdit seznámení a absolvovat test porozumění.",
@@ -148,7 +160,7 @@ Je-li v dokumentu nejasnost nebo chyba, napište **Připomínku** (lze uvést č
   {
     id: "incident-report",
     title: "Nahlášení bezpečnostní události",
-    audience: ["employee", "gestor", "manager"],
+    audience: ["employee", "gestor", "manager", "owner"],
     routes: ["/incidents", "/phishing"],
     module: "incidents",
     summary: "Co hlásit a jak – rychle a bez obav.",
@@ -171,7 +183,7 @@ Na podezřelý e-mail neodpovídejte a neotvírejte přílohy. Zařízení, u kt
   {
     id: "training",
     title: "Školení a povědomí",
-    audience: ["employee", "manager"],
+    audience: ["employee", "manager", "owner"],
     routes: ["/awareness"],
     module: "awareness",
     summary: "Jak zjistíte, která školení máte absolvovat, a jak se zapisuje absolvování.",
@@ -230,7 +242,7 @@ Dokument je platný, objeví se zaměstnancům v Dokumentech a dotčeným osobá
     summary: "Aktuality, varování a upozornění na zranitelnosti z RSS NÚKIB, statistiky nahlášených incidentů a stav Národního MISP.",
     body: `
 ## Co stránka ukazuje
-**Informační servis NÚKIB** (v menu nahoře u Přehledu) sbírá na jedno místo informace regulátora: **aktuality z RSS** hlavního webu NÚKIB (případně dalších kanálů – RSS Portálu NÚKIB, SK-CERT, BSI), **statistiky nahlášených incidentů** z otevřených dat NÚKIB a **stav napojení na Národní MISP**. CONTIX zdroje jen stahuje (GET) – nic neodesílá.
+**Informační servis NÚKIB** (menu Regulace) sbírá na jedno místo informace regulátora: **aktuality z RSS** hlavního webu NÚKIB (případně dalších kanálů – RSS Portálu NÚKIB, SK-CERT, BSI), **statistiky nahlášených incidentů** z otevřených dat NÚKIB a **stav napojení na Národní MISP**. CONTIX zdroje jen stahuje (GET) – nic neodesílá.
 
 ## Aktuality a varování
 Položky se podle názvu třídí na **varování**, **upozornění na zranitelnost**, **přehledy a zprávy**, **metodiky a doporučení** a ostatní **aktuality**. U položky zaznamenáte **posouzení** za aktivní společnost – že jste se s informací seznámili a co z ní plyne (např. „netýká se nás“, „aktualizováno“, „riziko R-12 přehodnoceno“). **Varování NÚKIB** je povinná osoba povinna zohlednit v hodnocení rizik – neposouzená varování ukazuje první ukazatel. Posouzení se zapisuje do auditního logu.
@@ -357,6 +369,39 @@ U dokumentu je skartační znak (A archiválie, S skartace, V výběr) a lhůta.
 `,
   },
   {
+    id: "owner-guide",
+    title: "Příručka vedoucího útvaru a garanta",
+    audience: ["owner"],
+    routes: ["/my", "/organization", "/actions"],
+    summary: "Za co odpovídáte jako vedoucí útvaru, vlastník nebo technický garant, co vám CONTIX pošle a jak to rychle vyřídit.",
+    body: `
+## Za co odpovídáte
+CONTIX přiděluje odpovědnost **funkčním místům** (vedoucí útvaru, vlastník procesu, vlastník rizika) a u aktiv i **osobám**: **business vlastník** odpovídá za aktivum jako celek (hodnocení, přijetí rizik, zjištění z auditů), **technický garant** a jeho **zástupce** za technické nálezy – zranitelnosti a výsledky bezpečnostních testů. Co vám patří, vidíte v **Moje práce** a u vašeho útvaru v **Organizace**.
+
+## Moje práce
+Stránka **Moje práce** (také zvonek v horní liště) shrnuje vše, co máte udělat: úkoly s termínem za vaše funkční místa a za vás osobně, dokumenty k seznámení a školení. Úkol otevřete, vyřešte a označte jako hotový – u úkolu z nálezu stačí opravu provést, opakovaný test nebo sken ho uzavře sám. Neodpovídá-li úkol vašemu místu, napište to do poznámky a předejte ho správci (ten změní odpovědné místo nebo osobu).
+
+## Co vám přijde e-mailem
+- **Denní přehled** úkolů blížících se termínu a po termínu (pokud ho správce zapnul).
+- **Týdenní souhrn** každé pondělí: otevřené nálezy na aktivech, kde jste garant nebo vlastník, s lhůtou opravy; nálezy po termínu z vašeho útvaru (**eskalace**) a údaje, které u vašich záznamů chybějí. Souhrn přijde jen tehdy, když v něm něco je.
+
+## Lhůty a eskalace
+Nález bez úkolu má lhůtu opravy podle závažnosti: kritický 7 dní, vysoký 14, střední 30, nízký 90 dní od zjištění. Týden po termínu se nález objeví v souhrnu **vedoucího garanta** a každý další týden o úroveň výš ve struktuře. Úkoly po termínu vidí nadřízení vlastníka úkolu. Nejrychlejší cesta, jak eskalaci zastavit: opravit, nebo v detailu nálezu zdůvodněně přijmout riziko či označit falešně pozitivní nález.
+
+## Přehled útvaru
+V **Organizace** vyberte svůj útvar: u něj jsou počty aktiv, procesů, otevřených rizik, opatření, úkolů (s počtem po termínu), aktivních dodavatelů a platných dokumentů – **včetně podřízených útvarů**. Kliknutím otevřete seznam filtrovaný podle útvaru. Stejný filtr *Útvar* najdete přímo v seznamech aktiv, procesů, rizik, opatření, dodavatelů a dokumentů.
+
+## Chybějící údaje
+**Kvalita dat** (menu Řízení) ukáže záznamy bez vlastníka, garanta, hodnocení nebo vazby. Týká-li se to vašich záznamů, doplňte je – v detailu, nebo hromadně: v seznamu aktiv, rizik, opatření, procesů nebo dodavatelů zaškrtněte záznamy a v liště dole nastavte útvar, vlastníka, garanta, kritičnost, štítky a další údaje najednou. Záznamy, ke kterým nemáte oprávnění, se přeskočí s důvodem.
+
+## Když se mění lidé
+Odchází-li člověk z funkčního místa, stačí v Organizaci změnit **držitele** místa – úkoly, schvalování a upozornění přejdou na nástupce. Garanta nebo vlastníka aktiva změníte v kartě aktiva (nebo hromadně); otevřené úkoly z nálezů se přesunou samy.
+
+## Na telefonu
+CONTIX funguje i v telefonu: menu otevřete tlačítkem ☰, tabulky se posouvají do strany uvnitř karty. Úkol z e-mailu otevřete odkazem, vyřešíte ho a označíte jako hotový bez počítače.
+`,
+  },
+  {
     id: "organization",
     title: "Organizace: útvary a funkční místa",
     audience: ["manager", "admin"],
@@ -364,6 +409,9 @@ U dokumentu je skartační znak (A archiválie, S skartace, V výběr) a lhůta.
     module: "organization",
     summary: "Organizační struktura, funkční místa, jejich obsazení a bezpečnostní role.",
     body: `
+## Útvar jako centrum
+U vybraného útvaru jsou odkazy na to, co mu patří – **včetně podřízených útvarů**: aktiva (odpovědný útvar), procesy (útvar procesu nebo vlastník z útvaru), otevřená rizika a opatření, jejichž vlastníkem je funkce útvaru, a otevřené úkoly funkcí útvaru a jejich držitelů (s počtem po termínu). Odkaz otevře seznam filtrovaný podle útvaru; stejný filtr *Útvar* je v seznamech aktiv, procesů, rizik a opatření. Útvar lze založit i přímo z výběru útvaru ve formuláři (napsat název → *Založit*) – zařadíte ho pak ve struktuře.
+
 ## Proč funkční místa
 Odpovědnost v CONTIXu (vlastník procesu a rizika, gestor a schvalovatel dokumentu, RACI, odpovědnost za akce) se přiděluje **funkčnímu místu**, ne konkrétnímu člověku. Při personální změně stačí změnit obsazení místa – úkoly, upozornění a role v oběhu dokumentů přejdou na nového držitele.
 
@@ -416,6 +464,15 @@ Kliknutím na označení CVE (v seznamu zranitelností, u aktiva nebo v plánu o
 
 ## Primární a podpůrná aktiva
 Primární aktiva jsou informace a služby (co chráníme), podpůrná aktiva jsou servery, aplikace, sítě a zařízení, na kterých stojí. Vazby mezi nimi určují, jak se dědí hodnocení důvěrnosti, integrity a dostupnosti.
+
+## Odpovědný útvar, štítky a výběry
+**Odpovědný útvar** se vybírá z organizační struktury (dřívější volný text zůstává vidět, dokud útvar nevyberete; při importu se text přiřadí k útvaru se stejným názvem). Seznam aktiv lze filtrovat podle útvaru – včetně podřízených útvarů – a v Organizaci je u útvaru odkaz na jeho aktiva. **Štítky** jsou ze společného katalogu (stejné jako u rizik, procesů a dodavatelů): ve formuláři vyberete existující nebo napíšete nový, v detailu je přidáte či odeberete přímo, v seznamu se zobrazí u názvu a kliknutím podle nich filtrujete. Všechny výběry vazeb (útvary, funkce, osoby, aktiva, opatření…) se rozbalí kliknutím a filtrují psaním – bez ohledu na diakritiku, se skupinami a doplňujícím údajem (cesta útvaru, držitel funkce, hostname). U aktiva jsou v záložce Řízení nově i certifikáty (TLS), oprávnění z žádostí o přístup a otevřené návrhy rizik ze scénářů.
+
+## Hromadné úpravy
+V seznamu aktiv (stejně jako rizik a opatření) zaškrtněte záznamy – nebo *Vybrat vše na stránce* – a v liště dole zvolte, co změnit: odpovědný útvar, vlastníka, technického garanta a zástupce, kritičnost, životní cyklus, prostředí, nebo přidat či odebrat štítky. U rizik vlastníka (funkci) a štítky, u opatření vlastníka, stav zavedení a štítky (stav *nepoužitelné* jen v detailu se zdůvodněním). U procesů (zobrazení *Seznam*) vlastníka, útvar, kritičnost, typ a štítky; u dodavatelů odpovědný útvar, významnost, data mimo ČR, stav spolupráce, interval a datum přezkumu a štítky. V **Úkolech** hromadně stav, termín, vlastníka, prioritu a odpovědnou osobu. Záznamy z jiné společnosti, bez oprávnění nebo s útvarem / funkcí jiné společnosti se přeskočí a lišta ukáže proč; každá změna se zapíše do auditního záznamu.
+
+## Business vlastník a technický garant
+Aktivum má dvě úrovně odpovědnosti. **Business vlastník** odpovídá za aktivum jako celek – hodnocení, přijetí rizik a výjimek, zjištění z auditů. **Technický garant** (a jeho **zástupce**) řeší technické nálezy: opravy zranitelností a úkoly z bezpečnostních testů. Bez garanta jdou technické úkoly business vlastníkovi. Úkoly z nálezů dostane přímo **osoba** (garant, zástupce je vidí také) a k tomu funkční místo, má-li ho v **Organizace** – podle něj vidí úkoly po termínu nadřízení (eskalace). Po změně garanta nebo vlastníka v kartě aktiva se otevřené úkoly přesunou samy. Vlastníka i garanta upraví správce aktiv; garant a zástupce smí aktivum upravovat stejně jako vlastník (oprávnění *upravovat vlastní aktiva*). Při importu aktiv použijte sloupec **Technický garant (e-mail uživatele)**. Odchází-li uživatel, předejte jeho aktiva a otevřené úkoly v **Administrace → Uživatelé** (karta uživatele, část *Odpovědnosti uživatele*) – úkoly z nálezů se přepočítají na nové odpovědné osoby. Nálezy aktiva ze všech zdrojů jsou na záložce **Nálezy a úkoly**.
 
 ## Sdílená aktiva skupiny
 V holdingu může aktivum (např. společný ERP, datové centrum nebo síť) sloužit více společnostem. V detailu aktiva tlačítkem **Sdílení** vyberete společnosti skupiny, se kterými je aktivum sdílené: vidí ho ve svém seznamu aktiv (štítek „sdílené z …“) a mohou ho použít v rizicích, BIA, procesech a opatřeních. Aktivum dál patří své (vlastní) společnosti – upravit, přesunout nebo smazat ho může jen ona; ostatní ho vidí jen pro čtení.
@@ -552,6 +609,50 @@ Nová verze **zprávy o hodnocení rizik** (Rizika → verze dokumentu) obsahuje
 `,
   },
   {
+    id: "compliance-path",
+    title: "Cesta k souladu a postup krok za krokem",
+    audience: ["manager"],
+    routes: ["/compliance-path", "/compliance-path/audit"],
+    summary: "Stav všech oblastí (ISMS, rizika, opatření, audity, kontinuita, incidenty, dodavatelé, GDPR, AI Act, CRA, legislativa) a další doporučený krok – vše z dat.",
+    body: `
+## Cesta k souladu
+Stránka ukazuje pro každou oblast, kterou smíte číst, procento hotových kroků, řadu kroků a **další krok** s odkazem tam, kde se vyřídí. Oblasti s nejmenším postupem jsou první. Celkové procento je průměr oblastí. Máte-li přístup k více společnostem, tabulka **Skupina společností** ukáže postup každé z nich po oblastech; kliknutím na název se na společnost přepnete.
+
+## Panel Jak postupovat v modulech
+Na hlavní stránce modulu (Řízení ISMS, Významné změny, Rizika, Opatření, Audity, Kontinuita, Incidenty, Dodavatelé, DORA, GDPR, AI Act, CRA, Legislativa, Aktiva, Zranitelnosti, Politiky a dokumentace, Školení, Identity a přístupy, Zprávy SOC 2, Dotazníky zákazníků a Trust Center) je panel s kroky v doporučeném pořadí. U každého kroku je stav – hotovo, počet položek k vyřízení, nebo čeká na předchozí krok – a krok je odkaz na příslušnou stránku. Panel jde sbalit; prohlížeč si to pamatuje. V záhlaví panelu lze určit **garanta postupu** (funkční místo); jeho držitelé dostávají další krok do **Moje práce** a do souhrnného e-mailu. Průvodce mají také SOC a Žádosti o přístup.
+
+## Jak se stav počítá
+Stav se počítá při každém zobrazení z dat společnosti (např. riziko nad akceptovatelnou úrovní bez zvládání, zavedené opatření bez testu za 12 měsíců, významný dodavatel bez platné smlouvy, zmeškaná lhůta hlášení incidentu). Pravidelné přezkumy se řídí intervalem nastaveným u záznamu (rizika podle politiky, dokumenty, dodavatelé, záznamy o zpracování, testy plánů). Kroky mají u sebe odkaz na oddíl hlavního předpisu společnosti (např. § 8 vyhlášky, čl. 21 NIS2, A.5.9 ISO 27001). Blok **Doporučené pořadí zavádění** řadí oblasti do fází (základy → analýza → opatření → provoz → ověření). Tlačítko **Příprava na audit** ukáže po oddílech zvoleného předpisu připravenost (shoda požadavků z Pokrytí předpisu), počet opatření a dokumentů, mezery a kroky, které zbývá dokončit; výstup jde stáhnout do Wordu, vytisknout nebo stáhnout jako **Balíček pro auditora** (ZIP se zprávou o připravenosti, prohlášením o aplikovatelnosti, testy, důkazy, platnými dokumenty po oddílech a kontrolními součty). Požadavky bez opatření a bez ručního posouzení se počítají jako neposouzené. **Startovací balíček** (v nabídce **Další** vpravo nahoře, ve fázi Základy i přímo v bloku pořadí zavádění) nabídne složky dokumentace, katalog opatření podle vyhlášky, koncept bezpečnostní politiky s osnovou kapitol podle hlavního předpisu (verze 0.1) a vzorové cíle ISMS (vytvoří jen to, co chybí). Další krok průvodce chodí v souhrnném e-mailu jen při změně kroku nebo počtu, jinak nejvýš jednou týdně. Nic se neukládá a nic se nemění samo – kroky jen ukazují, co udělat dál. Měsíční snímek ukládá jen celkové procento (ukazatel **Cesta k souladu (%)** ve Zprávě pro vedení), aby byl vidět vývoj v čase.
+
+## Přenos nastavení do jiné instalace
+V nabídce **Další** vpravo nahoře je **Exportovat nastavení průvodců** (soubor JSON s garanty podle názvu funkčního místa a útvaru a s profilem hrozeb) a **Importovat nastavení průvodců**. Při importu se garant přiřadí jen tam, kde v cílové společnosti existuje funkční místo stejného názvu (a útvaru, nebo jediné místo toho názvu); výsledek ukáže u každého průvodce „přiřazeno“ nebo „místo nenalezeno“. Profil hrozeb se převezme s oprávněním k zápisu rizik. Nic se nemaže. Hodí se pro pilotní nasazení u více zákazníků nebo pro přenos z testovací instalace do produkce.
+`,
+  },
+  {
+    id: "threat-modeling",
+    title: "Modelování hrozeb",
+    audience: ["manager"],
+    routes: ["/risks/modeling", "/risks/modeling/models/$modelId"],
+    module: "risks",
+    summary: "Útočné cesty z grafu aktiv, kalibrace hodnocení rizik z dat, aktéři hrozeb pro odvětví a řízený threat modeling STRIDE – vše jako návrh ke schválení.",
+    body: `
+## Jak postupovat
+Panel **Jak postupovat** nahoře vede pěti kroky: 1. odvětví a aktéři, 2. připravenost dat, 3. útočné cesty, 4. kalibrace rizik, 5. threat modely. U každého kroku vidíte stav a počet položek k vyřízení; tlačítko **Další krok** otevře doporučený krok. **Připravenost dat** ukazuje, co v evidenci chybí pro přesné výsledky (korunní klenoty, aktiva z internetu, vazby aktiv, segmenty, zranitelnosti, identity, EDR, BIA, opatření s doloženou účinností), a odkazuje tam, kde se doplní. Každá záložka má krátké **Jak na to**; cesty a kalibrace jsou seřazené podle priority („Začněte tímto“).
+
+## Útočné cesty
+CONTIX z evidovaných vazeb aktiv (běží na, používá, síť, zálohy, vazby primárních a podpůrných aktiv), síťových segmentů, zranitelností (KEV, kritické), stavu EDR a identit (MFA, privilegované účty, slabiny Kerberos) najde nejschůdnější cestu z internetu nebo z phishingu ke každému **korunnímu klenotu** (kritické a důležité primární aktivum). Každý krok má techniku ATT&CK a snadnost odhadnutou z doložených slabin; součin snadností určuje pravděpodobnost cesty. **Úzká hrdla** jsou aktiva na nejvíce cestách – oprava zde přeruší více scénářů. Cestu lze **založit jako riziko** (s aktivy cesty a navrženým hodnocením) nebo **akceptovat** se zdůvodněním.
+
+## Kalibrace z dat
+U otevřených rizik CONTIX navrhne dopad a pravděpodobnost z dat: dopad z BIA (MTPD a dopady procesů, které aktiva rizika podporují), osobních údajů a významných incidentů; hrozbu z incidentů za 12 měsíců, alertů SOC, expozice a aktérů pro odvětví; zranitelnost z doložené účinnosti opatření (testy, monitory) a otevřených zranitelností. Rizika s odchylkou se zvýrazní; **Použít** uloží hodnocení do historie přehodnocení se zdůvodněním.
+
+## Hrozby pro odvětví
+Zadejte odvětví společnosti. Katalog aktérů (ransomware, prodejci přístupů, státní skupiny, hacktivisté) se vyhodnotí podle odvětví, zmínek v informačním servisu NÚKIB a CERT, indikátorů MISP a technik v alertech SOC. Relevanci můžete ručně potvrdit nebo vyloučit se zdůvodněním. Se zadaným odvětvím relevantní aktéři posunou úroveň hrozby rizikových scénářů z dat a kalibrace (+1, nebo −1, když techniky scénáře nikdo relevantní nepoužívá). Katalog je orientační – ověřte ho podle aktuálních varování.
+
+## Threat model (STRIDE)
+Pro aplikaci, aktivum, proces nebo projekt založte threat model; u aplikace ho lze předvyplnit z grafu aktiv. V krocích **Prvky a toky** zadáte externí entity, procesy, úložiště a datové toky se zónou důvěry, citlivostí dat, ověřením, šifrováním a logováním. CONTIX vygeneruje hrozby STRIDE podle typu prvku se závažností a technikami ATT&CK; u každé rozhodnete: **zmírnit** (bezpečnostní požadavek), akceptovat, nerelevantní, nebo **založit riziko**. Výstupem jsou bezpečnostní požadavky a zpráva ve Wordu nebo k tisku.
+`,
+  },
+  {
     id: "risk-appetite",
     title: "Ochota riskovat a KRI",
     audience: ["manager"],
@@ -573,6 +674,131 @@ Ukazatele se počítají z dat CONTIXu: pokrytí MFA a EDR, aktiva z internetu s
 
 ## Ve výstupech
 Ochota, rizika nad ní a KRI jsou součástí zprávy o hodnocení rizik (část 8) a zprávy o přezkoumání ISMS pro vedení.
+`,
+  },
+  {
+    id: "access-requests",
+    title: "Žádosti o přístup",
+    audience: ["employee", "manager", "admin"],
+    routes: ["/access"],
+    module: "access",
+    summary: "Žádost o oprávnění (skupina AD, aplikace, role), schválení vedoucím a vlastníkem oprávnění, vyřízení správcem a evidence přidělených oprávnění.",
+    body: `
+## Podání žádosti
+Tlačítkem **Nová žádost** požádáte o přidělení nebo odebrání oprávnění. Žádat můžete za sebe a za své přímé podřízené (podle nadřízeného v evidenci osob); správce přístupů za kohokoli. Vyplňte zdůvodnění, u časově omezených oprávnění i datum platnosti. Pro stejnou osobu a oprávnění může být otevřená jen jedna žádost.
+
+## Schválení
+Podle nastavení oprávnění schvaluje nejdřív **vedoucí** (nadřízený osoby, který má účet v CONTIXu se stejným e-mailem) a potom **vlastník oprávnění** (např. garant aplikace). Když žádá přímo vedoucí, jeho krok je schválený automaticky. Žadatel ani dotčená osoba nemohou žádost schválit; pokud schvalovatel chybí, rozhoduje správce přístupů, který může krok i předat jinému uživateli. Zamítnutí vyžaduje důvod. Žádosti čekající na vás najdete v **Moje práce** a v souhrnném e-mailu.
+
+## Vyřízení a evidence
+Schválenou žádost vyřídí správce přístupů (nastaví přístup v systému, u skupiny AD je uvedené její DN) a potvrdí to – vznikne záznam v **Přidělených oprávněních**. Nikdo nemůže vyřídit žádost sám sobě. Odebrání se neschvaluje, jde rovnou k vyřízení.
+
+## Odchody a konec platnosti
+Jednou denně (nebo tlačítkem Zkontrolovat odchody a platnost) vznikne žádost o odebrání pro každé přidělení po datu platnosti a pro všechna oprávnění osob po datu ukončení; jejich neschválené žádosti se zruší.
+
+## Osoby a import z personalistiky
+Správce přístupů vede evidenci osob (zaměstnanci, externisté) ručně nebo importem CSV / XLSX z personálního systému (např. export z PERM): osobní číslo, jméno, příjmení, e-mail, útvar, funkce, nadřízený (osobní číslo nebo e-mail), datum nástupu a ukončení, druh poměru (DPP a DPČ se označí jako externí pracovník). Náhled ukáže nové osoby, změny, chyby a odchody; osoby se párují podle osobního čísla, jinak e-mailu, a import nikoho nemaže.
+
+## Katalog oprávnění
+U každého oprávnění nastavíte typ, vlastníka, zda schvaluje vedoucí a vlastník, nejdelší platnost, příznak privilegovaného přístupu a skupinu AD. Oprávnění s historií přidělení nelze smazat – vyřaďte ho.
+
+## Automatický import (PERM a jiné personální systémy)
+Export osob uložený na serveru v adresáři importu (návod k instalaci, kapitola 8b) se načte při každé změně souboru. Import pozná i záhlaví pod titulkem sestavy, celé jméno v jednom sloupci („Příjmení a jméno“, tituly vynechá), středisko a jeho název. Sloupce s citlivými údaji (rodné číslo, datum narození, adresa, mzda, číslo účtu…) nikdy nenačte a v náhledu na ně upozorní. Volba **Chybějící osoby označit jako odešlé** je pro exporty, které obsahují jen aktivní zaměstnance; když soubor obsahuje méně než polovinu dosavadních osob, odchody se z bezpečnostních důvodů neoznačí.
+
+## Recertifikace
+Správce přístupů zahájí **recertifikaci** (všechna nebo jen privilegovaná oprávnění, případně jedno oprávnění) s termínem. Každé aktivní přidělení posoudí vlastník oprávnění nebo nadřízený osoby – **Ponechat** nebo **Odebrat** (s důvodem; vznikne žádost o odebrání). Nikdo neposuzuje vlastní přístup. Posuzovatelé mají položky v Moje práce; průběh a protokol CSV pro auditora jsou u recertifikace.
+
+## Soulad s AD
+Záložka **Soulad s AD** porovná členství ve skupinách z posledního načtení zdroje identit (Identity a přístupy → Zdroje, jen čtení) s evidovanými přiděleními oprávnění, která mají vyplněnou skupinu AD. Osoba a účet se párují podle loginu (bez domény), jinak e-mailu. Hlásí: člen skupiny bez schválení, odešlou osobu ve skupině, účet bez osoby v evidenci, přidělení, které ve skupině chybí (správce ho ještě nenastavil), a osobu bez účtu. Při prvním naplnění evidence lze stávající členství **převzít jako přidělené**; neschválené členství nebo členství odešlé osoby vyřešíte **žádostí o odebrání**. Tato porovnání do AD nezapisují.
+
+## Nastavení skupin v AD
+Na záložce **Nastavení v AD** správce systému zvolí režim: **vypnuto** (ruční nastavení), **jen skript** (CONTIX vygeneruje skript PowerShell pro vybrané schválené žádosti; po spuštění správcem a další synchronizaci zdroje identit se žádosti samy vyřídí – tlačítko Ověřit podle AD to provede hned), nebo **přímo v AD** odděleným zapisovacím účtem s delegovaným právem jen na členství skupin v povolené OU (návod k instalaci, kapitola 8c). Náhled ukáže pro každou žádost skupinu a účet (DN) a kontrolu: skupina musí ležet v povolené OU, nesmí být privilegovaná (podle názvu, SID ani adminCount), osoba musí mít účet. Zápis proběhne jen u vybraných žádostí po potvrzení a v denním limitu; úspěšná změna žádost vyřídí, každá se zaznamená. Nikdo nenastavuje přístup sám sobě.
+
+## Skupiny z AD a nové skupiny
+V **Katalogu oprávnění** tlačítko **Načíst skupiny z AD** ukáže skupiny z poslední synchronizace zdroje identit seřazené podle OU – zaškrtnete celou OU nebo jednotlivé skupiny, nastavíte schvalování a vlastníka a volitelně rovnou **zapíšete stávající členy jako přidělená oprávnění**. Privilegované skupiny se s celou OU nevybírají. U nového oprávnění typu skupina AD lze zvolit **Skupina v AD ještě neexistuje** – zadáte název a OU ze seznamu; CONTIX skupinu vytvoří (ve skriptu příkazem New-ADGroup, nebo zápisem) před přidáním členů a po synchronizaci ji označí jako vytvořenou. Povolená OU pro zápis se vybírá ze seznamu OU; neúplné DN a vestavěný účet správce jako zapisovací účet CONTIX odmítne.
+
+## Přehled IDM
+Záložka **Přehled** ukazuje, co čeká na vás (schválení, recertifikace), tok žádostí (ke schválení → k vyřízení → zápis do AD → vyřízeno) a rizika: členství v AD bez schválení, odešlé osoby v AD, porušení SoD, recertifikace po termínu, chybějící přidělení z rolí a konce platnosti. Každá dlaždice vede na příslušnou záložku; u nejbližších nástupů a odchodů je tlačítko pro přípravu.
+
+## Business role
+Role je balíček oprávnění (např. Účetní = GG_FIN_Faktury + účetní systém). Komu patří, určuje **útvar** a/nebo **funkce** z personalistiky (bez ohledu na velikost písmen). U role vidíte počet osob a **chybějící přidělení** – jedním tlačítkem založíte žádosti (původ Business role), které projdou běžným schválením. Časově omezená oprávnění se přeskočí, žádá se o ně s datem.
+
+## Matice a detail osoby
+**Matice** zobrazuje osoby × oprávnění (filtr útvar, role, hledání): zeleně přiděleno (a v AD), žlutě schváleno ale chybí v AD, červeně v AD bez schválení, modře probíhající žádost, přerušovaně co role očekává. Klik na buňku nabídne žádost o přidělení, legalizaci nebo odebrání. Kliknutím na jméno kdekoli otevřete **detail osoby**: role a co z nich chybí, oprávnění s důvodem a stavem v AD, účet v adresáři se skupinami (zelená = schváleno, červená = bez schválení, šedá = mimo katalog), žádosti, podřízení a historie, s rychlými akcemi odebrat a prodloužit.
+
+## Nástup, přesun, odchod
+Průvodce **Nástup / přesun / odchod** spočítá návrh z rolí: při nástupu přidat oprávnění rolí, při přesunu přidat nové a odebrat to, co plynulo jen ze starých rolí (oprávnění mimo role nabídne bez předvýběru), při odchodu odebrat vše. Odchod s budoucím datem jen uloží datum – oprávnění odebere denní kontrola v den odchodu. Přidání jde přes schválení, odebrání rovnou k vyřízení.
+
+## Toxické kombinace při žádosti
+Pravidla SoD z Identit (Toxické kombinace) se kontrolují už při žádosti – proti skupinám účtu v AD, přiděleným oprávněním, běžícím žádostem a funkčním místům. Oprávnění bez skupiny AD se porovnává podle názvu. Konflikt se ukáže žadateli i schvalovatelům; taková žádost vždy čeká na správce přístupů (ani vedoucí si ji sám neschválí) a schválení vyžaduje zdůvodnění.
+`,
+  },
+  {
+    id: "projects",
+    title: "Projekty",
+    audience: ["manager", "admin"],
+    routes: ["/projects"],
+    module: "projects",
+    summary: "Projekty s fázemi a branami, povinné dokumenty včetně bezpečnostních požadavků a schválení brány sponzorem.",
+    body: `
+## Založení projektu
+Projekt založíte ze šablony – **IT projekt**, **bezpečnostní projekt** nebo **pořízení služby či produktu**. Šablona určí fáze a v každé fázi dokumenty, které musí vzniknout; bezpečnostní požadavky (posouzení dopadu, bezpečnostní požadavky na řešení a dodavatele, bezpečnostní test, aktualizace evidence aktiv a rizik…) jsou označené štítem. Určete **manažera** (vede projekt) a **sponzora** (schvaluje brány) – nesmí to být tatáž osoba.
+
+## Dokumenty
+U dokumentu nahrajete soubor nebo vložíte odkaz (např. na SharePoint) – tím ho předložíte ke schválení. Schválit nebo vrátit (s důvodem) ho musí jiný uživatel než ten, kdo ho předložil. Povinný dokument, který se projektu netýká, označte **Netýká se** s důvodem; nepovinné dokumenty lze přidávat i odebírat.
+
+## Brány
+Fáze končí **bránou**. Schválit ji lze, až jsou všechny povinné dokumenty schválené nebo „netýká se“; schvaluje sponzor (stačí mu čtení projektů), bez sponzora kdokoli s právem vést projekty kromě manažera. Schválením začne další fáze. Sponzor vidí bránu připravenou ke schválení a manažer termín fáze v **Moje práce**.
+
+## Uzavření
+Projekt lze uzavřít až po schválení všech bran; jinak ho můžete pozastavit nebo zrušit. Uzavřený a zrušený projekt je jen ke čtení. K projektu lze navázat úkoly; všechny kroky se zapisují do auditu.
+
+## Harmonogram a rozpočet
+U fáze zadáte plánovaný začátek a konec; **harmonogram** je ukáže jako pruhy se značkou skutečného schválení brány a čárou dneška, přehled projektů má i společný harmonogram všech projektů. **Rozpočet** v Kč je nepovinný; náklady (datum, popis, částka, fáze, dodavatel; dobropis zápornou částkou) se sčítají – od 90 % čerpání se zobrazí varování, nad 100 % překročení.
+
+## Vazby a vlastní šablony
+Projekt navážete na **aktiva, rizika, dodavatele a procesy** – u nich se pak zobrazí v sekci „Kde je záznam použit“. Kromě vestavěných šablon si organizace vytvoří **vlastní šablony** (fáze a požadované dokumenty, i bezpečnostní); vestavěnou lze zkopírovat a upravit. Šablonu, kterou používá projekt, nelze smazat – jen vyřadit.
+
+## Portfolio
+Výchozí zobrazení **Portfolio** ukazuje karty projektů s barvou stavu (nahlášený semafor, bez hlášení návrh z dat), postupem bran, termínem, otevřenými a zpožděnými úkoly, vysokými riziky, dalším milníkem a čerpáním rozpočtu. Nahoře jsou počty projektů v kritickém stavu, po termínu, s překročeným rozpočtem, s bránou nebo změnou ke schválení; filtry podle stavu, semaforu a manažera.
+
+## Detail projektu
+Detail má záložky **Přehled** (stav projektu, ukazatele, tým, co vyžaduje pozornost), **Fáze a brány**, **Úkoly**, **Harmonogram** (Gantt fází s milníky), **Rizika a problémy**, **Rozpočet**, **Změny**, **Hlášení a výstupy** a **Vazby**.
+
+## Tým a úkoly
+Do **týmu** přidáte uživatele s rolí a označením RACI (řeší, odpovídá, konzultuje, informován). **Úkoly** jsou na tabuli ve sloupcích K řešení / Probíhá / Blokováno / Hotovo – kartičky přetahujete myší nebo tlačítky. Úkol má řešitele, termín, prioritu a fázi; řešitel ho vidí v **Moje práce** a smí měnit jeho stav, i když jinak projekt upravovat nemůže.
+
+## Rizika, milníky a stav
+**Rizika a problémy** projektu mají vlastníka, opatření a úroveň pravděpodobnost × dopad (problém už nastal); mapa rizik ukazuje rozložení. **Milníky** jsou klíčové body s termínem v harmonogramu. **Hlášení stavu** se semaforem (celkem, harmonogram, rozpočet, rozsah) je předvyplněné návrhem z dat – zpožděné fáze, milníky a úkoly, čerpání rozpočtu, vysoká rizika a změny ke schválení – manažer ho potvrdí nebo změní a doplní shrnutí.
+
+## Změny a výstupy
+**Žádost o změnu** termínu, rozpočtu nebo rozsahu schvaluje sponzor (bez sponzora jiný uživatel než manažer a žadatel); schválená změna rovnou upraví termín konce a rozpočet projektu. **Stavovou zprávu** a **závěrečnou zprávu** (včetně týmu, všech rizik, změn a poučení) vytisknete nebo stáhnete do Wordu, česky i anglicky. **Poučení** (co se osvědčilo, co zlepšit) zapisujete průběžně.
+`,
+  },
+  {
+    id: "site-maps",
+    title: "Mapy a půdorysy",
+    audience: ["manager", "admin"],
+    routes: ["/assets/maps"],
+    module: "assets",
+    summary: "Půdorysy budov a mapy areálů s umístěnými aktivy – zelená, oranžová a červená podle toho, co se na aktivu děje.",
+    body: `
+## Nahrání podkladu
+Mapu nahrajete tlačítkem **Nahrát mapu** jako PDF, DWG, DXF nebo obrázek (PNG, JPG, SVG, WEBP) do 30 MB. Doplňte areál, budovu a podlaží – podle nich se mapy seskupí v seznamu. PDF, DXF a DWG převede **převodní služba** (kontejner converter) na obrázek; bez ní nahrajte půdorys jako obrázek nebo PDF vyexportujte z CAD do PNG. U DWG záleží na verzi souboru – pokud převod selže, vyexportujte výkres do PDF nebo DXF. Původní soubor zůstane uložený ke stažení.
+
+## Umístění aktiv
+Uživatel s oprávněním upravovat aktiva zapne **Umísťovat aktiva**, vybere aktivum (server, switch, kamera, datová zásuvka, rack…) a klikne do mapy. Umístěný bod lze přetáhnout, kliknutím ho otevřete a můžete ho z mapy odebrat. Pro zásuvky a rozvaděče jsou v aktivech typy **Datová zásuvka** a **Rack / rozvaděč**. Jedno aktivum může být na více mapách.
+
+## Barvy
+- **Červená** – otevřený incident, závažný alert SOC (úroveň ≥ 10), zranitelnost z katalogu KEV nebo kritický stav aktiva.
+- **Oranžová** – jiný otevřený alert, kritické či vysoké zranitelnosti, nepřijatelné riziko nebo stav aktiva vyžadující pozornost.
+- **Zelená** – stav aktiva je v pořádku a nic z výše uvedeného neplatí.
+- **Šedá** – o aktivu nejsou data.
+
+Stav se počítá při každém zobrazení a obnovuje se každou minutu. Kliknutím na bod uvidíte důvody a odkaz na detail aktiva; legendou lze barvy filtrovat. V detailu aktiva je karta **Na mapě** s odkazem přímo na umístění.
+
+## Přesun a mazání
+Při přesunu aktiva do jiné společnosti se z map původní společnosti odebere. Smazáním mapy se smažou jen umístění, aktiva zůstanou.
 `,
   },
   {
@@ -618,6 +844,74 @@ Až jsou rozhodnuté všechny položky, hodnocení předložte a schvalte – v�
 `,
   },
   {
+    id: "quality",
+    title: "Kvalita dat",
+    audience: ["manager", "admin", "owner"],
+    routes: ["/quality"],
+    summary: "Slabiny v evidenci na jednom místě a hromadné nastavení odpovědnosti.",
+    body: `
+## Co stránka kontroluje
+Stránka **Kvalita dat** (menu Řízení) projde evidenci a ukáže, kde chybí údaje, bez kterých nefungují úkoly, eskalace ani zprávy: aktiva bez vlastníka, **aktiva s nálezy bez technického garanta**, primární aktiva bez hodnocení CIA, rizika bez vlastníka nebo bez hodnocení, opatření bez odpovědné funkce nebo bez testu za 12 měsíců, procesy bez vlastníka, nálezy testů a servery ze sběrače bez aktiva, otevřené úkoly bez řešitele a významné dodavatele bez platné smlouvy. Vidíte jen evidence, ke kterým máte oprávnění; **Kontroly v pořádku** = podíl kontrol bez nálezu.
+
+## Hromadná oprava
+Otevřete kontrolu, zaškrtněte položky (nebo *Vybrat vše*) a nastavte **osobu** (vlastník, technický garant aktiva) nebo **funkční místo** (vlastník rizika, opatření, procesu, řešitel úkolu) najednou. Funkční místo musí patřit do společnosti záznamu; nastaví se jen tam, kde odpovědnost chybí, a změna se zapíše do auditního záznamu. Po nastavení technického garanta se úkoly z nálezů přidělí jemu. Ostatní slabiny opravte v záznamu – položka je odkaz.
+
+## Průběžné hlídání
+Skóre kvality a počet slabin se každý měsíc ukládají do **Trendů** (ukazatele *Kvalita dat* a *Slabiny v evidenci*); stránka ukazuje vývoj po měsících. V pondělním souhrnu dostane každý své **chybějící údaje**: vlastník primárního aktiva bez hodnocení CIA, vlastník aktiva s nálezy bez technického garanta a autor otevřeného úkolu bez řešitele.
+
+## Kontrola dat po aktualizaci
+Kontroly *Aktiva s útvarem jen jako text* a *Aktiva se štítky mimo katalog* ukážou, co se při převodu na útvary a katalog štítků nepřiřadilo samo: útvar vyberte hromadně, štítky jedním tlačítkem zapíšete do katalogu a sjednotíte. Souhrn vypíše i kontrola po aktualizaci serveru (verify.sh).
+`,
+  },
+  {
+    id: "findings",
+    title: "Nálezy – jednotný přehled",
+    audience: ["manager", "admin", "owner"],
+    routes: ["/findings"],
+    summary: "Nálezy testů, sběrače, zranitelnosti a zjištění auditů na jedné stupnici s odpovědnou osobou, úkolem a přijatým rizikem.",
+    body: `
+## Co přehled obsahuje
+Stránka **Nálezy** (menu Rizika a nálezy) spojuje čtyři zdroje: **bezpečnostní testy** (Kali), **konfiguraci serverů** ze sběrače, **zranitelnosti** (od střední výše, pokud nefiltrujete závažnost) a **zjištění auditů**. Každý nález má jednotnou **závažnost** (kritická – info; u auditu zásadní = vysoká, menší = střední, pozorování = nízká, doporučení = info) a **stav** (otevřený, v řešení, přijaté riziko, opraveno, zamítnuto). Vidíte jen zdroje, ke kterým máte oprávnění. Dlaždice nahoře ukazují otevřené nálezy podle zdroje; kliknutím filtrujete. Seznam načte prvních 300 nálezů podle priority, další tlačítkem *Zobrazit další*.
+
+## Odpovědnost a úkoly
+U nálezů testů a serverů je odpovědnou osobou **technický garant aktiva** (jinak zástupce, jinak business vlastník); u auditu funkční místo zjištění. Sloupec **Úkol** ukazuje úkol na odstranění a jeho termín (podle závažnosti: kritická 7, vysoká 14, střední 30 dní). Nálezy bez aktiva nebo bez odpovědné osoby jsou zvýrazněné – doplňte aktivu garanta.
+
+## Nálezy konfigurace serverů
+Sběrač po každém hlášení nálezy porovná: nový nález se otevře, **vysoký dostane úkol automaticky** (má-li aktivum odpovědnou osobu), a nález, který v dalším hlášení chybí, se označí jako **opravený** a jeho úkol se uzavře. U nálezu můžete *Změnit stav…*: založit úkol, **přijmout riziko** se zdůvodněním a platností (pak je ve Výjimkách; po termínu se znovu otevře), označit **falešný nález** nebo opravu. Více nálezů najednou převedete na úkoly tlačítkem nad tabulkou.
+
+## Vazby
+Otevřené kritické a vysoké nálezy testů a vysoké nálezy serverů ovlivňují **semafor aktiva**. Nové střední a vyšší nálezy na aktivech rizika jsou **podnětem k přehodnocení rizika**. Na detailu aktiva najdete stejný přehled na záložce **Nálezy a úkoly**.
+
+## Kde dál se nálezy projeví
+- **Rychlé hledání** (Ctrl+K) najde nález testu podle názvu nebo IP a server ze sběrače podle hostname.
+- **Dotaz v přirozeném jazyce** a **MCP** mají nástroje *Nálezy bezpečnostních testů* a *Nálezy konfigurace serverů* (jen čtení, s vašimi oprávněními).
+- **Trendy** sledují kritické a vysoké nálezy testů, vysoké nálezy serverů a úkoly z nálezů po termínu.
+- **Postup krok za krokem** má průvodce *Bezpečnostní testy* (rozsah, testy za 90 dní, pravidelné testy, garanti aktiv, úkoly, lhůty) a u aktiv krok *Nálezy konfigurace serverů*.
+- **Balíček pro auditora** obsahuje zprávu z bezpečnostních testů za období balíčku (máte-li oprávnění k testům).
+- Nálezy testů jsou v **hledání podle významu** (podobné záznamy, odpovědi AI s odkazy).
+
+## Priorita a plán oprav
+Seznam je seřazený podle **priority opravy** (číslo P u nálezu): závažnost, dostupnost aktiva z internetu, kritičnost aktiva a úkol po termínu – vyšší = dříve. Karta **Plán oprav** nechá lokální AI seskupit otevřené nálezy podle společné opravy (stejná příčina, server nebo konfigurace) a navrhnout pořadí kroků s náročností. Model dostane nejvýš 60 nálezů podle priority, bez názvů serverů, aktiv a IP adres (pseudonymy); návrh nic nemění – úkoly a termíny zůstávají.
+
+Z kroku plánu založíte **úkol** (tlačítko u kroku, nebo *Úkoly ze všech kroků*): jeden úkol za krok se seznamem nálezů, řešitel = garant aktiva, které má v kroku nejvíc nálezů, termín podle náročnosti (nízká 14, střední 30, vysoká 60 dní), priorita podle nejzávažnějšího nálezu. Karta ukazuje **plnění**: krok je splněný, když je jeho úkol splněný nebo žádný z jeho nálezů už není otevřený.
+
+## Lhůty a eskalace
+Nález testu nebo serveru **bez úkolu** má termín = lhůta podle závažnosti od zjištění (kritický 7, vysoký 14, střední 30, nízký 90 dní; ve sloupci *lhůta*), zranitelnost lhůtu opravy podle priority. Nález **po termínu déle než týden eskaluje** na vedoucího útvaru garanta aktiva a každý další týden o úroveň výš: vedoucí ho vidí v kartě **Eskalováno na vás** a v pondělním souhrnu. Počet eskalovaných je ve sloupci *Eskalováno* nápravy, ve Zprávě pro vedení i v Trendech.
+
+## Moje nálezy, tým a náprava
+- Filtr **Odpovědnost**: *Moje nálezy* = nálezy na aktivech, kde jste technický garant, zástupce nebo vlastník, nálezy s vaším úkolem a zjištění vaší funkce; *Můj tým* = totéž pro podřízené útvary, které vedete.
+- Karta **Náprava nálezů** (a stejná tabulka ve **Zprávě pro vedení**) ukazuje po zdrojích a závažnosti otevřené nálezy, nálezy po termínu, opravené za posledních 12 měsíců, **průměrnou dobu opravy** a **podíl oprav v termínu** (termín = lhůta úkolu podle závažnosti, lhůta opravy zranitelnosti nebo termín zjištění auditu). Stejné ukazatele jsou v **Trendech**.
+- Garanti aktiv dostávají v pondělí s denním souhrnem e-mail **Nálezy na vašich aktivech** (počty podle aktiv a úkoly po termínu).
+- Rozsah bezpečnostních testů lze **přesunout do jiné společnosti** skupiny (s plány pravidelných testů); v cílové společnosti se musí znovu schválit.
+
+## Opatření, zranitelnosti a certifikáty
+- Nález testu nebo zjištění auditu navázané na **opatření** je důkazem o jeho účinnosti: otevřený **kritický nález testu nebo zásadní zjištění** = opatření se do zbytkového rizika nezapočítá a v pokrytí předpisu je mezera *Závažný nález k opatření*; **vysoký nález nebo menší zjištění** = nejvýš částečně účinné. Počet nálezů vidíte v seznamu opatření a u pole Účinnost.
+- Nález testu s identifikátorem **CVE** na aktivu se objeví i ve **Zranitelnostech** (zdroj *sectest*) – se stejným stavem jako nález (opravený, přijatý, falešný). Hlásí-li stejnou CVE jiný zdroj (Wazuh, skener), je záznam z testu **duplicita**, aby se zranitelnost nepočítala dvakrát.
+- Cíl **testu TLS** se sám zapíše do **inventáře certifikátů** – platnost a kryptografie se pak hlídají průběžně.
+- Detail serveru ze sběrače ukazuje u nálezů jejich **stav** (úkol, přijaté riziko, ověřená oprava).
+`,
+  },
+  {
     id: "exceptions",
     title: "Výjimky a přijatá rizika",
     audience: ["manager", "admin"],
@@ -625,11 +919,13 @@ Až jsou rozhodnuté všechny položky, hodnocení předložte a schvalte – v�
     summary: "Jednotný přehled všech udělených výjimek s odůvodněním, autorem a platností; upozornění před vypršením.",
     body: `
 ## Co přehled obsahuje
-Stránka **Výjimky a přijatá rizika** (menu Řízení a rizika) sbírá na jedno místo vše, co bylo vědomě přijato místo nápravy:
+Stránka **Výjimky a přijatá rizika** (menu Rizika a nálezy) sbírá na jedno místo vše, co bylo vědomě přijato místo nápravy:
 - **nálezy účtů** (Identity a přístupy) a **porušení oddělení povinností (SoD)** s výjimkou,
 - **zranitelnosti** s výjimkou (akceptace rizika u aktiva),
 - **přijatá rizika** (stav „přijato“ nebo způsob zvládání „akceptace“) – za výjimku odpovídá vlastník rizika,
-- **neaplikovaná ustanovení** z prohlášení o aplikovatelnosti s odůvodněním a kompenzačním opatřením.
+- **neaplikovaná ustanovení** z prohlášení o aplikovatelnosti s odůvodněním a kompenzačním opatřením,
+- **přijaté nálezy bezpečnostních testů** (tlačítko *Přijmout riziko* u nálezu – zdůvodnění, kdo a do kdy; po termínu je další test znovu otevře),
+- **přijaté nálezy konfigurace serverů** ze sběrače (stránka **Nálezy** → *Změnit stav* → Přijaté riziko; po termínu se nález znovu otevře).
 
 U každé položky vidíte odůvodnění, kdo výjimku udělil (u rizika vlastník) a do kdy platí. Výjimka bez odůvodnění je zvýrazněná červeně.
 
@@ -734,6 +1030,8 @@ Dokumenty a zprávy se vedou podle **hlavního rámce společnosti** (regulatorn
 - **tabulka CSV / XLSX** se sloupci ID, Oddíl, Název oddílu, Text, Vodítko, Úroveň, Mapování (šablonu stáhnete v okně importu; údaje o rámci – klíč, název, země, typ – vyplníte ve formuláři),
 - **balíček CONTIX YAML / JSON / XML** – stejný tvar, jaký vytvoří **Export** (tak přenesete rámec mezi instalacemi),
 - **katalog OSCAL** (JSON / YAML) – např. NIST SP 800-53.
+
+Typ **Smluvní požadavky zákazníka** slouží pro bezpečnostní přílohy smluv, DPA a požadavky ze zákaznických dotazníků: k rámci se vyplní zákazník, služba, číslo smlouvy a platnost (zobrazí se v knihovně, po vypršení červeně). Požadavky pak namapujete na opatření v Prohlášení o aplikovatelnosti a pokrytí uvidíte stejně jako u předpisu. Doklady firmy (certifikát ISO 27001, zprávy z penetračních testů, program bug bounty) evidujte jako **důkazy** s typem *Certifikát*, *Zpráva z penetračního testu* nebo *Bug bounty* a s platností – před koncem platnosti přijde upozornění.
 
 **Načíst náhled** ukáže počet požadavků, oddílů a mapování, chyby a varování. Sloupec **Mapování** obsahuje ID požadavků jiných rámců (např. nis2:21/2/a; iso27001:A.5.1) – mapování platí oboustranně a **Doplnit mapování opatření** podle něj přidá vlastní rámec k opatřením, která už mají namapovaný příbuzný požadavek. Opakovaný import se stejným klíčem rámec aktualizuje: posouzení požadavků se stejným označením zůstanou. Vlastní rámec pak zvolíte ve **sledovaných rámcích** společnosti a posuzujete ho v prohlášení o aplikovatelnosti stejně jako vestavěné rámce. Vlastní rámec lze smazat; má-li posouzení nebo vazby, smažou se jen po potvrzení.
 
@@ -878,6 +1176,7 @@ Do modelu jdou údaje o alertu, technikách, aktivu a jeho zranitelnostech; nejd
 
 ## Zpráva pro vedení
 Semafor hlavních ukazatelů (rizika, incidenty, shoda, školení, dokumentace) za zvolené období – k tisku nebo do Wordu.
+Nahoře je **řídicí panel**: celkový stav 0–100 (ukazatel v pořádku = 100, pozor = 50, vyžaduje rozhodnutí = 0), věta o tom, kolik oblastí vyžaduje rozhodnutí, karty **K rozhodnutí** s odkazem na detail a seznam toho, co **čeká na vaše schválení** (žádosti o přístup, změny projektů) s tlačítky přímo v řádku.
 `,
   },
   {
@@ -924,7 +1223,7 @@ Záložka **Plány** – plán kontinuity, obnovy, reakce na incident nebo krizo
   {
     id: "actions",
     title: "Akce a úkoly",
-    audience: ["manager", "gestor"],
+    audience: ["manager", "gestor", "owner"],
     routes: ["/actions"],
     summary: "Jednotný přehled nápravných akcí a úkolů ze všech oblastí – odpovědnost, termíny, plnění.",
     body: `
@@ -981,18 +1280,51 @@ Návštěvník požádá o přístup k důvěrným dokumentům a musí přijmout
 `,
   },
   {
+    id: "sectests",
+    title: "Bezpečnostní testy",
+    audience: ["manager", "admin"],
+    routes: ["/security-tests"],
+    module: "sectests",
+    summary: "Testy z Kali Linuxu (porty, TLS, SSH, web, Windows a AD) ve schváleném rozsahu, ruční import výstupů nástrojů, nálezy a AI rozbor.",
+    body: `
+## Rozsah – oprávnění testovat
+Nejdřív založte **rozsah**: cíle (IP, CIDR, servery, *.doména, URL), výjimky, platnost a **podklad** (objednávka, souhlas vlastníka systému). Rozsah musí **schválit** uživatel s oprávněním *Schvalovat rozsah bezpečnostních testů*; každá úprava schválení zruší. Testy i importy jdou jen na cíle uvnitř schváleného a platného rozsahu.
+
+## Sonda na Kali Linuxu
+V **Administrace → Konektory → Sondy bezpečnostních testů** vytvořte sondu a stáhněte **instalátor**; na Kali ho spusťte \`sudo sh install-contix-probe.sh\`. Sonda běží jako služba pod uživatelem bez práv roota, každých 30 sekund se zeptá na úlohu a výsledek pošle zpět. Spouští **jen testy ze svého katalogu** – CONTIX jí posílá jen ID testu, cíle a porty, nikdy příkaz. V záložce **Sondy** vidíte, zda je online a které nástroje má.
+
+## Testy a import
+**Spustit test sondou** – vyberte rozsah, jeden nebo **víc testů najednou** (nebo předvolbu, např. Linux server, Služby a databáze, Kompletní server) a cíle; cíle lze přidat i **z aktiv**. Volba **Navazující testy** po průzkumu portů sama spustí na nalezené služby odpovídající testy (SSH, TLS, web a citlivé soubory, SMB, LDAP, RDP, FTP, pošta, databáze, NFS, VNC, SNMP); volba **AI automaticky** rozebere závažné nálezy, shrne testy i celou sadu a navrhne další testy (tlačítko **Spustit navržené testy**). Katalog: otevřené TCP porty a verze služeb, **UDP služby** (SNMP, TFTP, IPMI…), TLS (testssl.sh), SSH (ssh-audit), bezpečnostní hlavičky webu, **citlivé soubory na webu** (/.git, /.env, zálohy, phpinfo, Spring Actuator – jen čtení), webový server (nikto), SMB podepisování a SMBv1, anonymní sdílené složky, LDAP podepisování, **RDP a NLA**, **anonymní FTP**, **poštovní server** (open relay, STARTTLS), **databáze bez hesla** (MySQL, MS SQL, MongoDB, Redis, Elasticsearch), **SNMP s komunitou public**, **NFS exporty**, **VNC bez hesla** a **přenos DNS zóny**. Sonda 1.1 má pro UDP skeny jen schopnost raw socketů (ne root); po aktualizaci CONTIXu stáhněte a spusťte nový instalátor sondy. **Importovat výstup** – výstup nástroje spuštěného ručně (nmap XML, JSON testssl / ssh-audit / nikto, text netexec); u každého testu je ukázkový příkaz.
+
+## Nálezy a AI
+Nález je jeden na test, server, port a pravidlo; opakovaný test ho aktualizuje a co zmizí, označí jako **opravené**. Nález můžete přijmout jako riziko nebo označit jako falešně pozitivní. **Vysvětlit AI** (lokální model) popíše dopad, postup nápravy a ověření, doporučí navazující testy a vybere související **opatření** organizace; do modelu nejde název ani IP serveru. U běhu **Shrnutí pro zprávu** připraví text pro vedení i techniky. Nálezy u spárovaného serveru vidíte i na detailu aktiva; nespárovaný nález **přiřadíte k aktivu** ručně a CONTIX si adresu zapamatuje.
+
+## Úkoly na odstranění nálezů
+U nálezu **Založit úkol na odstranění**, nebo pro všechny zobrazené otevřené nálezy najednou **Založit úkoly (n)**. U nálezu spárovaného s aktivem vidíte **technického garanta, zástupce a business vlastníka**. Úkol dostane **technický garant** aktiva (jinak business vlastník) – přímo jako osoba, i když nemá funkční místo; zástupce ho vidí také – s termínem podle závažnosti – kritický 7 dní, vysoký 14, střední 30, nízký 90. Volba sady **Založit úkoly na odstranění nálezů** to udělá sama po každém testu (pro střední a vyšší závažnost). Jeden nález má nejvýš jeden otevřený úkol. Když opakovaný test nález už nenajde, úkol se **uzavře sám** jako splněný; přijetí nálezu nebo falešně pozitivní úkol zruší. Úkol po termínu vidí nadřízení (eskalace). Zjištění z auditu naopak patří **business vlastníkovi** – v auditu vyberte aktivum a zjištění bez odpovědné funkce připadne jemu.
+
+## Ověření opravy a pravidelné testy
+Když odpovědná osoba označí úkol k nálezu jako **splněný**, CONTIX zařadí **opakovaný test** sondou na cíl a port nálezu a úkol čeká jako *rozpracovaný / ověřuje se*. Test, který nález nenajde, úkol uzavře a nález označí jako opravený; když nález trvá, úkol se vrátí odpovědné osobě s poznámkou. Bez aktivní sondy nebo mimo platný rozsah zůstane úkol splněný s poznámkou. Záložka **Pravidelné testy** spouští sady podle plánu (denně, týdně, měsíčně…), u každé sady ukazuje **nové a opravené** nálezy proti minulému stavu; úkoly k novým nálezům se zakládají samy.
+
+## Zpráva z testů, opatření a rizika
+Tlačítko **Zpráva (PDF)** / **Word** u sady nebo v nálezech připraví zprávu se shrnutím, rozsahem a podkladem testů, přehledem a popisem nálezů s doporučením, stavem nápravy (úkoly, odpovědné osoby) a ověřenými opravami – s logem společnosti. Nález lze přiřadit k **opatření** (AI rozbor ho navrhne sám); na detailu opatření pak vidíte nálezy jako podklad k hodnocení účinnosti. Nové závažné nálezy na aktivech rizika nebo u jeho opatření jsou **podnětem k přehodnocení rizika** (zranitelnost).
+`,
+  },
+  {
     id: "suppliers",
     title: "Dodavatelé a smlouvy",
     audience: ["manager"],
-    routes: ["/suppliers"],
+    routes: ["/suppliers", "/suppliers/locations", "/tags"],
     module: "suppliers",
     summary: "Evidence dodavatelů, určení významných dodavatelů, bezpečnostní dotazníky a náležitosti smluv podle vyhlášky.",
     body: `
 ## Evidence
-**Nový dodavatel** – IČO, název, poskytované služby, navázaná aktiva a procesy. Tlačítko **Načíst z ARES** najde firmu podle IČO nebo názvu a doplní název, IČO a sídlo (dotaz posílá server CONTIXu; do ARES jde jen IČO nebo název). Dodavatele lze hromadně načíst přes **Import dat**.
+**Nový dodavatel** – IČO, název, poskytované služby, navázaná aktiva a procesy. Tlačítko **Načíst z ARES** najde firmu podle IČO nebo názvu a doplní název, IČO a sídlo (dotaz posílá server CONTIXu; do ARES jde jen IČO nebo název). Dodavatele lze hromadně načíst přes **Import dat**. **Odpovědný útvar** určuje, který útvar vztah řídí (smlouvy, přezkum) – podle něj se seznam filtruje a dodavatel se započítá do přehledu útvaru v Organizaci.
 
 ## Významný dodavatel
 Podle kritérií vyhlášky (dopad na regulované služby, přístup k aktivům) určíte, zda je dodavatel **významný**. U významného dodavatele CONTIX kontroluje **náležitosti smlouvy** podle přílohy vyhlášky (409 / 410 podle režimu společnosti) a ukáže mezery.
+
+## Je dodavatel regulovaný?
+Na kartě dodavatele **Určení regulace (vyhl. 408/2025)** zjistíte, zda je dodavatel sám poskytovatelem regulované služby (např. datové centrum, cloud, řízené služby): údaje z RES podle IČO, velikost podniku a podmínky přílohy vyhlášky. Výsledek se uloží k dodavateli s historií posouzení.
 
 ## Bezpečnostní dotazník
 Na kartě dodavatele **Poslat dotazník** vytvoří jedinečný odkaz, přes který dodavatel vyplní bezpečnostní dotazník **bez přihlášení** (česky nebo anglicky). **Úplný** rozsah (30 otázek) je pro režim vyšších povinností, **zkrácený** pro vyhl. 410. Odkaz lze poslat e-mailem (SMTP z Administrace → Upozornění) nebo zkopírovat – zobrazí se jen jednou; **Nový odkaz** vydá jiný a starý přestane platit. Dodavatel může odpovědi průběžně ukládat a k otázkám i obecně **přiložit soubory** (PDF, Office, obrázek, text; max. 10 MB, 20 souborů); po odevzdání je už nezmění (lze mu dotazník **vrátit k doplnění**).
@@ -1013,6 +1345,12 @@ Na detailu dodavatele v kartě **Zprávy o ujištění** evidujte SOC 2 / SOC 1 
 - **CUEC → opatření**: každou CUEC namapujte na vlastní opatření. CONTIX upozorní, když CUEC nemá opatření nebo je opatření plánované, nezavedené či neúčinné.
 - **Výjimky → rizika**: u výjimky tlačítkem **Založit riziko dodavatele** vznikne neohodnocené riziko navázané na dodavatele s popisem z výjimky.
 - **Mezery zprávy**: konec platnosti (připomene se i v povinnostech), výrok s výhradou, období starší 3 měsíců bez „bridge letter“, nevyřešené výjimky, vyňatí subdodavatelé.
+
+## Umístění dat
+Tlačítko **Umístění dat** na stránce Dodavatelé vede na evidenci, kde se data zpracovávají (hosting, cloud, SaaS): služba, dodavatel, země (kód ISO) a region, druhy dat, záruka předání a smlouva o zpracování. CONTIX ke každému umístění ukáže pravidla: EU/EHP, země s rozhodnutím o odpovídající ochraně (seznam Evropské komise), USA jen s certifikací Data Privacy Framework nebo SCC, třetí země bez záruk, chybějící smlouva podle čl. 28 GDPR, země se zvýšeným rizikem dodavatelského řetězce a u finančních subjektů DORA. Pravidla jsou orientační a nenahrazují právní posouzení.
+
+## Společné štítky
+Dodavatele, rizika, procesy, opatření, aktiva i umístění dat lze označit štítky ze společného katalogu (např. „dostupné z internetu“). Štítek přidáte nad detailem záznamu; stránka **Štítky** v menu ukáže všechny označené záznamy napříč evidencemi. Katalog (barvy, přejmenování, smazání) spravuje správce.
 `,
   },
   {
@@ -1111,6 +1449,9 @@ Od **11. 9. 2026** musí výrobci hlásit **aktivně zneužívané zranitelnosti
 
 ## Termíny
 Hlášení od 11. 9. 2026, ustanovení o oznámených subjektech od 11. 6. 2026, ostatní povinnosti od 11. 12. 2027. Blížící se konec podpůrného období hlídá povinnost „Konec podpůrného období produktu“.
+
+## Dokumenty výrobce
+U produktu výrobce je karta **Dokumenty výrobce**: EU prohlášení o shodě (příloha V), zjednodušené prohlášení (příloha VI), informace a pokyny pro uživatele (příloha II – bezpečnostní informace o produktu) a přehled technické dokumentace (příloha VII s plněním základních požadavků). Generují se z údajů produktu a z **údajů pro dokumenty** (adresa výrobce, identifikace produktu, podepisující osoba, pokyny pro instalaci, aktualizace a vyřazení…), česky nebo anglicky, k tisku do PDF nebo jako Word. Chybějící povinné údaje se v dokumentu zvýrazní jako koncept. Dovozce a distributor prohlášení nevydávají – ověřují dokumenty výrobce.
 `,
   },
   {
@@ -1242,10 +1583,19 @@ Pokud účet nepoznáváte nebo o něm nemá rozhodovat váš útvar, napište d
 **Administrace → Společnosti** – založení společnosti, nadřazená společnost a **režim podle zákona** (vyšší povinnosti – vyhl. 409, nižší povinnosti – vyhl. 410, neregulovaná) s regulovanými službami. Společnost může mít vlastní metodiku hodnocení rizik, únosnou míru újmy, kritéria významných změn nebo rozsah zprávy SOC 2; jinak platí nastavení organizace. Smazat lze jen společnost bez dat, jinak ji deaktivujte.
 
 ## Práce ve skupině
-Společnost, se kterou pracujete, zvolíte v horní části menu. Data, oprávnění i úkoly se řídí zvolenou společností; role lze přidělit pro celou skupinu nebo jen pro jednu společnost.
+Společnost, se kterou pracujete, zvolíte vlevo v horní liště. Data, oprávnění i úkoly se řídí zvolenou společností; role lze přidělit pro celou skupinu nebo jen pro jednu společnost.
 
 ## Přehled skupiny
-**Přehled skupiny** porovná společnosti vedle sebe: míru shody, kritická a nepřijatelná rizika, akce po termínu, incidenty a hlášení po termínu, dodavatele s mezerami, stav hodnocení rizik, BIA a přezkoumání ISMS. Kliknutím na společnost do ní přepnete. Záznam (aktivum, proces, dokument…) lze do jiné společnosti přesunout v jeho detailu.
+**Přehled skupiny** (tlačítko **Stáhnout do Excelu** přidá i Cestu k souladu po oblastech) porovná společnosti vedle sebe: míru shody, kritická a nepřijatelná rizika, akce po termínu, incidenty a hlášení po termínu, dodavatele s mezerami, stav hodnocení rizik, BIA a přezkoumání ISMS. Kliknutím na společnost do ní přepnete. Záznam (aktivum, proces, dokument…) lze do jiné společnosti přesunout v jeho detailu.
+
+## Určení regulace podle vyhlášky 408/2025
+Karta **Určení regulace (vyhl. 408/2025)** v **Administrace → Společnosti** provede sebeidentifikací. **Načíst z RES** stáhne podle IČO z Registru ekonomických subjektů ČSÚ (přes ARES) činnosti CZ-NACE, institucionální sektor a kategorii počtu zaměstnanců a navrhne služby z přílohy vyhlášky – návrh je jen vodítko, zaškrtněte služby, které skutečně poskytujete (celý seznam 102 služeb je pod odkazem **Všechny služby přílohy**). **Velikost podniku** se počítá podle doporučení 2003/361/ES ze zaměstnanců, obratu a bilanční sumy včetně propojených a partnerských podniků (částky v Kč, kurz ČNB podle § 2 odst. 2); bez vlastních čísel se použije odhad z RES. U každé služby potvrdíte podmínky významnosti (licence, výkon, 5 % obratu…) a hned vidíte režim; při více službách mají přednost vyšší povinnosti. Posouzení se uloží s datem, autorem a snímkem údajů z RES; volba **Zapsat výsledný režim** nastaví režim a seznam regulovaných služeb v profilu společnosti. Jde o podklad – odpovědnost za určení zůstává na povinné osobě a NÚKIB může službu určit i rozhodnutím.
+
+## Ohlášení regulované služby NÚKIB
+Karta **Ohlášení regulované služby NÚKIB** (Administrace → Společnosti, pro české společnosti) vezme režim a služby z posledního posouzení zapsaného do profilu a doplníte statutární orgán, kontakty, pověřenou osobu pro KB, případně rozsahy IP, domény a další státy EU. **Podklad (PDF / Word)** slouží k vyplnění formuláře na Portálu NÚKIB (každá služba zvlášť); CONTIX nic neodesílá. Po podání **zaznamenejte ohlášení** (datum, číslo podání) – CONTIX si údaje zapamatuje a při další změně (údaje, služby, režim) ukáže **změny k ohlášení** se lhůtou 30 dní. Zvolené funkční místo dostane povinnost s termínem (ohlášení do 60 dní od posouzení, změny do 30 dní). Rozsah údajů a lhůty ověřte v aktuálním znění zákona a formuláři portálu.
+
+## Logo a vzhled výstupů
+Karta **Vzhled výstupů (logo)** v **Administrace → Společnosti** nastaví pro společnost **logo** (PNG nebo JPEG do 400 kB), **barvu** nadpisů a čar a **text zápatí** (např. klasifikace dokumentu). Projeví se ve všech tiskových výstupech a PDF i ve Wordu – zpráva pro vedení, prohlášení o aplikovatelnosti, zprávy o rizicích, hlášení incidentů a další. Dceřiná společnost bez vlastního nastavení přebírá vzhled nadřazené; náhled stránky vidíte hned vedle.
 `,
   },
   {
@@ -1253,24 +1603,27 @@ Společnost, se kterou pracujete, zvolíte v horní části menu. Data, oprávn�
     title: "Import dat z Excelu",
     audience: ["manager", "admin"],
     routes: ["/import"],
-    summary: "Hromadné načtení aktiv, rizik, procesů, opatření a dodavatelů ze souboru .xlsx nebo .csv.",
+    summary: "Hromadné načtení aktiv, rizik, procesů, opatření, dodavatelů a organizace ze souboru .xlsx nebo .csv.",
     body: `
 ## Postup
-1. **Soubor** – zvolte evidenci (aktiva, rizika, procesy, opatření, dodavatelé), nahrajte .xlsx nebo .csv a vyberte list. U existujících záznamů zvolte, zda se **aktualizují vyplněnými sloupci**, nebo **zůstanou beze změny**.
+1. **Soubor** – zvolte evidenci (aktiva, rizika, procesy, opatření, dodavatelé, útvary a funkční místa), nahrajte .xlsx nebo .csv a vyberte list. U existujících záznamů zvolte, zda se **aktualizují vyplněnými sloupci**, nebo **zůstanou beze změny**.
 2. **Mapování sloupců** – CONTIX sloupce přiřadí podle názvů (i bez diakritiky a se synonymy); přiřazení zkontrolujte a doplňte povinná pole.
 3. **Náhled a kontrola** – u každého řádku uvidíte, zda se založí, aktualizuje, nebo obsahuje chybu (neplatná hodnota, neexistující uživatel). Teprve pak klikněte na **Importovat**.
 
 ## Dobré vědět
-Záznamy se párují s existujícími (aktiva podle sériového čísla, hostname nebo názvu; dodavatelé podle IČO; ostatní podle kódu nebo názvu), takže opakovaný import nevytvoří duplicity. Import se zapisuje stejně jako ruční zadání – s kontrolou oprávnění a do auditních záznamů. Aktiva z Wazuhu a síťového skenu načtete v **Discovery & import**.
+Záznamy se párují s existujícími (aktiva podle sériového čísla, hostname nebo názvu; dodavatelé podle IČO; funkční místa podle kódu nebo útvaru a názvu – chybějící útvar se založí, držitelé se zadávají e-maily oddělenými čárkou; ostatní podle kódu nebo názvu), takže opakovaný import nevytvoří duplicity. Sloupec **Útvar** u aktiv a dodavatelů přiřadí útvar ze struktury (podle názvu nebo kódu; neznámý se založí a náhled na to upozorní) – útvary aktiv tak doplníte opakovaným importem existující inventury. Sloupec **Štítky** (oddělené čárkou) funguje u aktiv, rizik, procesů, opatření i dodavatelů a zapíše štítky do společného katalogu. Import se zapisuje stejně jako ruční zadání – s kontrolou oprávnění a do auditních záznamů. Aktiva z Wazuhu a síťového skenu načtete v **Discovery & import**.
 `,
   },
   {
     id: "admin-setup",
     title: "Správce: první nastavení a průvodce",
     audience: ["admin"],
-    routes: ["/admin/setup", "/admin"],
+    routes: ["/admin/setup", "/admin", "/setup-wizard"],
     summary: "Postup prvního nastavení nové organizace krok za krokem.",
     body: `
+## Průvodce prvním nastavením nové instalace
+Na nové instalaci nabídne Přehled správci **Průvodce prvním nastavením** (odkaz je i v Nastavení organizace). Pět kroků s ukazatelem postupu: **organizace** (název, IČO a sídlo z ARES), **uživatelé** (klíčové osoby s rolí; při SSO / AD bez hesla, jinak s dočasným heslem, které se zobrazí jen jednou), **organizační struktura** (kořenový útvar, útvary a vedoucí funkce), **síťové rozsahy** (segmenty pro hlídání zařízení a testy, skenování se nespustí samo) a **import aktiv** ze šablony. Každý krok lze přeskočit; stav se počítá z dat. Po *Dokončit průvodce* se už na Přehledu nenabízí.
+
 ## Průvodce nastavením
 **Administrace → Průvodce nastavením** ukazuje kroky a jejich stav (hotovo / rozpracováno / chybí) s odkazem na místo, kde se krok nastavuje. Doporučené pořadí:
 1. Organizace – název, IČO, regulované služby a režim podle zákona.
@@ -1287,7 +1640,7 @@ Záznamy se párují s existujícími (aktiva podle sériového čísla, hostnam
 Po dokončení stáhněte **Předávací protokol** (Word) – shrnuje stav nastavení, provozu a bezpečnosti k datu předání.
 
 ## Ukázková data
-Pro vyzkoušení bez vlastních dat založí příkaz \`bun run demo:seed\` (na serveru \`docker compose --profile full exec api bun src/scripts/demo-seed.ts\`) fiktivní společnost **Vzorová strojírna a.s. (ukázka)** s organizací, aktivy, procesy, riziky, opatřeními, dodavateli a úkoly. Je to samostatná společnost skupiny – vaše data neovlivní. Opakované spuštění nic nepřidá.
+Pro vyzkoušení bez vlastních dat založí tlačítko **Založit ukázku** v Administrace → Společnosti (nebo příkaz \`bun run demo:seed\`, na serveru \`docker compose --profile full exec api bun src/scripts/demo-seed.ts\`) fiktivní společnost **Vzorová strojírna a.s. (ukázka)** s organizací, aktivy, procesy, riziky, opatřeními, dodavateli a úkoly. Je to samostatná společnost skupiny – vaše data neovlivní. Opakované spuštění nic nepřidá; tlačítkem **Odstranit ukázku** zmizí i se všemi svými záznamy.
 
 ## Licence a zdrojový kód
 CONTIX je svobodný software pod licencí AGPL-3.0. Verze, licence a odkaz na zdrojový kód jsou dole v menu. Odkaz nastavíte proměnnou **CONTIX_SOURCE_URL** v konfiguraci serveru; provozujete-li upravenou verzi, má vést na upravený kód.
@@ -1359,6 +1712,19 @@ Metodiku zvolíte u rizika nebo jako výchozí pro společnost (Administrace →
 - Automatická synchronizace aktiv a zranitelností a ověření TLS certifikátu (vypínat jen pro test).
 Každé připojení ověřte tlačítkem **Otestovat**.
 
+## Víc Wazuhů
+Tlačítkem **Přidat Wazuh** připojíte další Wazuh manager (např. produkce a OT, nebo Wazuh každé společnosti). Každé připojení má **název**, **rozsah** a vlastní nastavení alertů:
+- **Rozsah = společnost** – všechna aktiva a alerty z tohoto Wazuhu patří jí a s existujícími aktivy se páruje jen v ní.
+- **Rozsah = celá skupina** – volitelně **skupiny agentů → společnosti** (první shoda shora); agent bez shody jde do společnosti, ze které se synchronizace spustila.
+ID agenta (např. 001) je jedinečné jen v jednom Wazuhu, proto si CONTIX u každého aktiva pamatuje i připojení. Zranitelnosti, shoda konfigurace (SCA), alerty, hledání hrozeb a IOC se načítají ze všech připojení; blokace IP jde do Wazuhu, ze kterého alert přišel (vlastní účet pro Active Response lze nastavit u připojení). V **Discovery & import** lze synchronizovat jedno připojení nebo všechna. Smazání připojení zruší jen vazby agentů – aktiva, zranitelnosti a alerty zůstanou.
+
+## Sběrač ze serverů
+**Administrace → Konektory → Sběrač ze serverů** vytvoří připojení s tokenem (zobrazí se jen jednou). Tlačítko **Instalátor** u připojení stáhne jeden soubor **install-contix-collect.sh** pro všechny servery: zkopírujte ho na server a spusťte **sudo sh install-contix-collect.sh** – nainstaluje skript **contix-collect.py** (Python 3, jen čte), adresu, token, certifikát CA, případně záznam do /etc/hosts a plán, hned pošle první inventář a smaže se. Sběrač pak z cronu posílá každých 6 hodin: účty s přihlášením (UID, sudo, zamčení), **otisky SSH klíčů** z authorized_keys (typ, délka, komentář, omezení – nikdy celý klíč), Docker kontejnery a image, služby, naslouchající porty a stav firewallu (iptables, nftables, ufw, firewalld). CONTIX server spáruje s aktivem (např. z Wazuhu) a u aktiva ukáže inventář a nálezy: další účet s UID 0, slabý klíč (DSA, RSA pod 3072 bitů), klíč pro roota, klíč bez komentáře, privilegovaný kontejner nebo kontejner jako root, chybějící firewall, výchozí politika ACCEPT a **pravidla, která se po restartu ztratí**. Přehled serverů je v **Discovery & import**; kliknutím na server otevřete **detail** – každý nález jde rozkliknout (proč vadí a jak ho opravit), účty s jejich SSH klíči a posledním přihlášením, kontejnery a image, porty (i ty na všech rozhraních), služby, nastavení SSH serveru, čekající aktualizace a **historii změn** (nový účet, klíč, port, změna firewallu).
+
+## NetBox a JIRA
+**NetBox**: připojení s API tokenem (jen právo view) načítá zařízení a virtuální stroje jako aktiva – název, výrobce, model, sériové číslo, lokalita, IP adresa, platforma a štítky; tenant NetBoxu lze přiřadit ke společnosti. Synchronizace běží podle intervalu nebo tlačítkem v Discovery & import.
+**JIRA**: u úkolu (Akce a úkoly) tlačítko **Založit v JIRA** vytvoří issue v zadaném projektu (název, popis, termín). Plánovač jednou za hodinu čte stav issue; stav ze seznamu „hotovo“ úkol v CONTIXu uzavře. Cloud se přihlašuje e-mailem a API tokenem, Data Center osobním přístupovým tokenem.
+
 ## Síťový sken (nmap)
 Aktivní vyhledání zařízení bez agenta (síťové prvky, tiskárny, IoT). Sken je povolen jen v **povolených rozsazích (allow-list)**; spouští se v **Discovery & import**.
 
@@ -1377,10 +1743,13 @@ Aktivní vyhledání zařízení bez agenta (síťové prvky, tiskárny, IoT). S
 **Administrace → Provoz** ukazuje stav databáze, záloh, plánovače, upozornění, Wazuhu, AI, převodní služby dokumentů a šifrovacího klíče. Totéž je dostupné pro monitoring (Prometheus) přes metriky s tokenem.
 
 ## Zálohy a obnova
-Služba záloh zálohuje databázi denně (volitelně šifrovaně a mimo server). Obnovu vyzkoušejte hned po instalaci a pak pravidelně (skript restore.sh, postup v provozní dokumentaci).
+Služba záloh zálohuje databázi denně (volitelně šifrovaně a mimo server). Obnovu vyzkoušejte hned po instalaci a pak pravidelně (skript restore.sh --test, postup v provozní dokumentaci). Služba záloh navíc jednou týdně (v neděli) sama obnoví čerstvou zálohu do dočasné databáze a ověří obsah – klíčové evidence nejsou prázdné a migrace sedí; doba obnovy a počty záznamů jsou v detailu jako doklad. Výsledek testu obnovy se zapíše do evidence záloh a kontrola **Test obnovy** upozorní, když je poslední úspěšný test starší než 92 dní nebo poslední test selhal.
 
 ## Aktualizace
 Na serveru ve složce instalace: \`sudo ./infra/scripts/update.sh\` – před aktualizací se automaticky vytvoří záloha. U zákazníka bez přístupu k internetu se aktualizace dodává jako balíček.
+
+## CONTIX jako produkt (CRA)
+Na stránce Provoz stáhnete **SBOM** – soupis softwarových komponent CONTIXu ve formátu CycloneDX 1.6 (název, verze, licence, kontrolní součet), např. pro dodavatelské dotazníky. Adresa \`/.well-known/security.txt\` uvádí kontakt pro hlášení zranitelností: kontakt provozovatele z proměnné SECURITY_CONTACT, jinak soukromé hlášení u výrobce.
 
 ## Konektory a upozornění
 Wazuh, síťový sken, e-mail a Teams – viz téma **Správce: Wazuh, síťový sken, e-mail a Teams**.
@@ -1399,6 +1768,8 @@ export function helpForRoute(path: string, audience: HelpAudience[], enabledModu
 /** Role pro nápovědu podle oprávnění uživatele. */
 export function helpAudienceOf(can: (p: string) => boolean): HelpAudience[] {
   const out: HelpAudience[] = ["employee"];
+  // vedoucí útvaru, vlastník a technický garant aktiva nebo procesu (v1.83)
+  if (can("assets:read") || can("processes:read") || can("actions:read")) out.push("owner");
   if (can("policies:read") || can("documents:approve")) out.push("gestor");
   if (can("risks:read") || can("controls:read") || can("isms:read") || can("incidents:read")) out.push("manager");
   if (can("admin:settings") || can("admin:users")) out.push("admin");
@@ -1479,6 +1850,8 @@ export function tourFor(audience: HelpAudience[]): TourStep[] {
     steps.push({ id: "policies", title: "Správa dokumentace", text: "Gestor tu připravuje nové verze (ze šablony nebo ve Wordu), vlastník procesu kontroluje a schvalovatel schvaluje. Úkoly přijdou do Moje povinnosti.", route: "/policies" });
   if (audience.includes("manager"))
     steps.push({ id: "risks", title: "Rizika, opatření a shoda", text: "Registr rizik, plán zvládání, katalog opatření a prohlášení o aplikovatelnosti. Přehled vlevo nahoře ukazuje stav celé organizace.", route: "/risks" });
+  if (audience.includes("manager"))
+    steps.push({ id: "compliancePath", title: "Cesta k souladu", text: "Stav všech oblastí a další doporučený krok. Na stránkách modulů je panel Jak postupovat – určete u něj garanta a další krok mu přijde do Moje práce. Tlačítko Příprava na audit vytvoří podklady pro auditora.", route: "/compliance-path" });
   if (audience.includes("admin"))
     steps.push({ id: "setup", title: "Průvodce nastavením", text: "V Administraci najdete průvodce prvním nastavením organizace a předávací protokol.", route: "/admin/setup" });
   steps.push({ id: "help", title: "Nápověda", text: "Otazník vpravo dole otevře nápovědu k obrazovce, na které jste. Celou příručku si můžete stáhnout jako Word nebo vytisknout do PDF." });

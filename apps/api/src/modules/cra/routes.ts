@@ -1,4 +1,10 @@
 import {
+  CRA_DOCUMENTS,
+  CRA_DOC_LANGS,
+  CraDocInfo,
+  craDocAllowed,
+  craDocMissing,
+  type CraDocument,
   CRA_REQUIREMENTS,
   BUILTIN_RISK_METHODOLOGY,
   CraLinksInput,
@@ -61,7 +67,9 @@ import type { Db } from "../../db/client";
 import { users, craAdvisories, craProductFiles, assets, craComponents, craFindings, craProductAssets, craProductProcesses, craProductRisks, craProductSuppliers, craProducts, craReports, orgUnits, positionHolders, positions, processes, riskAssets, risks, suppliers, vulnIntel } from "../../db/schema";
 import type { FetchLike } from "../discovery/connectors/wazuh";
 import { componentRefOf, getOsvSettings, matchProducts, osvRecordsFromUpload, osvStatus, startOsvRefresh, storeOsvRecords, storeOsvSettings } from "./osv";
-import { tFor } from "../i18n/service";
+import { tFor, translatorFor } from "../i18n/service";
+import { docxResponse, htmlToDocx } from "../documents/docx";
+import { renderCraDocument } from "./documents";
 import { assetVisible } from "../assets/routes";
 import { safeFilename } from "../assurance/routes";
 import { mimeFor } from "../policies/mime";
@@ -605,6 +613,45 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
         await audit(db, { c, user: currentUser(c), action: "cra.requirement_updated", entityType: "cra_product", entityId: cur.id, details: { key, status } });
         return c.json(await one(c, cur.id));
       })
+
+      /* ---------- dokumenty výrobce (v1.30, ADR-127) ---------- */
+      .get("/:id/doc-info", requirePerm("cra:read"), async (c) => {
+        const p = await row(c, c.req.param("id"));
+        const info = CraDocInfo.parse(p.docInfo ?? {});
+        const dto = await one(c, p.id);
+        return c.json({
+          info,
+          documents: CRA_DOCUMENTS.map((kind) => ({ kind, allowed: craDocAllowed(p.role, kind), // výrobce bez vyplněného názvu = vlastní organizace (doplní se při generování)
+          missing: craDocMissing(kind, { ...dto, manufacturerName: dto.manufacturerName ?? (p.role === "manufacturer" ? "(organizace)" : null) }, info) })),
+        });
+      })
+      .put("/:id/doc-info", requirePerm("cra:read"), zValidator("json", CraDocInfo), async (c) => {
+        const cur = await editable(c, c.req.param("id"));
+        const info = c.req.valid("json");
+        await db.update(craProducts).set({ docInfo: info, updatedAt: new Date() }).where(eq(craProducts.id, cur.id));
+        await audit(db, { c, user: currentUser(c), action: "cra.doc_info_updated", entityType: "cra_product", entityId: cur.id });
+        return c.json({ ok: true });
+      })
+      .get(
+        "/:id/documents/:kind",
+        requirePerm("cra:read"),
+        zValidator("query", z.object({ lang: z.enum(CRA_DOC_LANGS).default("cs"), format: z.enum(["html", "docx"]).default("html") })),
+        async (c) => {
+          const p = await row(c, c.req.param("id"));
+          const kind = c.req.param("kind") as CraDocument;
+          if (!(CRA_DOCUMENTS as readonly string[]).includes(kind)) throw new HTTPException(404, { message: "Neznámý dokument" });
+          if (!craDocAllowed(p.role, kind)) throw new HTTPException(409, { message: "Tento dokument vydává výrobce – dovozce a distributor ověřují dokumenty výrobce" });
+          const { lang, format } = c.req.valid("query");
+          const [comp] = await db.select({ n: sql<number>`count(*)::int` }).from(craComponents).where(eq(craComponents.productId, p.id));
+          const [rk] = await db.select({ n: sql<number>`count(*)::int` }).from(craProductRisks).where(eq(craProductRisks.productId, p.id));
+          const s = await settingsFor(db, null, p.companyId);
+          const r = renderCraDocument(kind, { product: p, info: CraDocInfo.parse(p.docInfo ?? {}), lang, t: await translatorFor(db, lang), orgName: s.organizationName, componentCount: comp?.n ?? 0, linkedRisks: rk?.n ?? 0 });
+          await audit(db, { c, user: currentUser(c), action: "cra.document_generated", entityType: "cra_product", entityId: p.id, details: { kind, lang, format, missing: r.missing } });
+          const fname = `${r.title} – ${p.name}${p.version ? ` ${p.version}` : ""}`.replace(/[\\/:*?"<>|]/g, "_");
+          if (format === "docx") return docxResponse(await htmlToDocx(r.html, { title: r.title, headerLine: p.manufacturerName || s.organizationName }), `${fname}.docx`);
+          return c.html(r.html, 200, { "cache-control": "private, no-store" });
+        },
+      )
 
       /* ---------- SBOM ---------- */
       .get("/:id/components", requirePerm("cra:read"), async (c) => {

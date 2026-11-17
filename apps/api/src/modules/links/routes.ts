@@ -1,4 +1,4 @@
-import { BACKLINKS_FOR, EXCEPTION_LABELS, LINK_TARGETS, recordPath, type BacklinkGroup, type BacklinkItem, type BacklinkKind, type BacklinksDto, type LinkTarget, type Permission } from "@contix/shared";
+import { BACKLINKS_FOR, EXCEPTION_LABELS, LINK_TARGETS, recordPath, type BacklinkGroup, type BacklinkItem, type BacklinkKind, type BacklinksDto, type LinkTarget, type Permission, RISK_SCENARIO_LABELS, AUTOMATION_LABELS } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { sql, type SQL } from "drizzle-orm";
 import { Hono, type Context } from "hono";
@@ -43,6 +43,17 @@ export const BACKLINK_ACCESS: Record<BacklinkKind, { perm: Permission; module: s
   cra_product: { perm: "cra:read", module: "cra" },
   /** Řádky nesou vlastní oprávnění podle druhu výjimky (sloupec perm). */
   exception: { perm: "controls:read", module: "controls" },
+  project: { perm: "projects:read", module: "projects" },
+  tls_endpoint: { perm: "assets:read", module: "assets" },
+  access_resource: { perm: "access:manage", module: "access" },
+  scenario_proposal: { perm: "risks:read", module: "risks" },
+  subprocess: { perm: "processes:read", module: "processes" },
+  supplier_contract: { perm: "suppliers:read", module: "suppliers" },
+  cra_finding: { perm: "cra:read", module: "cra" },
+  attack_path: { perm: "risks:read", module: "risks" },
+  legal_task: { perm: "legislation:read", module: "legislation" },
+  control_automation: { perm: "controls:read", module: "controls" },
+  data_location: { perm: "suppliers:read", module: "suppliers" },
 };
 
 type Row = { id: string; company_id: string; code: string | null; name: string; sub: string | null; link: string; perm?: Permission | null };
@@ -110,6 +121,49 @@ function query(kind: BacklinkKind, target: LinkTarget, id: string): SQL | null {
     case "cra_product":
       if (T === "control") return null;
       return sql`select x.id, x.company_id, x.code, x.name || coalesce(' ' || x.version, '') as name, null as sub, '' as link from cra_products x where x.id in (${via(`cra_product_${T === "process" ? "processes" : `${T}s`}`, "product_id", T, id)})`;
+    case "tls_endpoint":
+      if (T !== "asset") return null;
+      return sql`select x.id, x.company_id, null as code, x.host || ':' || x.port as name, to_char(x.not_after, 'YYYY-MM-DD') as sub, '/assets/certificates' as link from tls_endpoints x where x.asset_id = ${id}::uuid`;
+    case "access_resource":
+      if (T !== "asset") return null;
+      return sql`select x.id, x.company_id, null as code, x.name, x.ad_group as sub, '/access?tab=resources' as link from iam_resources x where x.asset_id = ${id}::uuid and x.active`;
+    case "subprocess":
+      if (T !== "process") return null;
+      return sql`select x.id, x.company_id, x.code, x.name, null as sub, '/processes/' || x.id as link from processes x where x.parent_id = ${id}::uuid`;
+    case "supplier_contract":
+      if (T !== "process") return null;
+      return sql`select k.id, s.company_id, k.number as code, k.title as name, s.name as sub, '/suppliers/' || s.id as link
+        from supplier_contract_processes cp join supplier_contracts k on k.id = cp.contract_id join suppliers s on s.id = k.supplier_id where cp.process_id = ${id}::uuid`;
+    case "cra_finding":
+      if (T !== "risk") return null;
+      return sql`select f.id, f.company_id, null as code, f.vuln_id || ' – ' || f.component_ref as name, p.name as sub, '/cra/' || p.id as link
+        from cra_findings f join cra_products p on p.id = f.product_id where f.risk_id = ${id}::uuid`;
+    case "attack_path":
+      if (T !== "risk") return null;
+      return sql`select d.path_key as id, d.company_id, null as code, d.path_key as name, d.status as sub, '/risks/modeling' as link from attack_path_decisions d where d.risk_id = ${id}::uuid`;
+    case "legal_task":
+      if (T !== "control") return null;
+      return sql`select x.id, x.company_id, null as code, x.title as name, x.status::text as sub, '/legislation' as link from legal_tasks x where x.control_id = ${id}::uuid`;
+    case "control_automation":
+      if (T !== "control") return null;
+      {
+        const lab = sql.raw(`case x.kind::text ${Object.entries(AUTOMATION_LABELS.kind).map(([k, l]) => `when '${k}' then '${l}'`).join(" ")} else x.kind::text end`);
+        return sql`select x.id, x.company_id, null as code, ${lab} as name, x.frequency as sub, case x.kind::text when 'sca' then '/controls/sca' else '/identity?tab=automations' end as link from control_automations x where x.control_id = ${id}::uuid`;
+      }
+    case "data_location":
+      if (T !== "supplier") return null;
+      return sql`select x.id, x.company_id, null as code, x.name, x.country as sub, '/suppliers/locations' as link from data_locations x where x.supplier_id = ${id}::uuid`;
+    case "scenario_proposal":
+      if (T !== "asset" && T !== "risk") return null;
+      {
+        const name = sql.raw(`case x.template_key ${Object.entries(RISK_SCENARIO_LABELS.template).map(([k, l]) => `when '${k}' then '${String(l).replace(/'/g, "''")}'`).join(" ")} else x.template_key end`);
+        return sql`select x.id, x.company_id, null as code, ${name} as name, null as sub, '/risks/scenarios' as link from risk_scenario_proposals x where ${T === "asset" ? sql`x.primary_asset_id = ${id}::uuid and x.status = 'proposed'` : sql`x.risk_id = ${id}::uuid`}`;
+      }
+    case "project":
+      if (T === "control") return null;
+      return sql`select x.id, x.company_id, x.code, x.name, null as sub, '' as link from projects x where x.id in (${via(`project_${T === "process" ? "processes" : `${T}s`}`, "project_id", T, id)})${
+        T === "supplier" ? sql` or x.id in (select project_id from project_costs where supplier_id = ${id}::uuid)` : sql``
+      }`;
   }
 }
 
@@ -125,6 +179,7 @@ const PATH: Partial<Record<BacklinkKind, Parameters<typeof recordPath>[0]>> = {
   audit: "audit",
   supplier_report: "supplier_report",
   cra_product: "cra_product",
+  project: "project",
 };
 
 /** Zpětné vazby cíle – jen skupiny a záznamy, které uživatel smí číst. */

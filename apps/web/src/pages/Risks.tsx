@@ -1,4 +1,7 @@
+import { UnitSelect } from "@/components/pickers";
+import { BulkBar, RowCheck, useSelection } from "@/components/bulk";
 import { SavedViews, SortTh } from "@/components/listTools";
+import { ProcessGuide } from "@/components/processGuide";
 import { useUrlBatch, useUrlSort } from "@/lib/urlState";
 type RiskSortKey = "name" | "level" | "residual" | "status" | "owner" | "due";
 import { useDebounced } from "@/lib/utils";
@@ -10,6 +13,7 @@ import { DocumentVersions } from "@/components/documents";
 import { useMethodologies } from "@/components/methodology";
 import { VulnSuggestions } from "./risk/VulnSuggestions";
 import { MethodologyHeatmap, LevelBars, RiskHeatmap, RiskLevelBadge } from "@/components/risk";
+import { useRiskNav } from "@/components/riskNav";
 import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Input, PageHeader, Select } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
@@ -23,6 +27,7 @@ import { useState, useMemo } from "react";
 export const riskStatusTone = { identified: "slate", assessed: "blue", treatment: "amber", accepted: "violet", closed: "green" } as const;
 
 export function RisksPage() {
+  const riskNav = useRiskNav();
   const t = useT();
   const group = useGroupView();
   const can = useCan();
@@ -30,19 +35,23 @@ export function RisksPage() {
   const [q, setQ] = useUrlParam("q");
   const [level, setLevel] = useUrlParam("level");
   const [status, setStatus] = useUrlParam("status");
+  const [unit, setUnit] = useUrlParam("unit");
   const [residual, setResidual] = useUrlFlag("residual");
   const [trig, setTrig] = useUrlFlag("triggers");
   const dq = useDebounced(q);
   const [sort, setSort] = useUrlSort<RiskSortKey>();
   const batch = useUrlBatch();
   const summary = useQuery({ queryKey: ["risks", "summary"], queryFn: api.risks.summary });
-  const list = useQuery({ queryKey: ["risks", "list", dq, level, status, trig], queryFn: () => api.risks.list({ q: dq, level, status, ...(trig && { triggers: "1" as const }), limit: 500 }) });
+  const list = useQuery({ queryKey: ["risks", "list", dq, level, status, trig, unit], queryFn: () => api.risks.list({ q: dq, level, status, unit: unit || undefined, ...(trig && { triggers: "1" as const }), limit: 500 }) });
   const s = summary.data;
   useMethodologies();
   const mk = s?.policy.methodology || BUILTIN_RISK_METHODOLOGY;
   const mdef = mk !== BUILTIN_RISK_METHODOLOGY ? getRiskMethodology(mk) : null;
   const today = new Date().toISOString().slice(0, 10);
   const LV = { low: 1, medium: 2, high: 3, critical: 4 } as Record<string, number>;
+  // hromadné úpravy (v1.75)
+  const selection = useSelection();
+  const canBulk = can("risks:write");
   const sorted = useMemo(() => {
     const rows = list.data?.items ?? [];
     if (!sort) return rows;
@@ -64,38 +73,9 @@ export function RisksPage() {
             ? t("rsk.metodikaPriloha4", { formula: s.method === "three_factor" ? t("rsk.vzorecTriFaktory") : t("rsk.dopadPravdepodobnostScenare"), levels: s.levels, accept: s.policy.acceptLevel === "low" ? t("rsk.nizke") : t("rsk.nizkeAStredni") })
             : t("rsk.registrAHodnoceniRizik")
         }
+        nav={riskNav}
         actions={
           <>
-            <Link to="/risks/cycles">
-              <Button variant="secondary">
-                <CalendarCheck size={16} /> {t("rsk.rocniHodnoceni")}
-              </Button>
-            </Link>
-            <Link to="/risks/scenarios">
-              <Button variant="secondary">
-                <Radar size={16} /> {t("rsc.button")}
-              </Button>
-            </Link>
-            <Link to="/risks/appetite">
-              <Button variant="secondary">
-                <Gauge size={16} /> {t("rap.button")}
-              </Button>
-            </Link>
-            <Link to="/risks/quant">
-              <Button variant="secondary">
-                <Coins size={16} /> {t("rsk.kvantitativne")}
-              </Button>
-            </Link>
-            <Link to="/risks/plan">
-              <Button variant="secondary">
-                <ListChecks size={16} /> {t("rsk.planZvladani")}
-              </Button>
-            </Link>
-            <Link to="/risks/catalog">
-              <Button variant="secondary">
-                <BookOpen size={16} /> {t("rsk.katalogHrozebAZranitelnosti")}
-              </Button>
-            </Link>
             {can("risks:write") && (
               <Link to="/risks/new" search={{}}>
                 <Button>
@@ -106,6 +86,7 @@ export function RisksPage() {
           </>
         }
       />
+      <ProcessGuide id="risks" />
       <ErrorBox error={summary.error ?? list.error} />
 
       {s && (
@@ -186,7 +167,7 @@ export function RisksPage() {
       <Card className="overflow-hidden">
         <div className="flex flex-wrap gap-3 border-b border-slate-100 p-4">
           <Input className="max-w-xs" placeholder={t("rsk.hledatNazevNeboKod")} value={q} onChange={(e) => setQ(e.target.value)} />
-          <Select className="w-40" value={level} onChange={(e) => setLevel(e.target.value)}>
+          <Select className="w-40" value={level} onChange={(e) => setLevel(e.target.value)} aria-label={t("rsk.vsechnyUrovne")}>
             <option value="">{t("rsk.vsechnyUrovne")}</option>
             {RISK_LEVELS.map((l) => (
               <option key={l} value={l}>
@@ -194,7 +175,8 @@ export function RisksPage() {
               </option>
             ))}
           </Select>
-          <Select className="w-44" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <UnitSelect className="w-56" value={unit || null} onChange={(v) => setUnit(v ?? "")} emptyLabel={t("org.f.anyUnit")} ariaLabel={t("org.f.unit")} />
+          <Select className="w-44" value={status} onChange={(e) => setStatus(e.target.value)} aria-label={t("rsk.vsechnyStavy")}>
             <option value="">{t("rsk.vsechnyStavy")}</option>
             {RISK_STATUSES.map((st) => (
               <option key={st} value={st}>
@@ -222,6 +204,11 @@ export function RisksPage() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
+                  {canBulk && (
+                    <th className="w-8 pl-5">
+                      <RowCheck checked={sorted.length > 0 && sorted.every((r) => selection.has(r.id))} onChange={(v) => selection.setAll(sorted.map((r) => r.id), v)} label={t("bulk.selectAll")} />
+                    </th>
+                  )}
                   <SortTh k="name" label={t("rsk.riziko")} sort={sort} onSort={setSort} className="pl-5" />
                   <th className="px-3 py-2">{t("rsk.hrozbaZranitelnost")}</th>
                   <SortTh k="level" label={t("rsk.uroven")} sort={sort} onSort={setSort} firstDir="desc" />
@@ -234,6 +221,11 @@ export function RisksPage() {
               <tbody className="divide-y divide-slate-100">
                 {sorted.map((r) => (
                   <tr key={r.id} className="hover:bg-slate-50">
+                    {canBulk && (
+                      <td className="pl-5">
+                        <RowCheck checked={selection.has(r.id)} onChange={(v) => selection.toggle(r.id, v)} label={t("bulk.selectRow", { name: r.name })} />
+                      </td>
+                    )}
                     <td className="px-5 py-2.5">
                       <Link to="/risks/$riskId" params={{ riskId: r.id }} className="font-medium text-slate-900 hover:text-brand-700">
                         {r.code && <span className="mr-1.5 text-slate-500">{r.code}</span>}
@@ -277,6 +269,9 @@ export function RisksPage() {
                 ))}
               </tbody>
             </table>
+            <div className="px-3 pb-3">
+              <BulkBar entity="risks" ids={selection.sel} onClear={selection.clear} />
+            </div>
           </div>
         )}
       </Card>

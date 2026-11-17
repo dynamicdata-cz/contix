@@ -7,6 +7,8 @@ import { assertScope, getCompanies, hasPermIn } from "../../auth/scope";
 import { audit, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
 import { tFor } from "../i18n/service";
+import { reassignFindingTasks } from "../sectests/tasks";
+import { reassignHostFindingTasks } from "../collector/findings";
 import {
   assetLinks,
   assets,
@@ -31,7 +33,7 @@ import {
   supplierQuestionnaires,
   supplierReports,
   supplierReportItems,
-  trainingCourses, aiSuggestions, docChunks, docIndexState, auditFindings, controlTests, processingActivities, aiSystems, soc2Engagements, craProducts, craReports, craFindings, riskScenarioProposals, threatAssessments, evidence, evidenceControls, tasks } from "../../db/schema";
+  trainingCourses, aiSuggestions, docChunks, docIndexState, auditFindings, controlTests, processingActivities, aiSystems, soc2Engagements, craProducts, craReports, craFindings, riskScenarioProposals, threatAssessments, mapPlacements, evidence, evidenceControls, tasks, secTestFindings, hostInventories, hostFindings, secTestScopes, secTestSchedules } from "../../db/schema";
 
 /** Tabulka a oprávnění pro přesun; `owner` = sloupec odpovědného funkčního místa (pokud je). */
 const DEF = {
@@ -50,6 +52,7 @@ const DEF = {
   processing: { t: processingActivities, perm: "gdpr:write", owner: processingActivities.ownerPositionId },
   ai_systems: { t: aiSystems, perm: "aiact:write", owner: aiSystems.ownerPositionId },
   cra_products: { t: craProducts, perm: "cra:write", owner: craProducts.ownerPositionId },
+  sectest_scopes: { t: secTestScopes, perm: "sectests:approve" },
 } as const satisfies Record<TransferEntity, { t: any; perm: Permission; owner?: any }>;
 
 /**
@@ -119,10 +122,21 @@ export async function transferRecords(db: Db, c: Context<AppEnv>, input: Transfe
       .where(inArray(d.t.id, move));
     check(t("srv.co.transfer.owner"), own);
   }
+  // pověření k testům je vystavené pro zdrojovou společnost – v cílové se rozsah musí schválit znovu (v1.69)
+  if (input.entity === "sectest_scopes") {
+    const approved = await db.select({ companyId: secTestScopes.companyId, label: secTestScopes.name }).from(secTestScopes).where(and(inArray(secTestScopes.id, move), isNotNull(secTestScopes.approvedAt)));
+    if (approved.length) warnings.push(t("srv.co.transferScopeReapprove", { items: approved.map((a) => a.label).slice(0, 5).join(", ") }));
+  }
   if (warnings.length && !input.force) return { moved: 0, warnings, needsConfirmation: true };
 
   await db.transaction(async (tx) => {
     await tx.update(d.t).set({ companyId: target.id, updatedAt: new Date() } as never).where(inArray(d.t.id, move));
+    // odpovědný útvar patří společnosti – přesunuté aktivum je bez útvaru (text owner_name zůstává), v1.74
+    if (input.entity === "assets")
+      await tx
+        .update(assets)
+        .set({ ownerName: sql`coalesce(${assets.ownerName}, (select u.name from org_units u where u.id = ${assets.ownerUnitId}))`, ownerUnitId: null })
+        .where(and(inArray(assets.id, move), isNotNull(assets.ownerUnitId)));
     // složky dokumentace patří společnosti – přesunutý dokument je bez složky
     if (input.entity === "policies") {
       await tx.update(policies).set({ folderId: null }).where(inArray(policies.id, move));
@@ -147,6 +161,32 @@ export async function transferRecords(db: Db, c: Context<AppEnv>, input: Transfe
     if (input.entity === "assets") await tx.delete(riskScenarioProposals).where(inArray(riskScenarioProposals.primaryAssetId, move));
     // zdůvodnění „nerelevantní hrozby“ přechází s aktivem (posouzení se týká aktiva, ne společnosti) – v1.18, ADR-115
     if (input.entity === "assets") await tx.update(threatAssessments).set({ companyId: target.id }).where(inArray(threatAssessments.assetId, move));
+    // umístění na mapě patří mapě (půdorysu) původní společnosti – přesunem aktiva z mapy zmizí (v1.25, ADR-122)
+    if (input.entity === "assets") await tx.delete(mapPlacements).where(inArray(mapPlacements.assetId, move));
+    // nálezy bezpečnostních testů, inventář ze sběrače a nálezy serveru jdou s aktivem, úkoly k nálezům také (v1.65)
+    if (input.entity === "assets") {
+      const fids = (
+        await tx
+          .select({ id: secTestFindings.id })
+          .from(secTestFindings)
+          .where(and(inArray(secTestFindings.assetId, move), sql`not exists (select 1 from ${secTestFindings} x where x.company_id = ${target.id} and x.key = ${secTestFindings.key})`))
+      ).map((r) => r.id);
+      if (fids.length) {
+        await tx.update(secTestFindings).set({ companyId: target.id, updatedAt: new Date() }).where(inArray(secTestFindings.id, fids));
+        await tx.update(tasks).set({ companyId: target.id, ownerPositionId: null, updatedAt: new Date() }).where(and(eq(tasks.sourceKind, "sectest_finding"), inArray(tasks.sourceId, fids)));
+      }
+      await tx.update(hostInventories).set({ companyId: target.id, updatedAt: new Date() }).where(inArray(hostInventories.assetId, move));
+      const hids = (await tx.select({ id: hostFindings.id }).from(hostFindings).where(inArray(hostFindings.assetId, move))).map((r) => r.id);
+      if (hids.length) {
+        await tx.update(hostFindings).set({ companyId: target.id, updatedAt: new Date() }).where(inArray(hostFindings.id, hids));
+        await tx.update(tasks).set({ companyId: target.id, ownerPositionId: null, updatedAt: new Date() }).where(and(eq(tasks.sourceKind, "host_finding"), inArray(tasks.sourceId, hids)));
+      }
+    }
+    // rozsah testů: plány pravidelných testů jdou s ním, schválení se ruší (v1.69, ADR-162)
+    if (input.entity === "sectest_scopes") {
+      await tx.update(secTestScopes).set({ approvedAt: null, approvedById: null, updatedAt: new Date() }).where(inArray(secTestScopes.id, move));
+      await tx.update(secTestSchedules).set({ companyId: target.id, updatedAt: new Date() }).where(inArray(secTestSchedules.scopeId, move));
+    }
     // hlášení CRA patří produktu (ADR-092)
     if (input.entity === "cra_products") await tx.update(craReports).set({ companyId: target.id, updatedAt: new Date() }).where(inArray(craReports.productId, move));
     // nálezy zranitelností patří produktu; nálezy z oznámení výrobce (CSAF) zdrojové společnosti zmizí – oznámení zůstávají u ní (v1.16)
@@ -178,6 +218,13 @@ export async function transferRecords(db: Db, c: Context<AppEnv>, input: Transfe
       if (evIds.length) await tx.update(evidence).set({ companyId: target.id, updatedAt: new Date() }).where(inArray(evidence.id, evIds));
     }
   });
+  // odpovědní za úkoly k nálezům podle cílové společnosti (funkce ze zdrojové společnosti neplatí)
+  if (input.entity === "assets")
+    for (const id of move) {
+      await reassignFindingTasks(db, { assetId: id });
+      await reassignHostFindingTasks(db, { assetId: id });
+    }
+
   await audit(db, {
     c,
     user: currentUser(c),

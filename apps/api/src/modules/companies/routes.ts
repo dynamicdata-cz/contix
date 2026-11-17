@@ -19,7 +19,7 @@ import { cycleStatus } from "../cycles/routes";
 import { transferRecords } from "./transfer";
 import { zValidator } from "@hono/zod-validator";
 import { eq, inArray, sql } from "drizzle-orm";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { currentUser, requirePerm } from "../../auth/middleware";
 import { companySettings, getCompanies, invalidateCompanies, scopeOf, type CompanyRow } from "../../auth/scope";
@@ -138,69 +138,72 @@ export function companyRoutes(db: Db) {
       /** Souhrnný přehled skupiny – klíčové ukazatele za každou dostupnou společnost. */
       /** Přesun záznamů do jiné společnosti (oprávnění k zápisu ve zdrojové i cílové společnosti). */
       .post("/transfer", zValidator("json", TransferInput), async (c) => c.json(await transferRecords(db, c, c.req.valid("json"))))
-      .get("/overview", async (c) => {
-        const s = scopeOf(c);
-        const ids = s.accessible;
-        const all = await getCompanies(db);
-        const base = await getSettings(db);
-        const rows = companyTree(all.filter((x) => ids.includes(x.id) && x.active));
-        const can = (id: string, p: string) => !!s.byCompany.get(id)?.has(p as never);
-        const [riskRows, overdueActions, planRows, incidentRows, supplierRows] = await Promise.all([
-          db.select().from(risks).where(inArray(risks.companyId, ids.length ? ids : [ROOT_COMPANY_ID])),
-          db
-            .select({ companyId: risks.companyId, n: sql<number>`count(*)::int` })
-            .from(riskTreatmentActions)
-            .innerJoin(risks, eq(risks.id, riskTreatmentActions.riskId))
-            .where(sql`${riskTreatmentActions.dueDate} < current_date and ${riskTreatmentActions.status} in ('planned','in_progress')`)
-            .groupBy(risks.companyId),
-          db.select({ companyId: continuityPlans.companyId, status: continuityPlans.status }).from(continuityPlans),
-          base.enabledModules.includes("incidents") ? loadIncidents(db, inArray(incidents.companyId, ids.length ? ids : [ROOT_COMPANY_ID])) : Promise.resolve([]),
-          base.enabledModules.includes("suppliers") ? loadSuppliers(db) : Promise.resolve([]),
-        ]);
-        const out = [];
-        for (const co of rows) {
-          const cs = companySettings(base, all, co.id);
-          const fw = profileOf(cs).defaultFramework;
-          const compliance = base.enabledModules.includes("controls") && can(co.id, "controls:read") ? summarize(fw, await loadRequirementRows(db, co.id, fw)).score : null;
-          const rs = riskRows.filter((r) => r.companyId === co.id && r.status !== "closed");
-          const scored = rs.map((r) => ({ l: riskScore(cs.riskPolicy, r, r.scaleLevels).level, mk: r.methodologyKey }));
-          const levels = scored.map((x) => x.l);
-          const inc = incidentRows.filter((i) => i.companyId === co.id);
-          const sup = supplierRows.filter((x) => x.companyId === co.id && x.significant && x.status === "active");
-          const rev = base.enabledModules.includes("isms") ? await reviewStatus(db, co.id) : null;
-          out.push({
-            id: co.id,
-            name: co.name,
-            kind: co.kind,
-            depth: co.depth,
-            regime: cs.regime,
-            framework: fw,
-            compliance,
-            risks: can(co.id, "risks:read")
-              ? {
-                  total: rs.length,
-                  critical: levels.filter((l) => l === "critical").length,
-                  high: levels.filter((l) => l === "high").length,
-                  unacceptable: scored.filter((x) => x.l && !isAcceptable(cs.riskPolicy, x.l, x.mk)).length,
-                  overdueActions: overdueActions.find((x) => x.companyId === co.id)?.n ?? 0,
-                  ale: rs.some((r) => r.quant) ? (portfolio(rs.filter((r) => r.quant).map((r) => ({ key: r.id, q: r.quant! })), cs.riskPolicy.quant)?.mean ?? null) : null,
-                  cycle: base.enabledModules.includes("risks") ? await cycleStatus(db, co.id, "risk") : null,
-                }
-              : null,
-            incidents: can(co.id, "incidents:read")
-              ? {
-                  open: inc.filter((i) => i.kind === "incident" && i.status !== "closed").length,
-                  overdueReports: inc.reduce((n, i) => n + i.overdueReports, 0),
-                }
-              : null,
-            plans: can(co.id, "bia:read")
-              ? { approved: planRows.filter((p) => p.companyId === co.id && p.status === "approved").length, biaCycle: base.enabledModules.includes("continuity") ? await cycleStatus(db, co.id, "bia") : null }
-              : null,
-            suppliers: can(co.id, "suppliers:read") ? { significant: sup.length, withGaps: sup.filter((x) => x.gaps.length).length } : null,
-            review: rev && can(co.id, "isms:read") ? { lastApprovedAt: rev.lastReview?.approvedAt ?? null, nextDue: rev.nextReviewDue, overdue: rev.reviewOverdue } : null,
-          });
-        }
-        return c.json(out);
-      })
+      .get("/overview", async (c) => c.json(await groupOverview(db, c)))
   );
+}
+
+/** Souhrnný přehled skupiny – klíčové ukazatele za každou dostupnou společnost (stránka Přehled skupiny, export do Excelu). */
+export async function groupOverview(db: Db, c: Context<AppEnv>) {
+  const s = scopeOf(c);
+  const ids = s.accessible;
+  const all = await getCompanies(db);
+  const base = await getSettings(db);
+  const rows = companyTree(all.filter((x) => ids.includes(x.id) && x.active));
+  const can = (id: string, p: string) => !!s.byCompany.get(id)?.has(p as never);
+  const [riskRows, overdueActions, planRows, incidentRows, supplierRows] = await Promise.all([
+    db.select().from(risks).where(inArray(risks.companyId, ids.length ? ids : [ROOT_COMPANY_ID])),
+    db
+      .select({ companyId: risks.companyId, n: sql<number>`count(*)::int` })
+      .from(riskTreatmentActions)
+      .innerJoin(risks, eq(risks.id, riskTreatmentActions.riskId))
+      .where(sql`${riskTreatmentActions.dueDate} < current_date and ${riskTreatmentActions.status} in ('planned','in_progress')`)
+      .groupBy(risks.companyId),
+    db.select({ companyId: continuityPlans.companyId, status: continuityPlans.status }).from(continuityPlans),
+    base.enabledModules.includes("incidents") ? loadIncidents(db, inArray(incidents.companyId, ids.length ? ids : [ROOT_COMPANY_ID])) : Promise.resolve([]),
+    base.enabledModules.includes("suppliers") ? loadSuppliers(db) : Promise.resolve([]),
+  ]);
+  const out = [];
+  for (const co of rows) {
+    const cs = companySettings(base, all, co.id);
+    const fw = profileOf(cs).defaultFramework;
+    const compliance = base.enabledModules.includes("controls") && can(co.id, "controls:read") ? summarize(fw, await loadRequirementRows(db, co.id, fw)).score : null;
+    const rs = riskRows.filter((r) => r.companyId === co.id && r.status !== "closed");
+    const scored = rs.map((r) => ({ l: riskScore(cs.riskPolicy, r, r.scaleLevels).level, mk: r.methodologyKey }));
+    const levels = scored.map((x) => x.l);
+    const inc = incidentRows.filter((i) => i.companyId === co.id);
+    const sup = supplierRows.filter((x) => x.companyId === co.id && x.significant && x.status === "active");
+    const rev = base.enabledModules.includes("isms") ? await reviewStatus(db, co.id) : null;
+    out.push({
+      id: co.id,
+      name: co.name,
+      kind: co.kind,
+      depth: co.depth,
+      regime: cs.regime,
+      framework: fw,
+      compliance,
+      risks: can(co.id, "risks:read")
+        ? {
+            total: rs.length,
+            critical: levels.filter((l) => l === "critical").length,
+            high: levels.filter((l) => l === "high").length,
+            unacceptable: scored.filter((x) => x.l && !isAcceptable(cs.riskPolicy, x.l, x.mk)).length,
+            overdueActions: overdueActions.find((x) => x.companyId === co.id)?.n ?? 0,
+            ale: rs.some((r) => r.quant) ? (portfolio(rs.filter((r) => r.quant).map((r) => ({ key: r.id, q: r.quant! })), cs.riskPolicy.quant)?.mean ?? null) : null,
+            cycle: base.enabledModules.includes("risks") ? await cycleStatus(db, co.id, "risk") : null,
+          }
+        : null,
+      incidents: can(co.id, "incidents:read")
+        ? {
+            open: inc.filter((i) => i.kind === "incident" && i.status !== "closed").length,
+            overdueReports: inc.reduce((n, i) => n + i.overdueReports, 0),
+          }
+        : null,
+      plans: can(co.id, "bia:read")
+        ? { approved: planRows.filter((p) => p.companyId === co.id && p.status === "approved").length, biaCycle: base.enabledModules.includes("continuity") ? await cycleStatus(db, co.id, "bia") : null }
+        : null,
+      suppliers: can(co.id, "suppliers:read") ? { significant: sup.length, withGaps: sup.filter((x) => x.gaps.length).length } : null,
+      review: rev && can(co.id, "isms:read") ? { lastApprovedAt: rev.lastReview?.approvedAt ?? null, nextDue: rev.nextReviewDue, overdue: rev.reviewOverdue } : null,
+    });
+  }
+  return out;
 }

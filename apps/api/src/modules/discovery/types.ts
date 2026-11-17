@@ -5,6 +5,12 @@ export interface DiscoveredAsset {
   sourceType: SourceType;
   /** Stabilní ID ve zdrojovém systému (Wazuh agent ID, MAC/IP ze skenu, ID z importu). */
   sourceRef: string;
+  /** Připojení, ze kterého položka pochází (Wazuh: ID agenta je jedinečné jen v něm) – v1.49, ADR-146. */
+  connectionId?: string | null;
+  /** Společnost nového aktiva podle rozsahu připojení (přednost před společností běhu). */
+  companyId?: string | null;
+  /** Párovat jen s aktivy této společnosti (stejný hostname u dvou zákazníků = dvě aktiva). */
+  matchInCompany?: boolean;
   name: string;
   assetType: AssetType;
   hostname?: string | null;

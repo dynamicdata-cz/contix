@@ -20,6 +20,8 @@ export const RECORD_KINDS = [
   "legal_review",
   "qa_answer",
   "knowledge",
+  // v1.66 (ADR-159): nálezy bezpečnostních testů
+  "sectest_finding",
 ] as const;
 export type RecordKind = (typeof RECORD_KINDS)[number];
 
@@ -38,6 +40,7 @@ export const RECORD_LABELS: Record<RecordKind, string> = {
   legal_review: "Posouzení změny předpisu",
   qa_answer: "Schválená odpověď (dotazníky)",
   knowledge: "Znalostní článek",
+  sectest_finding: "Nález bezpečnostního testu",
 };
 
 export interface RecordHit {

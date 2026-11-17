@@ -1,4 +1,5 @@
 import { useFormGuard } from "@/lib/unsaved";
+import { ProcessGuide } from "@/components/processGuide";
 import { askConfirm } from "@/components/ui/overlay";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { useProfile } from "@/lib/regime";
@@ -78,6 +79,7 @@ export function IsmsReviewPage() {
         title={t("isms.rizeniIsms")}
         subtitle={t("isms.3VyhlC4092025")}
       />
+      <ProcessGuide id="isms" />
       <IsmsTabs active="review" />
       <ErrorBox error={ov.error ?? objs.error} />
       {o && (
@@ -331,6 +333,7 @@ export function ChangesPage() {
           )
         }
       />
+      <ProcessGuide id="changes" />
       <IsmsTabs active="changes" />
       <ErrorBox error={list.error} />
       <Card className="mb-4 p-4">

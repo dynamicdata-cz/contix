@@ -92,6 +92,16 @@ export function FrameworkLibraryPage() {
                       {inScope.has(f.id) && <Badge tone="green">{t("fwl.tracked")}</Badge>}
                     </div>
                     {f.description && <p className="mt-1 line-clamp-2 text-xs text-slate-500">{f.description}</p>}
+                    {f.contract && (
+                      <p className="mt-1 text-xs text-slate-600">
+                        {t("fwl.contract.line", { customer: f.contract.customer, service: f.contract.service || "—", reference: f.contract.reference || "—" })}
+                        {f.contract.validUntil && (
+                          <span className="ml-1.5">
+                            <Badge tone={f.contract.validUntil < new Date().toISOString().slice(0, 10) ? "red" : "slate"}>{t("fwl.contract.until", { date: fmtDate(f.contract.validUntil) })}</Badge>
+                          </span>
+                        )}
+                      </p>
+                    )}
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                       <Badge tone="blue">{t.lbl(FRAMEWORK_KIND_LABELS[f.kind])}</Badge>
                       {f.uses.map((u) => (
@@ -157,12 +167,15 @@ function ImportModal({ onClose }: { onClose: () => void }) {
   const [file, setFile] = useState<File | null>(null);
   const [replace, setReplace] = useState(false);
   const [m, setM] = useState({ key: "", name: "", shortName: "", jurisdiction: "", kind: "law" as FrameworkKind, uses: ["gap", "audit"] as FrameworkUse[], version: "", language: "", source: "", description: "", fullText: true });
+  // smluvní požadavky zákazníka (v1.50)
+  const [ct, setCt] = useState({ customer: "", service: "", reference: "", validUntil: "" });
   const isTable = !!file && /\.(csv|xlsx)$/i.test(file.name);
   const meta = useMemo(() => {
     // u tabulky jsou metadata povinná; u balíčku jen přepíší vyplněné hodnoty
     const base: Record<string, unknown> = { key: m.key, name: m.name, shortName: m.shortName, jurisdiction: m.jurisdiction, version: m.version, language: m.language, source: m.source, description: m.description };
-    return isTable ? { ...base, kind: m.kind, uses: m.uses, fullText: m.fullText } : base;
-  }, [m, isTable]);
+    const contract = m.kind === "contract" && ct.customer.trim() ? { contract: { customer: ct.customer.trim(), service: ct.service.trim(), reference: ct.reference.trim(), validUntil: ct.validUntil || null } } : {};
+    return isTable ? { ...base, kind: m.kind, uses: m.uses, fullText: m.fullText, ...contract } : base;
+  }, [m, ct, isTable]);
   const preview = useMutation({ mutationFn: () => api.frameworks.import(file!, meta, "preview") });
   const commit = useMutation({
     mutationFn: () => api.frameworks.import(file!, meta, "commit", replace),
@@ -252,6 +265,23 @@ function ImportModal({ onClose }: { onClose: () => void }) {
               </Field>
               <Field label={t("fwl.language")}>
                 <Input value={m.language} onChange={(e) => set("language", e.target.value)} placeholder="sk" />
+              </Field>
+            </div>
+          )}
+          {isTable && m.kind === "contract" && (
+            <div className="grid gap-4 rounded-md border border-slate-200 p-4 sm:grid-cols-2" data-testid="contract-meta">
+              <p className="text-xs text-slate-500 sm:col-span-2">{t("fwl.contract.hint")}</p>
+              <Field label={t("fwl.contract.customer")}>
+                <Input value={ct.customer} onChange={(e) => setCt({ ...ct, customer: e.target.value })} />
+              </Field>
+              <Field label={t("fwl.contract.service")}>
+                <Input value={ct.service} onChange={(e) => setCt({ ...ct, service: e.target.value })} />
+              </Field>
+              <Field label={t("fwl.contract.reference")}>
+                <Input value={ct.reference} onChange={(e) => setCt({ ...ct, reference: e.target.value })} />
+              </Field>
+              <Field label={t("fwl.contract.validUntil")}>
+                <Input type="date" value={ct.validUntil} onChange={(e) => setCt({ ...ct, validUntil: e.target.value })} />
               </Field>
             </div>
           )}

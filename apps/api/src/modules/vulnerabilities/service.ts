@@ -2,7 +2,7 @@ import { computeHealth, healthRank, VULN_LABELS, type HealthPolicy, type HealthR
 import { and, eq, inArray, lt, ne, sql } from "drizzle-orm";
 import { getSettings } from "../../auth/service";
 import type { Db } from "../../db/client";
-import { appSettings, assetLinks, assetSources, assets, assetVulnerabilities, vulnIntel } from "../../db/schema";
+import { appSettings, assetLinks, assetSources, assets, assetVulnerabilities, hostFindings, secTestFindings, vulnIntel } from "../../db/schema";
 import { vulnPrioritySql } from "./intel";
 import type { VulnRecord } from "./sources";
 
@@ -14,14 +14,14 @@ const LAST_SYNC_KEY = "vuln.lastSync";
  *  - dříve vyřešené, které se znovu objevily, znovu otevře,
  *  - CVE, které se v této synchronizaci na aktivu z Wazuhu už neobjevily, označí jako vyřešené.
  */
-export async function syncVulnerabilities(db: Db, records: AsyncIterable<VulnRecord>, log: (m: string) => void) {
+export async function syncVulnerabilities(db: Db, records: AsyncIterable<VulnRecord>, log: (m: string) => void, connectionId?: string) {
   const syncStart = new Date();
   const map = new Map(
     (
       await db
         .select({ ref: assetSources.sourceRef, assetId: assetSources.assetId })
         .from(assetSources)
-        .where(eq(assetSources.sourceType, "wazuh"))
+        .where(and(eq(assetSources.sourceType, "wazuh"), connectionId ? eq(assetSources.connectionId, connectionId) : undefined))
     ).map((r) => [r.ref, r.assetId]),
   );
 
@@ -132,7 +132,10 @@ export async function recomputeHealth(db: Db, now = new Date()): Promise<Record<
     .set({ status: "open" })
     .where(and(eq(assetVulnerabilities.status, "accepted"), lt(assetVulnerabilities.acceptedUntil, sql`current_date`)));
 
-  const [rows, countRows, scanned, links, lastSync, p1Rows] = await Promise.all([
+  // přijaté nálezy serveru po termínu se znovu otevřou (v1.65)
+  await db.update(hostFindings).set({ status: "open" }).where(and(eq(hostFindings.status, "accepted"), lt(hostFindings.acceptedUntil, sql`current_date`)));
+
+  const [rows, countRows, scanned, links, lastSync, p1Rows, testRows, hostRows] = await Promise.all([
     db
       .select({
         id: assets.id,
@@ -167,8 +170,23 @@ export async function recomputeHealth(db: Db, now = new Date()): Promise<Record<
       .leftJoin(vulnIntel, eq(vulnIntel.cveId, assetVulnerabilities.cveId))
       .where(and(eq(assetVulnerabilities.status, "open"), sql`${vulnPrioritySql} = 1`))
       .groupBy(assetVulnerabilities.assetId),
+    // otevřené nálezy bezpečnostních testů a sběrače (v1.65, ADR-158)
+    db
+      .select({ assetId: secTestFindings.assetId, severity: secTestFindings.severity, n: sql<number>`count(*)::int` })
+      .from(secTestFindings)
+      .where(and(eq(secTestFindings.status, "open"), inArray(secTestFindings.severity, ["critical", "high"]), sql`${secTestFindings.assetId} is not null`))
+      .groupBy(secTestFindings.assetId, secTestFindings.severity),
+    db
+      .select({ assetId: hostFindings.assetId, n: sql<number>`count(*)::int` })
+      .from(hostFindings)
+      .where(and(eq(hostFindings.status, "open"), eq(hostFindings.severity, "high"), sql`${hostFindings.assetId} is not null`))
+      .groupBy(hostFindings.assetId),
   ]);
   const p1 = new Map(p1Rows.map((r) => [r.assetId, r.n]));
+  const fnd = new Map<string, { testCritical: number; testHigh: number; hostHigh: number }>();
+  const fOf = (id: string) => fnd.get(id) ?? (fnd.set(id, { testCritical: 0, testHigh: 0, hostHigh: 0 }), fnd.get(id)!);
+  for (const r of testRows) if (r.assetId) fOf(r.assetId)[r.severity === "critical" ? "testCritical" : "testHigh"] += r.n;
+  for (const r of hostRows) if (r.assetId) fOf(r.assetId).hostHigh += r.n;
 
   const counts = new Map<string, VulnCounts>();
   for (const r of countRows) {
@@ -191,6 +209,7 @@ export async function recomputeHealth(db: Db, now = new Date()): Promise<Record<
       hasVulnData: scannedSet.has(a.id),
       policy,
       now,
+      findings: fnd.get(a.id),
     });
     results.set(a.id, { status: h.status, reasons: h.reasons, support: h.support.status, eol: h.support.eolDate, c });
   }

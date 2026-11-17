@@ -1,15 +1,19 @@
 import { useDebounced } from "@/lib/utils";
 /**
  * Výběrové prvky sdílené moduly Procesy / Rizika / Organizace:
- * - AssetPicker: vyhledávání aktiv + vybrané jako „čipy“
+ * - AssetPicker: vyhledávání aktiv (rozbalení bez psaní, skupiny podle typu) + vybrané jako „čipy“
+ * Všechny výběry jsou od v1.74 s vyhledáváním (`components/combobox.tsx`, ADR-167).
  * - PositionSelect: funkční místa seskupená podle útvarů
  * - PartyPicker: RACI přiřazení (funkční místo nebo celý útvar + role R/A/C/I)
  */
 import { useT } from "@/lib/i18n";
 import { HealthIndicator } from "@/components/health";
-import { Badge, Input, Select } from "@/components/ui";
+import { Badge, Select } from "@/components/ui";
+import { Combobox, ComboMulti, fold, type ComboOption } from "@/components/combobox";
 import { api } from "@/lib/api";
-import { useModule } from "@/lib/auth";
+import { useCan, useModule } from "@/lib/auth";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "@/components/ui/overlay";
 import { LABELS, PROCESS_LABELS, RACI, recordPath, type HealthStatus, type OrgUnitDto, type Raci, type RecordPathKind } from "@contix/shared";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -23,12 +27,25 @@ export function AssetPicker({ value, onChange, disabled }: { value: PickedAsset[
   const [q, setQ] = useState("");
   const dq = useDebounced(q);
   const mod = useModule();
+  const can = useCan();
+  const qc = useQueryClient();
+  // rozbalení bez psaní ukáže prvních 30 aktiv (v1.74), psaní hledá v názvu, hostname, IP a sériovém čísle
   const found = useQuery({
     queryKey: ["assets", "picker", dq],
-    queryFn: () => api.assets.list({ q: dq, limit: 12, offset: 0, withGroup: "1" }),
-    enabled: dq.trim().length >= 2 && mod("assets"),
+    queryFn: () => api.assets.list({ q: dq.trim() || undefined, limit: 30, offset: 0, withGroup: "1" }),
+    enabled: mod("assets") && !disabled,
+    staleTime: 30_000,
   });
-  const selected = new Set(value.map((v) => v.id));
+  const items = (found.data?.items ?? []).filter((a) => !value.some((v) => v.id === a.id));
+  const options: ComboOption[] = [...items]
+    .sort((a, b) => fold(t.lbl(LABELS.assetType[a.assetType])).localeCompare(fold(t.lbl(LABELS.assetType[b.assetType]))) || a.name.localeCompare(b.name))
+    .map((a) => ({
+      id: a.id,
+      label: a.name,
+      group: t.lbl(LABELS.assetType[a.assetType]),
+      hint: [a.hostname, a.ipAddresses?.[0]].filter(Boolean).join(" · ") || undefined,
+      icon: <HealthIndicator status={a.healthStatus} size={13} />,
+    }));
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap gap-1.5">
@@ -48,34 +65,32 @@ export function AssetPicker({ value, onChange, disabled }: { value: PickedAsset[
         ))}
       </div>
       {!disabled && (
-        <div className="relative">
-          <Input placeholder={t("my.hledatAktivumNazevHostnameIp")} value={q} onChange={(e) => setQ(e.target.value)} />
-          {q.trim().length >= 2 && (
-            <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
-              {found.isLoading && <div className="px-3 py-2 text-sm text-slate-500">{t("my.hledam")}</div>}
-              {found.data?.items.length === 0 && <div className="px-3 py-2 text-sm text-slate-500">{t("my.nicNenalezeno")}</div>}
-              {found.data?.items
-                .filter((a) => !selected.has(a.id))
-                .map((a) => (
-                  <button
-                    type="button"
-                    key={a.id}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                    onClick={(e) => {
-                      // v <label> (Field) by aktivace popisku po překreslení „klikla“ na první tlačítko – odebrání čipu (v1.05)
-                      e.preventDefault();
-                      onChange([...value, { id: a.id, name: a.name, assetType: a.assetType, healthStatus: a.healthStatus }]);
-                      setQ("");
-                    }}
-                  >
-                    <HealthIndicator status={a.healthStatus} size={14} />
-                    <span className="flex-1">{a.name}</span>
-                    <span className="text-xs text-slate-500">{t.lbl(LABELS.assetType[a.assetType])}</span>
-                  </button>
-                ))}
-            </div>
-          )}
-        </div>
+        <Combobox
+          value={null}
+          options={options}
+          onQuery={setQ}
+          loading={found.isLoading}
+          placeholder={t("my.hledatAktivumNazevHostnameIp")}
+          ariaLabel={t("my.hledatAktivumNazevHostnameIp")}
+          noneText={t("my.nicNenalezeno")}
+          onCreate={
+            can("assets:write")
+              ? async (name) => {
+                  // rychlé založení aktiva (v1.76): typ „ostatní“, podrobnosti se doplní v detailu
+                  const a = (await api.assets.create({ name, assetType: "other" } as never)) as { id: string; name: string; assetType: string; healthStatus: string };
+                  onChange([...value, { id: a.id, name: a.name, assetType: a.assetType, healthStatus: a.healthStatus }]);
+                  await qc.invalidateQueries({ queryKey: ["assets"] });
+                  toast(t("combo.createdAsset", { name: a.name }), "success");
+                  return null;
+                }
+              : undefined
+          }
+          onChange={(id) => {
+            const a = items.find((x) => x.id === id);
+            if (a) onChange([...value, { id: a.id, name: a.name, assetType: a.assetType, healthStatus: a.healthStatus }]);
+            setQ("");
+          }}
+        />
       )}
     </div>
   );
@@ -104,7 +119,6 @@ export function flattenUnits(units: OrgUnitDto[]) {
   return out;
 }
 
-const indent = (d: number) => "  ".repeat(d * 2);
 
 /** Více společností v datech organizace → popisky s názvem společnosti. */
 const multiCompany = (units: OrgUnitDto[]) => new Set(units.map((u) => u.companyId)).size > 1;
@@ -112,25 +126,38 @@ const multiCompany = (units: OrgUnitDto[]) => new Set(units.map((u) => u.company
 export function PositionSelect({ value, onChange, disabled, emptyLabel, ariaLabel, className }: { value: string | null; onChange: (v: string | null) => void; disabled?: boolean; emptyLabel?: string; ariaLabel?: string; className?: string }) {
   const t = useT();
   const org = useOrg();
-  const flat = useMemo(() => flattenUnits(org.data ?? []), [org.data]);
-  const multi = multiCompany(org.data ?? []);
+  const options = usePositionOptions();
   return (
-    <Select value={value ?? ""} disabled={disabled} className={className} aria-label={ariaLabel} onChange={(e) => onChange(e.target.value || null)}>
-      <option value="">{emptyLabel ?? t("common.unassignedOption")}</option>
-      {flat
-        .filter(({ unit }) => unit.positions.length)
-        .map(({ unit }) => (
-          <optgroup key={unit.id} label={multi ? `${unit.companyName} › ${unit.name}` : unit.name}>
-            {unit.positions.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-                {p.holders.length ? ` (${p.holders.map((h) => h.displayName).join(", ")})` : ` (${t("common.vacant")})`}
-              </option>
-            ))}
-          </optgroup>
-        ))}
-    </Select>
+    <Combobox
+      value={value}
+      onChange={onChange}
+      options={options}
+      disabled={disabled}
+      ariaLabel={ariaLabel}
+      className={className}
+      emptyLabel={emptyLabel ?? t("common.unassignedOption")}
+      loading={org.isLoading}
+      placeholder={t("combo.searchPosition")}
+    />
   );
+}
+
+/** Funkční místa jako položky výběru: skupina = útvar (u více společností s názvem společnosti), doplněk = držitelé. */
+export function usePositionOptions(): ComboOption[] {
+  const t = useT();
+  const org = useOrg();
+  return useMemo(() => {
+    const units = org.data ?? [];
+    const multi = multiCompany(units);
+    return flattenUnits(units).flatMap(({ unit }) =>
+      unit.positions.map((p) => ({
+        id: p.id,
+        label: p.name,
+        group: multi ? `${unit.companyName} › ${unit.name}` : unit.name,
+        hint: p.holders.length ? p.holders.map((h) => h.displayName).join(", ") : t("common.vacant"),
+      })),
+    );
+  }, [org.data, t]);
 }
 
 export function UnitSelect({
@@ -140,6 +167,8 @@ export function UnitSelect({
   exclude,
   companyId,
   emptyLabel: emptyLabelIn,
+  ariaLabel,
+  className,
 }: {
   value: string | null;
   onChange: (v: string | null) => void;
@@ -148,26 +177,38 @@ export function UnitSelect({
   /** Jen útvary této společnosti. */
   companyId?: string;
   emptyLabel?: string;
+  ariaLabel?: string;
+  className?: string;
 }) {
   const t = useT();
   const emptyLabel = emptyLabelIn ?? t("common.noneOption");
   const org = useOrg();
-  const flat = useMemo(() => flattenUnits(org.data ?? []), [org.data]);
-  const multi = !companyId && multiCompany(org.data ?? []);
-  return (
-    <Select value={value ?? ""} disabled={disabled} onChange={(e) => onChange(e.target.value || null)}>
-      <option value="">{emptyLabel}</option>
-      {flat
-        .filter(({ unit }) => unit.id !== exclude && (!companyId || unit.companyId === companyId))
-        .map(({ unit, depth }) => (
-          <option key={unit.id} value={unit.id}>
-            {indent(depth)}
-            {multi && depth === 0 ? `${unit.companyName} › ` : ""}
-            {unit.name}
-          </option>
-        ))}
-    </Select>
-  );
+  const options = useMemo<ComboOption[]>(() => {
+    const units = org.data ?? [];
+    const multi = !companyId && multiCompany(units);
+    const byId = new Map(units.map((u) => [u.id, u]));
+    // cesta útvaru jako doplněk – při hledání je vidět, kam útvar patří
+    const path = (u: OrgUnitDto) => {
+      const out: string[] = [];
+      for (let p = u.parentId ? byId.get(u.parentId) : undefined, i = 0; p && i < 10; p = p.parentId ? byId.get(p.parentId) : undefined, i++) out.unshift(p.name);
+      return out.join(" › ");
+    };
+    return flattenUnits(units)
+      .filter(({ unit }) => unit.id !== exclude && (!companyId || unit.companyId === companyId))
+      .map(({ unit, depth }) => ({ id: unit.id, label: unit.name, depth, hint: path(unit) || undefined, group: multi ? unit.companyName : undefined }));
+  }, [org.data, exclude, companyId]);
+  // rychlé založení útvaru (v1.76) – nový útvar na nejvyšší úrovni společnosti, zařadit lze v Organizaci
+  const can = useCan();
+  const qc = useQueryClient();
+  const onCreate = can("org:write")
+    ? async (name: string) => {
+        const u = (await api.org.createUnit({ name, ...(companyId ? { companyId } : {}) })) as { id: string; name: string };
+        await qc.invalidateQueries({ queryKey: ["org"] });
+        toast(t("combo.createdUnit", { name: u.name }), "success");
+        return { id: u.id, label: u.name };
+      }
+    : undefined;
+  return <Combobox value={value} onChange={onChange} options={options} disabled={disabled} emptyLabel={emptyLabel} ariaLabel={ariaLabel} className={className} loading={org.isLoading} placeholder={t("combo.searchUnit")} onCreate={onCreate} />;
 }
 
 export type RaciEntry = { kind: "position" | "org_unit"; id: string; role: Raci; name?: string };
@@ -210,19 +251,20 @@ export function PartyPicker({ value, onChange }: { value: RaciEntry[]; onChange:
         ))}
       </div>
       <div className="flex gap-2">
-        <Select value={party} onChange={(e) => setParty(e.target.value)} className="flex-1">
-          <option value="">{t("my.vyberteFunkcniMistoNeboUtvar")}</option>
-          {flat.map(({ unit, depth }) => (
-            <optgroup key={unit.id} label={`${indent(depth)}${multiCompany(org.data ?? []) && depth === 0 ? `${unit.companyName} › ` : ""}${unit.name}`}>
-              <option value={`org_unit:${unit.id}`}>{t("my.celyUtvar", { name: unit.name })}</option>
-              {unit.positions.map((p) => (
-                <option key={p.id} value={`position:${p.id}`}>
-                  {p.name}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </Select>
+        <Combobox
+          className="flex-1"
+          value={party || null}
+          onChange={(v) => setParty(v ?? "")}
+          ariaLabel={t("my.vyberteFunkcniMistoNeboUtvar")}
+          placeholder={t("my.vyberteFunkcniMistoNeboUtvar")}
+          options={flat.flatMap(({ unit }) => {
+            const group = multiCompany(org.data ?? []) ? `${unit.companyName} › ${unit.name}` : unit.name;
+            return [
+              { id: `org_unit:${unit.id}`, label: t("my.celyUtvar", { name: unit.name }), group },
+              ...unit.positions.map((p) => ({ id: `position:${p.id}`, label: p.name, group, hint: p.holders.map((h) => h.displayName).join(", ") || undefined })),
+            ];
+          })}
+        />
         <Select value={role} onChange={(e) => setRole(e.target.value as Raci)} className="w-28" title={t.lbl(PROCESS_LABELS.raci[role])}>
           {RACI.map((r) => (
             <option key={r} value={r} title={t.lbl(PROCESS_LABELS.raci[r])}>
@@ -251,6 +293,7 @@ export function IdMultiSelect({
   placeholder: placeholderIn,
   emptyLabel: emptyLabelIn,
   linkKind,
+  ariaLabel,
 }: {
   /** Druh záznamu – vybrané položky jsou odkazy na jeho detail (v1.05). */
   linkKind?: RecordPathKind;
@@ -262,45 +305,77 @@ export function IdMultiSelect({
   disabled?: boolean;
   placeholder?: string;
   emptyLabel?: string;
+  ariaLabel?: string;
 }) {
   const t = useT();
   const placeholder = placeholderIn ?? t("my.pridat2");
   const emptyLabel = emptyLabelIn ?? t("my.nicNevybrano");
-  const labelOf = (id: string) => options.find((o) => o.id === id)?.label ?? known.find((o) => o.id === id)?.label ?? "…";
+  const all = useMemo<ComboOption[]>(() => {
+    const seen = new Set(options.map((o) => o.id));
+    return [...options, ...known.filter((k) => !seen.has(k.id))].map((o) => ({ id: o.id, label: o.label, hint: o.hint }));
+  }, [options, known]);
+  const labelOf = (id: string) => all.find((o) => o.id === id)?.label ?? created.find((o) => o.id === id)?.label ?? "…";
+  // rychlé založení dodavatele přímo z výběru (v1.76)
+  const can = useCan();
+  const qc = useQueryClient();
+  const [created, setCreated] = useState<IdOption[]>([]);
+  const onCreate =
+    linkKind === "supplier" && can("suppliers:write")
+      ? async (name: string) => {
+          const x = (await api.suppliers.create({ name } as never)) as { id: string; name: string };
+          setCreated((c) => [...c, { id: x.id, label: x.name }]);
+          await qc.invalidateQueries({ queryKey: ["suppliers"] });
+          toast(t("combo.createdSupplier", { name: x.name }), "success");
+          return { id: x.id, label: x.name };
+        }
+      : undefined;
   return (
-    <div>
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        {value.length === 0 && <span className="text-sm text-slate-400">{emptyLabel}</span>}
-        {value.map((id) => (
-          <span key={id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 py-0.5 pl-2 pr-1 text-xs">
-            {linkKind ? (
-              <Link to={recordPath(linkKind, id)} className="hover:text-brand-700 hover:underline">
-                {labelOf(id)}
-              </Link>
-            ) : (
-              labelOf(id)
-            )}
-            {!disabled && (
-              <button type="button" className="rounded-full p-0.5 hover:bg-slate-200" onClick={() => onChange(value.filter((x) => x !== id))} aria-label={t("my.odebrat")}>
-                <X size={12} />
-              </button>
-            )}
-          </span>
-        ))}
-      </div>
-      {!disabled && (
-        <Select value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])}>
-          <option value="">{placeholder}</option>
-          {options
-            .filter((o) => !value.includes(o.id))
-            .map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-                {o.hint ? ` – ${o.hint}` : ""}
-              </option>
-            ))}
-        </Select>
-      )}
-    </div>
+    <ComboMulti
+      onCreate={onCreate}
+      value={value}
+      onChange={onChange}
+      options={all}
+      disabled={disabled}
+      placeholder={placeholder}
+      ariaLabel={ariaLabel ?? placeholder}
+      emptyText={emptyLabel}
+      renderChip={(id) =>
+        linkKind ? (
+          <Link to={recordPath(linkKind, id)} className="hover:text-brand-700 hover:underline">
+            {labelOf(id)}
+          </Link>
+        ) : (
+          labelOf(id)
+        )
+      }
+    />
   );
+}
+
+/** Uživatelé jako položky výběru (jméno, doplněk = funkce nebo e-mail). */
+export function useUserOptions(enabled = true): { options: ComboOption[]; loading: boolean } {
+  const q = useQuery({ queryKey: ["directory-users"], queryFn: api.directory.users, enabled, staleTime: 60_000 });
+  const options = useMemo(() => (q.data ?? []).map((u) => ({ id: u.id, label: u.displayName, hint: u.jobTitle ?? u.email })), [q.data]);
+  return { options, loading: q.isLoading };
+}
+
+/** Výběr osoby s vyhledáváním (v1.74). */
+export function UserSelect({ value, onChange, disabled, emptyLabel, ariaLabel, className }: { value: string | null; onChange: (v: string | null) => void; disabled?: boolean; emptyLabel?: string; ariaLabel?: string; className?: string }) {
+  const t = useT();
+  const u = useUserOptions();
+  return <Combobox value={value} onChange={onChange} options={u.options} loading={u.loading} disabled={disabled} emptyLabel={emptyLabel ?? t("common.unassignedOption")} ariaLabel={ariaLabel} className={className} placeholder={t("combo.searchUser")} />;
+}
+
+/** Více osob – vybrané jako čipy (v1.74). */
+export function UserMultiSelect({ value, onChange, disabled, ariaLabel, emptyText }: { value: string[]; onChange: (v: string[]) => void; disabled?: boolean; ariaLabel?: string; emptyText?: string }) {
+  const t = useT();
+  const u = useUserOptions();
+  return <ComboMulti value={value} onChange={onChange} options={u.options} loading={u.loading} disabled={disabled} ariaLabel={ariaLabel ?? t("combo.searchUser")} placeholder={t("combo.searchUser")} emptyText={emptyText ?? t("my.nikdoNeprirazen")} />;
+}
+
+/** Více funkčních míst – vybraná jako čipy (v1.76). */
+export function PositionMultiSelect({ value, onChange, disabled, ariaLabel, emptyText }: { value: string[]; onChange: (v: string[]) => void; disabled?: boolean; ariaLabel?: string; emptyText?: string }) {
+  const t = useT();
+  const options = usePositionOptions();
+  return <ComboMulti value={value} onChange={onChange} options={options} disabled={disabled} ariaLabel={ariaLabel ?? t("combo.searchPosition")} placeholder={t("combo.searchPosition")} emptyText={emptyText ?? t("my.nikdoNeprirazen")} />;
 }

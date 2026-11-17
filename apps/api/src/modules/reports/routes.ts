@@ -1,4 +1,4 @@
-import { profileLabelKey, profileOf, reportBasisOf, INCIDENT_LABELS,
+import { type RemediationStat, FINDING_LABELS, profileLabelKey, profileOf, reportBasisOf, INCIDENT_LABELS,
   OBLIGATION_LABELS,
   RISK_LABELS,
   attackTactic,
@@ -11,11 +11,18 @@ import { profileLabelKey, profileOf, reportBasisOf, INCIDENT_LABELS,
   type ObligationKind,
   type OpsLevel,
   TREND_LABELS,
+  TREND_METRICS,
+  ReportChartsQuery,
+  fmtChartValue,
+  isPctMetric,
+  seriesOf,
+  trendsSvg,
+  type ChartType,
   type TrendDto,
   type TrendMetric,
 } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
-import { count, eq, and, gte, lte } from "drizzle-orm";
+import { count, eq, and, gte, lte, sql } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { z } from "zod";
 import { currentUser, requirePerm } from "../../auth/middleware";
@@ -23,15 +30,17 @@ import { loadTrends } from "../trends/routes";
 import { settingsFor, soleCompany } from "../../auth/scope";
 import { audit, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
-import { assets, exercises } from "../../db/schema";
+import { assets, exercises, secTestFindings, secTestRuns } from "../../db/schema";
 import { doraRegisterOf } from "../suppliers/dora";
 import { assuranceStats } from "../assurance/routes";
 import { docxResponse, htmlToDocx } from "../documents/docx";
 import { html as h, printPage } from "../documents/render";
+import { seriesPng } from "./png";
 import { ismsReviewSnapshot, metaOf } from "../documents/snapshots";
 import { getNotificationSettings } from "../notifications/service";
 import { socReportStats } from "../soc/grc";
 import { vulnRemediationStats } from "../vulnerabilities/remediation";
+import { findingsRemediation } from "../findings/metrics";
 import { CS_T, tFor, translatorFor } from "../i18n/service";
 import {
   collectObligations,
@@ -50,6 +59,8 @@ const Period = z.object({
   companyId: z.string().uuid().optional(),
   lang: z.string().regex(LOCALE_RE).optional(),
 });
+/** Období + grafy ve zprávě (v1.39). */
+const PeriodCharts = Period.extend(ReportChartsQuery.shape);
 
 export async function managementReport(
   db: Db,
@@ -210,7 +221,7 @@ export async function managementReport(
       t("srv.rep.assets"),
       String(red),
       levelByThreshold(red, 1, 5),
-      t("srv.rep.assetsDetail", { orange: assetsHealth.orange ?? 0, green: assetsHealth.green ?? 0, unknown: assetsHealth.unknown ?? 0 }),
+      t("srv.rep.assetsDetail", { total: red + (assetsHealth.orange ?? 0) + (assetsHealth.green ?? 0) + (assetsHealth.unknown ?? 0), red, orange: assetsHealth.orange ?? 0, green: assetsHealth.green ?? 0, unknown: assetsHealth.unknown ?? 0 }),
       "/assets",
     );
   }
@@ -227,6 +238,47 @@ export async function managementReport(
       t("srv.rep.continuityDetail", { plans: review.continuity.plans, approved: review.continuity.approved }),
       "/continuity/plans",
     );
+  // bezpečnostní testy (v1.58): otevřené nálezy podle závažnosti, testy a opravy v období
+  if (on("sectests")) {
+    const [f] = await db
+      .select({
+        critical: sql<number>`count(*) filter (where ${secTestFindings.status} = 'open' and ${secTestFindings.severity} = 'critical')::int`,
+        high: sql<number>`count(*) filter (where ${secTestFindings.status} = 'open' and ${secTestFindings.severity} = 'high')::int`,
+        medium: sql<number>`count(*) filter (where ${secTestFindings.status} = 'open' and ${secTestFindings.severity} = 'medium')::int`,
+        fixed: sql<number>`count(*) filter (where ${secTestFindings.status} = 'fixed' and ${secTestFindings.fixedAt} >= ${from} and ${secTestFindings.fixedAt} <= ${`${to}T23:59:59Z`})::int`,
+      })
+      .from(secTestFindings)
+      .where(eq(secTestFindings.companyId, companyId));
+    const [r] = await db
+      .select({ n: count() })
+      .from(secTestRuns)
+      .where(and(eq(secTestRuns.companyId, companyId), eq(secTestRuns.status, "done"), gte(secTestRuns.createdAt, new Date(from)), lte(secTestRuns.createdAt, new Date(`${to}T23:59:59Z`))));
+    const runs = r?.n ?? 0;
+    if (runs || f!.critical + f!.high + f!.medium > 0)
+      k(
+        "sectests",
+        t("srv.rep.sectests"),
+        String(f!.critical + f!.high),
+        f!.critical > 0 ? "error" : f!.high > 0 || f!.medium > 0 ? "warning" : "ok",
+        t("srv.rep.sectestsDetail", { critical: f!.critical, high: f!.high, medium: f!.medium, runs, fixed: f!.fixed }),
+        "/security-tests",
+      );
+  }
+  // nálezy ze všech zdrojů a jejich náprava (v1.69, ADR-162)
+  const fScope = { sectest: on("sectests") ? [companyId] : [], host: on("assets") ? [companyId] : [], vulnerability: on("vulnerabilities") ? [companyId] : [], audit: on("audits") ? [companyId] : [] };
+  const findings = Object.values(fScope).some((x) => x.length) ? await findingsRemediation(db, fScope, from, to) : null;
+  if (findings && (findings.total.open || findings.total.fixed)) {
+    const crit = findings.total.bySeverity.critical.open;
+    const high = findings.total.bySeverity.high.open;
+    k(
+      "findings",
+      t("srv.rep.findings"),
+      String(crit + high),
+      crit > 0 || findings.total.overdue > 0 ? "error" : high > 0 ? "warning" : "ok",
+      t("srv.rep.findingsDetail", { critical: crit, high, overdue: findings.total.overdue, escalated: findings.total.escalated, fixed: findings.total.fixed, onTime: findings.total.onTimePct == null ? "—" : `${findings.total.onTimePct} %`, days: findings.total.avgDays == null ? "—" : findings.total.avgDays.toLocaleString(t.locale) }),
+      "/findings",
+    );
+  }
   // DORA – finanční subjekt (ADR-086): závažné incidenty IKT, třetí strany IKT, testování digitální provozní odolnosti
   const profile = profileOf(s);
   if (profile.doraEntity) {
@@ -291,6 +343,7 @@ export async function managementReport(
     periodTo: to,
     generatedAt: new Date().toISOString(),
     kpis,
+    findings,
     compliance: review.compliance,
     risks: review.risks
       ? {
@@ -385,24 +438,37 @@ const LEVEL_COLOR: Record<OpsLevel, string> = {
   error: "#d03b3b",
   off: "#b4b2ab",
 };
+const LEVEL_TINT: Record<OpsLevel, string> = { ok: "#f3fbf3", warning: "#fef6f2", error: "#fdf2f2", off: "#ffffff" };
+const LEVEL_TEXT: Record<OpsLevel, string> = { ok: "#15803d", warning: "#9a3412", error: "#b91c1c", off: "#64748b" };
 
 /** Tisková podoba zprávy (HTML) – stejná pro PDF i Word. */
-export function renderManagementReport(r: ManagementReport, t: Translate = CS_T, trend?: TrendDto | null): string {
+export function renderManagementReport(r: ManagementReport, t: Translate = CS_T, trend?: TrendDto | null, charts?: { keys: string[] | null; type: ChartType; docx: boolean }): string {
   const { esc } = h;
   // datum v jazyce výstupu (čeština beze změny)
   const day = t.locale === "cs" ? h.day : (v: string | null | undefined) => (v ? new Date(`${v.slice(0, 10)}T00:00:00Z`).toLocaleDateString(t.locale, { timeZone: "UTC", dateStyle: "medium" }) : "—");
   const dt = t.locale === "cs" ? h.dt : (v: string | null | undefined) => (v ? new Date(v).toLocaleString(t.locale, { dateStyle: "medium", timeStyle: "short", timeZone: "Europe/Prague" }) : "—");
-  const kpiRows = r.kpis
+  // semafor (v1.58): řádky od nejhoršího, tři světla (rozsvícené podle stavu), podbarvení řádku a text stavu
+  const ORDER: Record<OpsLevel, number> = { error: 0, warning: 1, ok: 2, off: 3 };
+  const kpiRows = [...r.kpis]
+    .sort((a, b) => ORDER[a.level] - ORDER[b.level])
     .map(
       (x) =>
-        `<tr><td><span style="color:${LEVEL_COLOR[x.level]}">●</span> <b>${esc(levelText(t, x.level))}</b></td><td>${esc(x.label)}</td><td class="n"><b>${esc(x.value)}</b></td><td class="small">${esc(x.detail)}</td></tr>`,
+        x.level === "error" || x.level === "warning"
+          ? `<tr style="background:${LEVEL_TINT[x.level]}"><td style="white-space:nowrap"><span style="color:${LEVEL_COLOR[x.level]}">●</span> <b style="color:${LEVEL_TEXT[x.level]}">${esc(levelText(t, x.level))}</b></td><td><b>${esc(x.label)}</b></td><td class="n" style="font-size:12pt;color:${LEVEL_TEXT[x.level]}"><b>${esc(x.value)}</b></td><td class="small">${esc(x.detail)}</td></tr>`
+          : `<tr><td style="white-space:nowrap"><span style="color:${LEVEL_COLOR[x.level]}">●</span> <span style="color:#64748b">${esc(levelText(t, x.level))}</span></td><td>${esc(x.label)}</td><td class="n" style="color:#64748b">${esc(x.value)}</td><td class="small" style="color:#64748b">${esc(x.detail)}</td></tr>`,
     )
     .join("");
+  const cnt = (l: OpsLevel) => r.kpis.filter((x) => x.level === l).length;
+  // souhrn tří stavů: jednoduchá tabulka (stejně v tisku i ve Wordu), podbarvení jen u nenulových
+  const lampCell = (l: OpsLevel, label: string) =>
+    `<td style="width:33%;${cnt(l) ? `background:${LEVEL_TINT[l]};` : ""}border:none;padding:8px 12px"><b style="color:${cnt(l) ? LEVEL_TEXT[l] : "#94a3b8"};font-size:18pt">${cnt(l)}</b>&nbsp; <span style="color:#475569">${esc(label)}</span></td>`;
+  const semafor = `<table class="lamps" style="border:none;margin:6px 0 12px"><tr>${lampCell("error", t("srv.rep.levelError"))}${lampCell("warning", t("srv.rep.levelWarning"))}${lampCell("ok", t("srv.rep.levelOk"))}</tr></table>`;
   const attention = r.kpis.filter((x) => x.level === "error");
   let body = `<div class="muted small">${esc(r.organizationName)}</div>
 <h1>${esc(t("srv.rep.title"))}</h1>
 <div class="meta"><span class="muted">${esc(t("srv.rep.period"))}</span><span>${day(r.periodFrom)} – ${day(r.periodTo)}</span><span class="muted">${esc(t("srv.rep.asOf"))}</span><span>${dt(r.generatedAt)}</span><span class="muted">${esc(t("srv.rep.regime"))}</span><span>${esc(r.profileName)}</span>${r.basisLabel ? `<span class="muted">${esc(t("doc.framework"))}</span><span>${esc(r.basisLabel)}</span>` : ""}</div>
 <h2>${esc(t("srv.rep.h1"))}</h2>
+${semafor}
 <table><thead><tr><th style="width:18%">${esc(t("srv.rep.colState"))}</th><th>${esc(t("srv.rep.colIndicator"))}</th><th class="n" style="width:10%">${esc(t("srv.rep.colValue"))}</th><th>${esc(t("srv.rep.colDetail"))}</th></tr></thead><tbody>${kpiRows}</tbody></table>
 <h2>${esc(t("srv.rep.h2"))}</h2>
 ${attention.length ? `<ul>${attention.map((x) => `<li><b>${esc(x.label)}: ${esc(x.value)}</b> – ${esc(x.detail)}</li>`).join("")}</ul>` : `<p>${esc(t("srv.rep.noRed"))}</p>`}`;
@@ -435,6 +501,16 @@ ${attention.length ? `<ul>${attention.map((x) => `<li><b>${esc(x.label)}: ${esc(
         onTime: r.vulnRemediation.resolvedOnTimePct == null ? "—" : `${r.vulnRemediation.resolvedOnTimePct} %`,
       }),
     )}</p>`;
+  if (r.findings && (r.findings.total.open || r.findings.total.fixed)) {
+    const f = r.findings;
+    const pct = (v: number | null) => (v == null ? "—" : `${v} %`);
+    const dd = (v: number | null) => (v == null ? "—" : v.toLocaleString(t.locale));
+    const row = (label: string, x: RemediationStat, strong = false) =>
+      `<tr><td>${strong ? `<b>${esc(label)}</b>` : esc(label)}</td><td class="n">${x.open}</td><td class="n">${x.overdue ? `<b>${x.overdue}</b>` : 0}</td><td class="n">${x.escalated ? `<b>${x.escalated}</b>` : 0}</td><td class="n">${x.fixed}</td><td class="n">${dd(x.avgDays)}</td><td class="n">${pct(x.onTimePct)}</td></tr>`;
+    body += `<h2>${esc(t("srv.rep.hFindings"))}</h2><p class="small">${esc(t("srv.rep.findingsIntro"))}</p><table><thead><tr><th>${esc(t("srv.rep.colSource"))}</th><th class="n">${esc(t("srv.rep.colOpen"))}</th><th class="n">${esc(t("srv.rep.colOverdue"))}</th><th class="n">${esc(t("srv.rep.colEscalated"))}</th><th class="n">${esc(t("srv.rep.colFixed"))}</th><th class="n">${esc(t("srv.rep.colDays"))}</th><th class="n">${esc(t("srv.rep.colOnTime"))}</th></tr></thead><tbody>${f.sources
+      .map((s) => row(t.lbl(FINDING_LABELS.source[s]), f.bySource[s]))
+      .join("")}${(["critical", "high", "medium"] as const).map((sv) => row(`– ${t.lbl(FINDING_LABELS.severity[sv])}`, f.total.bySeverity[sv])).join("")}${row(t("srv.rep.total"), f.total, true)}</tbody></table>`;
+  }
   if (r.incidents)
     body += `<h2>${esc(t("srv.rep.h5"))}</h2><p>${esc(t("srv.rep.incidentsText", { incidents: r.incidents.incidents, significant: r.incidents.significant, events: r.incidents.events, overdue: r.incidents.overdueReports }))}</p>${
       r.incidents.list.length
@@ -485,14 +561,38 @@ ${attention.length ? `<ul>${attention.map((x) => `<li><b>${esc(x.label)}: ${esc(
       }),
     )}${r.audits ? ` ${esc(t("srv.rep.auditsText", { done: r.audits.done, open: r.audits.openFindings, overdue: r.audits.overdueFindings, major: r.audits.openMajor }))}` : ""}</p>`;
   if (trend && trend.points.length > 1) {
-    const keys: (TrendMetric | "compliance")[] = ["compliance", "risks_unacceptable", "plan_overdue", "findings_overdue", "vulns_critical", "obligations_overdue", "exceptions_expired"];
-    const pts = trend.points.slice(-6);
-    const mon = (p: string) => new Date(`${p}-01T00:00:00Z`).toLocaleDateString(t.locale === "cs" ? "cs-CZ" : t.locale, { month: "short", year: "2-digit", timeZone: "UTC" });
-    const rows = keys
-      .filter((k) => pts.some((p) => typeof p.values[k] === "number"))
-      .map((k) => `<tr><td>${esc(t.lbl(TREND_LABELS[k]))}</td>${pts.map((p) => `<td class="n">${typeof p.values[k] === "number" ? esc((p.values[k] as number).toLocaleString(t.locale)) : "–"}</td>`).join("")}</tr>`)
-      .join("");
-    body += `<h2>${esc(t("srv.rep.trendTitle"))}</h2><table><thead><tr><th>${esc(t("srv.rep.trendIndicator"))}</th>${pts.map((p) => `<th>${esc(mon(p.period))}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`;
+    // ukazatele a formát grafů volí uživatel při exportu (v1.39, ADR-136); výchozí = dřívější tabulka
+    const DEF: (TrendMetric | "compliance")[] = ["compliance", "risks_unacceptable", "plan_overdue", "findings_overdue", "vulns_critical", "obligations_overdue", "exceptions_expired"];
+    const known = (k: string): k is TrendMetric => (TREND_METRICS as readonly string[]).includes(k);
+    const keys = (charts?.keys?.filter(known) ?? DEF).filter((k) => trend.points.some((p) => typeof p.values[k] === "number"));
+    const type = charts?.type ?? "table";
+    const pts = type === "table" && !charts?.keys ? trend.points.slice(-6) : trend.points;
+    const loc = t.locale === "cs" ? "cs-CZ" : t.locale;
+    const mon = (p: string) => new Date(`${p}-01T00:00:00Z`).toLocaleDateString(loc, { month: "short", year: "2-digit", timeZone: "UTC" });
+    const label = (k: string) => t.lbl(TREND_LABELS[k as TrendMetric]);
+    body += `<h2>${esc(t("srv.rep.trendTitle"))}</h2>`;
+    if (type === "table" || !keys.length) {
+      const rows = keys.map((k) => `<tr><td>${esc(label(k))}</td>${pts.map((p) => `<td class="n">${typeof p.values[k] === "number" ? esc((p.values[k] as number).toLocaleString(t.locale)) : "–"}</td>`).join("")}</tr>`).join("");
+      body += `<table><thead><tr><th>${esc(t("srv.rep.trendIndicator"))}</th>${pts.map((p) => `<th>${esc(mon(p.period))}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table>`;
+    } else if (charts?.docx) {
+      // Word (v1.59): přehledná tabulka – ukazatel, malý graf, hodnota na začátku a teď, změna, rozsah
+      const rows = keys
+        .map((k) => {
+          const s = seriesOf(pts, k);
+          const vals = s.map((x) => x.v).filter((v): v is number => v != null);
+          const hi = isPctMetric(k) ? 100 : Math.max(1, ...vals);
+          const png = seriesPng(s.map((x) => x.v), { type, lo: 0, hi });
+          const first = vals[0];
+          const last = vals.at(-1);
+          const delta = first != null && last != null ? last - first : null;
+          const f = (v: number | undefined | null) => esc(fmtChartValue(v ?? undefined, k, "value", loc));
+          return `<tr><td><b>${esc(label(k))}</b></td><td><img src="data:image/png;base64,${png.toString("base64")}" width="150" height="34"></td><td class="n">${f(first)}</td><td class="n"><b>${f(last)}</b></td><td class="n">${delta == null ? "–" : `${delta > 0 ? "+" : ""}${f(delta)}`}</td><td class="n small">${f(Math.min(...vals))} – ${f(Math.max(...vals))}</td></tr>`;
+        })
+        .join("");
+      body += `<p class="small muted">${esc(`${mon(pts[0]!.period)} – ${mon(pts.at(-1)!.period)}`)}</p><table><thead><tr><th>${esc(t("srv.rep.trendIndicator"))}</th><th>${esc(t("srv.rep.trendChart"))}</th><th class="n">${esc(mon(pts[0]!.period))}</th><th class="n">${esc(mon(pts.at(-1)!.period))}</th><th class="n">${esc(t("srv.rep.trendDelta"))}</th><th class="n">${esc(t("srv.rep.trendRange"))}</th></tr></thead><tbody>${rows}</tbody></table>`;
+    } else {
+      body += `<div class="chart">${trendsSvg({ points: pts, keys, label, type, month: mon, locale: loc, columns: 2 })}</div>`;
+    }
   }
   if (r.documents.length)
     body += `<h2>${esc(t("srv.rep.h7"))}</h2><ul>${r.documents.map((d) => `<li>${d.approvedAt ? esc(t("srv.rep.docApproved", { title: d.title, version: d.version, date: day(d.approvedAt) })) : `${esc(d.title)} v${d.version}`}</li>`).join("")}</ul>`;
@@ -522,15 +622,17 @@ export function reportRoutes(db: Db) {
     .get("/management", perm, zValidator("query", Period), async (c) =>
       c.json((await load(c)).r),
     )
-    .get("/management.html", perm, zValidator("query", Period), async (c) => {
+    .get("/management.html", perm, zValidator("query", PeriodCharts), async (c) => {
       const { r, t, companyId } = await load(c);
-      return c.html(renderManagementReport(r, t, await loadTrends(db, companyId, 6).catch(() => null)), 200, {
+      const ch = c.req.valid("query" as never) as z.output<typeof PeriodCharts>;
+      return c.html(renderManagementReport(r, t, await loadTrends(db, companyId, ch.months).catch(() => null), { keys: ch.charts, type: ch.chart, docx: false }), 200, {
         "cache-control": "private, no-store",
       });
     })
-    .get("/management.docx", perm, zValidator("query", Period), async (c) => {
+    .get("/management.docx", perm, zValidator("query", PeriodCharts), async (c) => {
       const { r, t, companyId } = await load(c);
-      const buf = await htmlToDocx(renderManagementReport(r, t, await loadTrends(db, companyId, 6).catch(() => null)), {
+      const ch = c.req.valid("query" as never) as z.output<typeof PeriodCharts>;
+      const buf = await htmlToDocx(renderManagementReport(r, t, await loadTrends(db, companyId, ch.months).catch(() => null), { keys: ch.charts, type: ch.chart, docx: true }), {
         title: t("srv.rep.docxTitle"),
         headerLine: r.organizationName,
       });

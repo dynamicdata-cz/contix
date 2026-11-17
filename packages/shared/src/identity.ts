@@ -305,6 +305,19 @@ export interface AccountFlags {
   unconstrainedDelegation: boolean;
 }
 
+/** Skupina z AD (v1.33, ADR-130) – pro katalog oprávnění a výběr OU. */
+export interface DirGroup {
+  dn: string;
+  cn: string;
+  description: string | null;
+  /** Privilegovaná podle SID / názvu. */
+  privileged: boolean;
+  /** Chráněná AdminSDHolder (adminCount=1). */
+  protectedGroup: boolean;
+  /** Počet přímých členů – uživatelů v načtené bázi. */
+  members: number;
+}
+
 export interface DirAccount {
   externalId: string;
   login: string;

@@ -1,4 +1,5 @@
 import { useT, tt } from "@/lib/i18n";
+import { HostList } from "@/components/hostInventory";
 import { Badge, Button, Card, CardHeader, ErrorBox, Field, Input, PageHeader, Select, statusLabel, connectorLabel, statusTone } from "@/components/ui";
 import { api } from "@/lib/api";
 import { fmtDate } from "@/lib/utils";
@@ -28,7 +29,10 @@ export function DiscoveryPage() {
   const detail = (id: string) => connectors.data?.find((c) => c.id === id)?.detail;
   const allowed = connectors.data?.find((c) => c.id === "network_scan")?.allowedCidrs ?? [];
 
-  const wazuh = useMutation({ mutationFn: api.discovery.wazuh, onSuccess: refresh });
+  const wazuhConns = connectors.data?.find((c) => c.id === "wazuh")?.connections ?? [];
+  const [wazuhConn, setWazuhConn] = useState("");
+  const wazuh = useMutation({ mutationFn: () => api.discovery.wazuh(wazuhConn || undefined), onSuccess: refresh });
+  const netbox = useMutation({ mutationFn: () => api.discovery.netbox(), onSuccess: refresh });
   const [targets, setTargets] = useState("");
   const [profile, setProfile] = useState<"ping" | "standard" | "os_detect">("standard");
   const scan = useMutation({
@@ -48,6 +52,16 @@ export function DiscoveryPage() {
           <div className="space-y-3 p-5">
             <ConnectorStatus text={detail("wazuh")} ok={enabled("wazuh")} canSetup={can("admin:settings")} />
             <ErrorBox error={wazuh.error} />
+            {wazuhConns.length > 1 && (
+              <Select aria-label={t("disc.wazuhPick")} value={wazuhConn} onChange={(e) => setWazuhConn(e.target.value)}>
+                <option value="">{t("disc.wazuhAll")}</option>
+                {wazuhConns.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </Select>
+            )}
             <Button disabled={!enabled("wazuh") || wazuh.isPending} onClick={() => wazuh.mutate()}>
               <RefreshCw size={15} /> {t("ast.synchronizovat")}
             </Button>
@@ -59,7 +73,7 @@ export function DiscoveryPage() {
           <div className="space-y-3 p-5">
             <ConnectorStatus text={detail("network_scan")} ok={enabled("network_scan")} canSetup={can("admin:settings")} />
             <Field label={t("ast.cileIpCidr")}>
-              <Input value={targets} onChange={(e) => setTargets(e.target.value)} placeholder={allowed[0] ?? "192.168.1.0/24"} disabled={!enabled("network_scan")} />
+              <Input value={targets} onChange={(e) => setTargets(e.target.value)} placeholder={allowed[0] ?? "192.0.2.0/24"} disabled={!enabled("network_scan")} />
             </Field>
             <Field label={t("ast.profil")}>
               <Select value={profile} onChange={(e) => setProfile(e.target.value as typeof profile)} disabled={!enabled("network_scan")}>
@@ -103,6 +117,21 @@ export function DiscoveryPage() {
       </div>
 
       <NetSegmentsSection />
+
+      {enabled("netbox") && (
+        <Card className="mb-6" data-testid="netbox-sync">
+          <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+            <span className="font-semibold text-slate-900">NetBox</span>
+            <span className="flex-1 truncate text-sm text-slate-500">{detail("netbox")}</span>
+            <ErrorBox error={netbox.error} />
+            <Button disabled={netbox.isPending} onClick={() => netbox.mutate()}>
+              <RefreshCw size={15} /> {t("nb.sync")}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      <HostList />
 
       <Card>
         <CardHeader title={t("ast.historieBehu")} />

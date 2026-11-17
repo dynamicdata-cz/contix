@@ -9,7 +9,7 @@ import type { RiskPolicy } from "./risk";
  * rozhoduje vlastník rizika (změna hodnocení nebo potvrzení beze změny se zdůvodněním).
  * ============================================================ */
 
-export const RISK_TRIGGER_KINDS = ["incident", "audit_finding", "change", "soc", "vuln", "control_test", "exception", "supplier", "scenario", "control_monitor", "kri"] as const;
+export const RISK_TRIGGER_KINDS = ["incident", "audit_finding", "change", "soc", "vuln", "control_test", "exception", "supplier", "scenario", "control_monitor", "kri", "sectest", "host_finding"] as const;
 export type RiskTriggerKind = (typeof RISK_TRIGGER_KINDS)[number];
 
 export interface RiskTrigger {
@@ -72,7 +72,7 @@ export type RiskReviewInput = z.input<typeof RiskReviewInput>;
 
 /** Druhy podnětů, které zvyšují hrozbu (pravděpodobnost) resp. zranitelnost. */
 const THREAT_KINDS: RiskTriggerKind[] = ["incident", "soc"];
-const VULN_KINDS: RiskTriggerKind[] = ["vuln", "audit_finding", "control_test", "exception", "control_monitor"];
+const VULN_KINDS: RiskTriggerKind[] = ["vuln", "audit_finding", "control_test", "exception", "control_monitor", "sectest", "host_finding"];
 
 /**
  * Deterministický návrh: podnět na straně hrozby → úroveň hrozby +1, na straně zranitelnosti → úroveň zranitelnosti +1
@@ -125,6 +125,8 @@ export const RISK_TRIGGER_LABELS = {
     scenario: "Změna dat scénáře",
     control_monitor: "Nesplněný monitor opatření",
     kri: "Překročený ukazatel KRI",
+    sectest: "Nález bezpečnostního testu",
+    host_finding: "Nález konfigurace serveru",
   } as Record<RiskTriggerKind, string>,
   decision: { confirmed: "Potvrzeno beze změny", changed: "Hodnocení změněno" } as Record<RiskReviewDecision, string>,
   field: { threatLevel: "Úroveň hrozby", vulnLevel: "Úroveň zranitelnosti", likelihood: "Pravděpodobnost" } as Record<RiskSuggestionChange["field"], string>,

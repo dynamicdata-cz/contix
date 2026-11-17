@@ -55,15 +55,16 @@ export async function seedDemo(call: DemoCall, withCompany: (companyId: string) 
 
   // aktiva: primární (služby, informace) a podpůrná (technika, dodavatelé); adresy z dokumentačního rozsahu
   const asset = async (a: Record<string, unknown>) => (await ok(api("POST", "/api/assets", a), "aktivum")).id as string;
-  const aMes = await asset({ name: "Řízení výroby (MES)", assetType: "business_service", criticality: "critical", confidentiality: 2, integrity: 4, availability: 4, description: "Plánování a evidence výroby na zakázku" });
-  const aErp = await asset({ name: "Účetnictví a fakturace", assetType: "business_service", criticality: "high", confidentiality: 3, integrity: 4, availability: 3 });
-  const aHr = await asset({ name: "Personální a mzdová agenda", assetType: "information_asset", criticality: "high", confidentiality: 4, integrity: 3, availability: 2, tags: ["GDPR"] });
-  const sMes = await asset({ name: "SRV-MES01", assetType: "server", hostname: "srv-mes01", ipAddresses: ["192.0.2.10"], osName: "Windows Server 2022", criticality: "critical", environment: "production" });
-  const sErp = await asset({ name: "SRV-ERP01", assetType: "server", hostname: "srv-erp01", ipAddresses: ["192.0.2.20"], osName: "Ubuntu 24.04", criticality: "high", environment: "production" });
-  const sDb = await asset({ name: "DB-ERP01", assetType: "database", hostname: "db-erp01", ipAddresses: ["192.0.2.21"], criticality: "high", environment: "production" });
-  const sFw = await asset({ name: "FW-01", assetType: "security_device", ipAddresses: ["192.0.2.1"], criticality: "critical", environment: "production" });
-  const sNas = await asset({ name: "NAS-ZAL01", assetType: "storage", hostname: "nas-zal01", ipAddresses: ["192.0.2.30"], criticality: "high", environment: "production", description: "Úložiště záloh (offline kopie týdně)" });
-  const sPlc = await asset({ name: "Linka L1 – řídicí systém", assetType: "iot_ot", criticality: "critical", environment: "production" });
+  // odpovědný útvar a štítky z katalogu (v1.81) – ukázka vazeb útvar ↔ aktiva
+  const aMes = await asset({ name: "Řízení výroby (MES)", assetType: "business_service", criticality: "critical", confidentiality: 2, integrity: 4, availability: 4, description: "Plánování a evidence výroby na zakázku", ownerUnitId: uVyr, tags: ["Výroba"] });
+  const aErp = await asset({ name: "Účetnictví a fakturace", assetType: "business_service", criticality: "high", confidentiality: 3, integrity: 4, availability: 3, ownerUnitId: uEko });
+  const aHr = await asset({ name: "Personální a mzdová agenda", assetType: "information_asset", criticality: "high", confidentiality: 4, integrity: 3, availability: 2, tags: ["GDPR"], ownerUnitId: uHr });
+  const sMes = await asset({ name: "SRV-MES01", assetType: "server", hostname: "srv-mes01", ipAddresses: ["192.0.2.10"], osName: "Windows Server 2022", criticality: "critical", environment: "production", ownerUnitId: uIt, location: "Serverovna › Rack A", tags: ["Výroba"] });
+  const sErp = await asset({ name: "SRV-ERP01", assetType: "server", hostname: "srv-erp01", ipAddresses: ["192.0.2.20"], osName: "Ubuntu 24.04", criticality: "high", environment: "production", ownerUnitId: uIt, location: "Serverovna › Rack A" });
+  const sDb = await asset({ name: "DB-ERP01", assetType: "database", hostname: "db-erp01", ipAddresses: ["192.0.2.21"], criticality: "high", environment: "production", ownerUnitId: uIt, tags: ["GDPR"] });
+  const sFw = await asset({ name: "FW-01", assetType: "security_device", ipAddresses: ["192.0.2.1"], criticality: "critical", environment: "production", ownerUnitId: uIt, location: "Serverovna › Rack A" });
+  const sNas = await asset({ name: "NAS-ZAL01", assetType: "storage", hostname: "nas-zal01", ipAddresses: ["192.0.2.30"], criticality: "high", environment: "production", description: "Úložiště záloh (offline kopie týdně)", ownerUnitId: uIt, location: "Sklad › Požární úsek B" });
+  const sPlc = await asset({ name: "Linka L1 – řídicí systém", assetType: "iot_ot", criticality: "critical", environment: "production", ownerUnitId: uVyr, location: "Hala 1", tags: ["Výroba", "OT"] });
   const link = (primaryId: string, supportingId: string, note?: string) => ok(api("POST", "/api/assets/links", { primaryId, supportingId, note }), "vazba aktiv");
   await link(aMes, sMes);
   await link(aMes, sPlc, "řízení linky");
@@ -98,12 +99,13 @@ export async function seedDemo(call: DemoCall, withCompany: (companyId: string) 
   await risk({ code: "R-04", name: "Zneužití oprávnění k mzdovým datům", threatId: cat("H01"), weaknessId: cat("Z06"), ownerPositionId: pHr, impact: 3, threatLevel: 1, vulnLevel: 2, treatment: "mitigate", assetIds: [aHr, sDb], processIds: [prMzdy] });
 
   // dodavatelé, kontinuita, dokumentace, incident, cíle, úkoly
-  await ok(api("POST", "/api/suppliers", { name: "Ukázkový dodavatel ERP s.r.o.", supplyDescription: "Provoz a podpora systému ERP", significant: true, significanceReason: "Podpora systému fakturace a mezd" }), "dodavatel");
-  await ok(api("POST", "/api/suppliers", { name: "Vzorový cloud pro zálohy s.r.o.", supplyDescription: "Kopie záloh mimo areál" }), "dodavatel");
+  await ok(api("POST", "/api/suppliers", { name: "Ukázkový dodavatel ERP s.r.o.", supplyDescription: "Provoz a podpora systému ERP", significant: true, significanceReason: "Podpora systému fakturace a mezd", ownerUnitId: uEko, assetIds: [aErp, sErp] }), "dodavatel");
+  await ok(api("POST", "/api/suppliers", { name: "Vzorový cloud pro zálohy s.r.o.", supplyDescription: "Kopie záloh mimo areál", ownerUnitId: uIt, dataOutsideCz: true, assetIds: [sNas] }), "dodavatel");
   await ok(api("POST", "/api/continuity-plans", { name: "Plán obnovy řízení výroby", planType: "recovery", processIds: [prVyr] }), "plán kontinuity");
   await ok(api("POST", "/api/continuity-plans", { name: "Krizová komunikace", planType: "crisis_communication" }), "plán kontinuity");
-  await ok(api("POST", "/api/policies", { title: "Bezpečnostní politika" }), "dokument");
-  await ok(api("POST", "/api/policies", { title: "Pravidla pro uživatele a hesla" }), "dokument");
+  await ok(api("POST", "/api/policies", { title: "Bezpečnostní politika", ownerPositionId: pMkb }), "dokument");
+  await ok(api("POST", "/api/policies", { title: "Pravidla pro uživatele a hesla", ownerPositionId: pIt }), "dokument");
+  await ok(api("POST", "/api/policies", { title: "Provozní řád výrobní linky", docType: "procedure", ownerPositionId: pVyr }), "dokument");
   await ok(api("POST", "/api/incidents", { title: "Podvodný e-mail s fakturou (ukázka)", kind: "incident", category: "phishing", detectedAt: ago(10) }), "incident");
   await ok(api("POST", "/api/isms/objectives", { code: "C-01", title: "Obnova řízení výroby do 8 hodin", metric: "RTO v testu obnovy", target: "≤ 8 h", status: "partially_met", ownerPositionId: pMkb }), "cíl");
   await ok(api("POST", "/api/actions/tasks", { title: "Otestovat obnovu MES ze zálohy", ownerPositionId: pIt, dueDate: day(30), priority: "high" }), "úkol");

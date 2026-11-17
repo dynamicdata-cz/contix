@@ -1,3 +1,4 @@
+import { useRiskNav } from "@/components/riskNav";
 import { Tabs, useTab } from "@/components/ui/tabs";
 import { askConfirm, toast } from "@/components/ui/overlay";
 import { CompanyCell, useGroupView } from "@/components/company";
@@ -20,6 +21,7 @@ const statusTone: Record<ScenarioStatus, Tone> = { proposed: "blue", accepted: "
 const covTone: Record<ThreatCoverageState, Tone> = { risk: "green", proposed: "blue", not_relevant: "slate", unassessed: "amber" };
 
 export function RiskScenariosPage() {
+  const riskNav = useRiskNav();
   const t = useT();
   const can = useCan();
   const qc = useQueryClient();
@@ -39,7 +41,7 @@ export function RiskScenariosPage() {
           {t("rsk.rizika")}
         </Link>
       </div>
-      <PageHeader
+      <PageHeader nav={riskNav}
         title={t("rsc.title")}
         subtitle={t("rsc.subtitle")}
         actions={

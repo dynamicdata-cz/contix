@@ -56,7 +56,7 @@ export function frameworksInScope(
   return [...new Set([...base, ...FRAMEWORKS.map((f) => f.id).filter((f) => extra.includes(f))])];
 }
 
-export const FRAMEWORK_KINDS = ["law", "regulation", "directive", "standard", "framework", "internal"] as const;
+export const FRAMEWORK_KINDS = ["law", "regulation", "directive", "standard", "framework", "internal", "contract"] as const;
 export type FrameworkKind = (typeof FRAMEWORK_KINDS)[number];
 export const FRAMEWORK_KIND_LABELS: Record<FrameworkKind, string> = {
   law: "Zákon",
@@ -65,6 +65,7 @@ export const FRAMEWORK_KIND_LABELS: Record<FrameworkKind, string> = {
   standard: "Norma",
   framework: "Rámec / osvědčená praxe",
   internal: "Interní požadavky",
+  contract: "Smluvní požadavky zákazníka",
 };
 /** K čemu rámec slouží: posouzení shody (GAP / SoA), audit, analýza rizik. */
 export const FRAMEWORK_USES = ["gap", "audit", "risk"] as const;
@@ -86,6 +87,8 @@ export interface FrameworkMeta {
   kind: FrameworkKind;
   uses: FrameworkUse[];
   version: string;
+  /** Smluvní požadavky zákazníka (v1.50): zákazník, služba, smlouva, platnost. */
+  contract?: { customer: string; service: string; reference: string; validUntil: string | null } | null;
   /** Jazyk textů (BCP 47); prázdné = čeština u vestavěných. */
   language: string;
   /** Vlastní rámec z knihovny (import). */

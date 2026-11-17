@@ -74,7 +74,7 @@ export function DocsPage() {
           <Input className="pl-9" placeholder={t("doc.hledatVNazvuPopisuI")} value={q} onChange={(e) => setQ(e.target.value)} />
         </form>
         {paths.length > 0 && (
-          <select className="rounded-md border border-slate-200 px-2 py-1.5 text-sm" value={folder} onChange={(e) => setFolder(e.target.value)} aria-label={t("doc.slozka")}>
+          <select className="ctx-select rounded-md border border-slate-200 px-2 py-1.5 text-sm" value={folder} onChange={(e) => setFolder(e.target.value)} aria-label={t("doc.slozka")}>
             <option value="">{t("doc.vsechnySlozky")}</option>
             {paths.map((x) => (
               <option key={x} value={x}>

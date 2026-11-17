@@ -1,4 +1,5 @@
 /** DORA – registr informací (ADR-069): smluvní ujednání s poskytovateli IKT, funkce, subjekty, koncentrace, export šablon. */
+import { ProcessGuide } from "@/components/processGuide";
 import { IdMultiSelect } from "@/components/pickers";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, type Tone } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -74,6 +75,7 @@ export function DoraPage() {
           </a>
         }
       />
+      <ProcessGuide id="dora" />
       <ErrorBox error={q.error} />
       {d && (
         <>

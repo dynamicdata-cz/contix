@@ -4,10 +4,11 @@ Pipeline (`.gitlab-ci.yml`) běží při každém pushi:
 
 | Fáze | Úloha | Obsah |
 |---|---|---|
-| check | `typecheck` | TypeScript všech balíčků |
+| check | `typecheck` | TypeScript všech balíčků (včetně testů) |
+| check | `audit` | známé zranitelnosti závislostí – vysoká a kritická zastaví pipeline (`bun audit --audit-level=high`) |
 | check | `test` | unit a integrační testy API proti PostgreSQL (služba `pgvector/pgvector:pg17`), JUnit report |
 | e2e | `e2e` | Playwright – přihlášení, aktiva, rizika, SoA, průchod všemi stránkami menu, odhlášení (obraz `mcr.microsoft.com/playwright`) |
-| build | `build` | sestavení webu |
+| build | `build` | sestavení webu a SBOM vydání `contix.cdx.json` (CycloneDX 1.6) jako artefakt |
 
 Výsledky testů se zobrazí v detailu pipeline (záložka Tests); u `e2e` je při chybě ke stažení HTML report
 a trace (`playwright-report/`, `test-results/`).

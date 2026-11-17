@@ -65,7 +65,7 @@ git clone gitlab-contix:<skupina>/contix.git /opt/contix
 cd /opt/contix
 
 # 2) instalace (sestavení obrazů trvá při prvním běhu 5–10 minut)
-sudo ./infra/scripts/install.sh --domain contix.test.local --tls internal --admin admin@firma.cz
+sudo ./infra/scripts/install.sh --domain contix.firma.local --tls internal --admin admin@firma.cz
 ```
 
 Skript vytvoří `.env` s vygenerovanými tajemstvími (práva 600), sestaví a spustí kontejnery (`db`, `api`, `web`, `backup`, `converter`),
@@ -127,11 +127,11 @@ Zůstávají `.env`, `certs/`, `backups/` a datové svazky; nahradí se obrazy, 
 **Bez DNS** přidejte do souboru hosts každého počítače (jinak DNS záznam typu A na IP serveru):
 
 ```text
-192.0.2.10  contix.test.local
+192.0.2.10  contix.firma.local
 ```
 
-- macOS / Linux: `sudo sh -c 'echo "192.0.2.10 contix.test.local" >> /etc/hosts'`
-- Windows (PowerShell jako správce): `Add-Content C:\Windows\System32\drivers\etc\hosts "192.0.2.10 contix.test.local"`
+- macOS / Linux: `sudo sh -c 'echo "192.0.2.10 contix.firma.local" >> /etc/hosts'`
+- Windows (PowerShell jako správce): `Add-Content C:\Windows\System32\drivers\etc\hosts "192.0.2.10 contix.firma.local"`
 
 **Kořenový certifikát** (jen `--tls internal`) – soubor `contix-root-ca.crt` ze složky instalace
 (`scp admin@192.0.2.10:/opt/contix/contix-root-ca.crt .`):
@@ -159,7 +159,7 @@ je nutné do klientů nainstalovat znovu.
 
 ## 6. Po instalaci
 
-1. Otevřete `https://contix.test.local`, přihlaste se dočasným heslem (vypsal ho `install.sh`; znovu:
+1. Otevřete `https://contix.firma.local`, přihlaste se dočasným heslem (vypsal ho `install.sh`; znovu:
    `sudo docker compose --profile full logs api | grep -A1 "Vytvořen administrátor"`), nastavte nové heslo a **MFA**.
 2. **Administrace → Nastavení** – název organizace, režim (vyšší/nižší povinnosti), moduly.
 3. **Administrace → AI asistent** a **Konektory → Wazuh** – kap. 7 a 8.
@@ -264,6 +264,38 @@ pro vyhledávání a porovnání verzí. Běží v **interní síti bez přístu
 - Vypnutí: `CONVERTER_URL=` (prázdné) v `.env` – PDF náhledy Wordu nebudou, text pro vyhledávání se čte jen z formátů Office.
 - Po aktualizaci na v0.24 se existující soubory zpracují postupně plánovačem (dávky každých 15 minut).
 
+## 8b. Automatický import osob z personalistiky (PERM a jiné)
+
+Žádosti o přístup (Administrace modulu: Žádosti o přístup → Osoby) umí denně načíst export osob ze souboru.
+
+1. Na serveru je adresář `/opt/contix/import` (vytvoří ho `install.sh` / `update.sh`); do kontejneru API je připojen **jen pro čtení** jako `/import`.
+2. Personální systém nebo naplánovaná úloha do něj ukládá export CSV / XLSX se záhlavím, vždy pod stejným názvem, např. `perm-osoby.csv`:
+   ```bash
+   # příklad: kopie ze sdílené složky personálního oddělení každou noc ve 2:15 (crontab uživatele root)
+   15 2 * * * cp /mnt/personalni/export/osoby.csv /opt/contix/import/perm-osoby.csv && chmod 640 /opt/contix/import/perm-osoby.csv
+   ```
+3. V CONTIXu zadejte název souboru a zapněte automatický import. Soubor se načte při změně obsahu; výsledek a chyby jsou vidět u nastavení.
+4. Pokud export obsahuje jen aktivní zaměstnance, zapněte „Chybějící osoby označit jako odešlé“ – CONTIX jim nastaví datum ukončení a založí žádosti o odebrání oprávnění. Ochrana: když soubor obsahuje méně než polovinu dříve importovaných osob, odchody se neoznačí.
+
+Do exportu nedávejte rodné číslo, adresu, mzdu ani číslo účtu – CONTIX tyto sloupce ignoruje a v náhledu na ně upozorní. Adresář `import/` je v `.gitignore`.
+
+## 8c. Zápis členství skupin do AD (Žádosti o přístup → Nastavení v AD)
+
+Výchozí je **vypnuto** (správce nastavuje přístupy ručně). Bezpečnější první krok je režim **jen skript**: CONTIX vygeneruje skript PowerShell, správce ho zkontroluje a spustí, a po další synchronizaci zdroje identit CONTIX žádosti sám označí jako vyřízené. Režim **přímo v AD** používá oddělený servisní účet:
+
+1. Vytvořte OU jen pro skupiny spravované přes CONTIX (např. `OU=CONTIX,OU=Groups,DC=firma,DC=cz`) a přesuňte do ní příslušné skupiny (VPN, aplikace, sdílené složky). Privilegované skupiny tam nepatří – CONTIX je navíc odmítne podle názvu, SID i `adminCount=1`.
+2. Vytvořte účet `contix-write` (obyčejný uživatel, silné heslo, bez členství v jiných skupinách) a delegujte mu **jen** právo měnit členství skupin v této OU:
+   ```powershell
+   dsacls "OU=CONTIX,OU=Groups,DC=firma,DC=cz" /I:S /G "FIRMA\contix-write:WP;member;group"
+   ```
+   (v konzoli Active Directory Users and Computers: Delegate Control → Custom task → Group objects → Write Members).
+   Má-li CONTIX zakládat i nové skupiny (oprávnění „Skupina v AD ještě neexistuje“), přidejte právo vytvářet skupiny v téže OU:
+   ```powershell
+   dsacls "OU=CONTIX,OU=Groups,DC=firma,DC=cz" /G "FIRMA\contix-write:CC;group"
+   ```
+3. V CONTIXu (správce systému) zvolte zdroj identit AD (adresa, LDAPS, certifikát CA se převezmou), zapisovací účet, heslo, povolenou OU a denní limit.
+4. Zápis probíhá jen z náhledu po výběru žádostí a potvrzení; každý zápis (i neúspěšný) se zaznamená a žádost se vyřídí jen po úspěchu.
+
 ## 9. Zálohy a obnova
 
 - Služba `backup` zálohuje DB denně v `BACKUP_TIME` do `backups/` (retence `BACKUP_KEEP_DAYS`), viz [backup.md](backup.md).
@@ -300,7 +332,7 @@ sudo ./infra/scripts/update.sh                     # aktualizace (záloha → gi
 | Prohlížeč: „Bad Gateway“ | kontejner `api` neběží / restartuje se: `docker compose --profile full ps` a `logs --tail 50 api` |
 | `scp … contix-root-ca.crt: Permission denied` | starší instalace: `sudo chmod 644 /opt/contix/contix-root-ca.crt` |
 | Prohlížeč hlásí nedůvěryhodný certifikát | kořenový certifikát není v systému klienta (kap. 5) nebo nebyl restartován prohlížeč |
-| `contix.test.local` se nenačte | chybí položka v `hosts` / DNS; ověřte `ping contix.test.local` |
+| `contix.firma.local` se nenačte | chybí položka v `hosts` / DNS; ověřte `ping contix.firma.local` |
 | AI: „Nelze se spojit s AI serverem“ | Open WebUI poslouchá jen na localhostu nebo blokuje firewall (kap. 7) |
 | AI: HTTP 401 | neplatný API klíč nebo v Open WebUI vypnuté API klíče (Administrace → Obecné) |
 | Wazuh indexer: `Connection refused` | indexer jen na localhostu (`network.host: 127.0.0.1`) – kap. 8 |

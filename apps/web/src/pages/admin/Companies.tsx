@@ -1,5 +1,8 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { TOPBAR_COLORS, TOPBAR_LABELS, type TopbarColor } from "@contix/shared";
 import { AresLookup } from "@/components/ares";
+import { BrandingCard } from "@/components/branding";
+import { CompanyRegulationCard } from "@/components/regulation";
 import { CisIgSelect, FrameworkPicker, FrameworkScope } from "@/components/frameworkScope";
 import { ProfilePicker } from "@/components/profilePicker";
 import { useT } from "@/lib/i18n";
@@ -70,8 +73,56 @@ export function AdminCompaniesPage() {
           </table>
         )}
       </Card>
+      <DemoCard />
+      {rows.length > 0 && <CompanyRegulationCard companies={rows} />}
+      {rows.length > 0 && <BrandingCard companies={rows} />}
       {editing && <CompanyModal company={editing === "new" ? null : editing} all={rows} onClose={() => setEditing(null)} />}
     </>
+  );
+}
+
+/** Ukázková data (v1.81, ADR-174): fiktivní společnost pro předvedení – založit / odstranit jedním tlačítkem. */
+function DemoCard() {
+  const t = useT();
+  const qc = useQueryClient();
+  const refresh = useRefreshMe();
+  const st = useQuery({ queryKey: ["demo"], queryFn: api.demo.status });
+  const done = () => {
+    void qc.invalidateQueries();
+    void refresh();
+  };
+  const create = useMutation({ mutationFn: api.demo.create, onSuccess: done });
+  const remove = useMutation({ mutationFn: api.demo.remove, onSuccess: done });
+  const d = st.data;
+  if (!d) return null;
+  return (
+    <Card className="mt-6" data-testid="demo-card">
+      <CardHeader
+        title={t("demo.title")}
+        subtitle={t("demo.subtitle", { name: d.name })}
+        action={
+          d.exists ? (
+            <Button
+              variant="danger"
+              className="px-2.5 py-1.5 text-xs"
+              disabled={remove.isPending}
+              onClick={async () => (await askConfirm(t("demo.confirmRemove", { name: d.name }))) && remove.mutate()}
+              data-testid="demo-remove"
+            >
+              <Trash2 size={14} /> {t("demo.remove")}
+            </Button>
+          ) : (
+            <Button className="px-2.5 py-1.5 text-xs" disabled={create.isPending} onClick={() => create.mutate()} data-testid="demo-create">
+              <Plus size={14} /> {create.isPending ? t("demo.creating") : t("demo.create")}
+            </Button>
+          )
+        }
+      />
+      <div className="px-5 pb-4 text-sm text-slate-600">
+        {d.exists && d.counts ? t("demo.exists", d.counts) : t("demo.none")}
+        <ErrorBox error={create.error ?? remove.error} />
+      </div>
+    </Card>
   );
 }
 
@@ -106,6 +157,7 @@ function CompanyModal({ company, all, onClose }: { company: CompanyDto | null; a
     ownFrameworks: company?.overrides.frameworks !== undefined,
     frameworks: (company?.overrides.frameworks ?? []) as OptionalFramework[],
     cisIg: (company?.overrides.cisIg ?? 1) as 1 | 2 | 3,
+    topbarColor: (company?.overrides.topbarColor ?? "") as TopbarColor | "",
     ownCriteria: company?.overrides.changeCriteria !== undefined,
     changeCriteria: (company?.overrides.changeCriteria ?? []).join("\n"),
   });
@@ -143,6 +195,7 @@ function CompanyModal({ company, all, onClose }: { company: CompanyDto | null; a
       ...(f.ownSoc2 ? { soc2Scope: f.soc2Scope } : {}),
       ...(f.ownFrameworks ? { frameworks: f.frameworks } : {}),
       ...(f.ownFrameworks && f.frameworks.includes("cis8") ? { cisIg: f.cisIg } : {}),
+      ...(f.topbarColor ? { topbarColor: f.topbarColor } : {}),
       ...(f.ownCriteria ? { changeCriteria: f.changeCriteria.split("\n").map((x) => x.trim()).filter(Boolean) } : {}),
     },
   });
@@ -240,6 +293,16 @@ function CompanyModal({ company, all, onClose }: { company: CompanyDto | null; a
         <ProfilePicker value={{ pack: f.pack, regime: f.regime, primaryFramework: f.primaryFramework, doraEntity: f.doraEntity }} onChange={(v) => setF((x) => ({ ...x, ...v }))} />
       </div>
       <Checkbox checked={f.active} disabled={isRoot} onChange={(v) => set("active", v)} label={t("usr.aktivni")} />
+      <Field label={t("company.topbar")} hint={t("company.topbarHint")}>
+        <Select value={f.topbarColor} onChange={(e) => set("topbarColor", e.target.value as TopbarColor | "")}>
+          <option value="">{t("company.topbarUser")}</option>
+          {TOPBAR_COLORS.filter((c) => c !== "default").map((c) => (
+            <option key={c} value={c}>
+              {t.lbl(TOPBAR_LABELS[c])}
+            </option>
+          ))}
+        </Select>
+      </Field>
       <Field label={t("usr.regulovaneSluzby")}>
         <Textarea rows={2} value={f.regulatedServices} onChange={(e) => set("regulatedServices", e.target.value)} />
       </Field>

@@ -1,0 +1,15 @@
+{
+  "name": "CONTIX",
+  "short_name": "CONTIX",
+  "description": "GRC platforma – řízení kybernetické bezpečnosti",
+  "lang": "cs",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#141626",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

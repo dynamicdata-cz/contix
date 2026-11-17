@@ -31,6 +31,8 @@ import {
   type OpsLevel,
 } from "@contix/shared";
 import { useQuery } from "@tanstack/react-query";
+import { WorkQueue } from "@/components/workQueue";
+import { StatusPill } from "@/components/status";
 import { Link, Navigate } from "@tanstack/react-router";
 import {
   AlertTriangle,
@@ -54,8 +56,9 @@ import {
   UserLock,
   type LucideIcon,
   KeyRound,
+  Crosshair,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { ObligationList } from "./My";
 
 /* ============================================================
@@ -110,6 +113,9 @@ export function Dashboard() {
   const showRisks = mod("risks") && can("risks:read");
   const showControls = mod("controls") && can("controls:read");
 
+  // osobní fronta „Dnes pro vás“ (v1.37) – stejná data jako Moje práce
+  const mine = useQuery({ queryKey: ["obligations", "mine"], queryFn: api.notifications.mine, enabled: can("obligations:self"), staleTime: 60_000 });
+  const mineNow = (mine.data ?? []).filter((i) => i.urgency !== "later");
   const dash = useQuery({
     enabled: !externalOnly,
     queryKey: ["dashboard"],
@@ -151,6 +157,11 @@ export function Dashboard() {
     queryFn: api.discovery.runs,
     enabled: mod("discovery") && can("assets:read"),
   });
+
+  // bezpečnostní testy a servery ze sběrače (v1.57)
+  const showSecTests = mod("sectests") && can("sectests:read") && !group;
+  const secTests = useQuery({ queryKey: ["sectests", "overview"], queryFn: api.secTests.overview, enabled: showSecTests, staleTime: 60_000 });
+  const hosts = useQuery({ queryKey: ["hosts"], queryFn: api.hosts.list, enabled: showAssets, staleTime: 60_000 });
 
   const d = dash.data;
   const ob = (k: ObligationKind) =>
@@ -529,6 +540,55 @@ export function Dashboard() {
       />,
     );
 
+  if (showSecTests && secTests.data) {
+    const st = secTests.data;
+    const open = st.open.critical + st.open.high + st.open.medium + st.open.low;
+    areas.push(
+      <AreaCard
+        key="sectests"
+        empty={!st.runs30d && !open && !st.lastRunAt}
+        emptyHint={t("dash.st.empty")}
+        to="/security-tests"
+        icon={Crosshair}
+        title={t("st.title")}
+        main={open}
+        mainLabel={t("dash.st.main")}
+        segments={(["critical", "high", "medium", "low"] as const).map((k) => ({ key: k, label: t(`st.sev.${k}`), n: st.open[k], color: SEVERITY_COLOR[k] }))}
+        metrics={[
+          { label: t("dash.st.critHigh"), value: st.open.critical + st.open.high, tone: "bad" },
+          { label: t("dash.st.runs30"), value: st.active ? t("dash.st.runsActive", { n: st.runs30d, a: st.active }) : st.runs30d },
+          { label: t("dash.st.fixed30"), value: st.fixed30d },
+          { label: t("dash.st.probes"), value: `${st.probes.online} / ${st.probes.total}`, tone: st.probes.total && !st.probes.online ? "warn" : undefined },
+        ]}
+        foot={st.lastRunAt ? t("dash.st.last", { date: fmtDate(st.lastRunAt) }) : undefined}
+      />,
+    );
+  }
+  if (showAssets && hosts.data && hosts.data.length > 0) {
+    const hs = hosts.data;
+    const stale = hs.filter((h) => Date.now() - new Date(h.collectedAt).getTime() > 2 * 86400_000).length;
+    areas.push(
+      <AreaCard
+        key="hosts"
+        to="/discovery"
+        icon={Server}
+        title={t("dash.hosts.title")}
+        main={hs.length}
+        mainLabel={t("dash.hosts.main")}
+        segments={[
+          { key: "high", label: t("dash.hosts.withHigh"), n: hs.filter((h) => h.high > 0).length, color: STATUS_COLORS.critical },
+          { key: "medium", label: t("dash.hosts.withMedium"), n: hs.filter((h) => !h.high && h.medium > 0).length, color: STATUS_COLORS.serious },
+          { key: "ok", label: t("dash.hosts.clean"), n: hs.filter((h) => !h.high && !h.medium).length, color: STATUS_COLORS.good },
+        ]}
+        metrics={[
+          { label: t("dash.hosts.highFindings"), value: hs.reduce((a, h) => a + h.high, 0), tone: "bad" },
+          { label: t("dash.hosts.secUpdates"), value: hs.filter((h) => (h.securityUpdates ?? 0) > 0).length, tone: "warn" },
+          { label: t("dash.hosts.stale"), value: stale, tone: "warn" },
+        ]}
+      />,
+    );
+  }
+
   if (d?.ai && d.ai.proposed > 0)
     areas.push(
       <AreaCard
@@ -569,6 +629,18 @@ export function Dashboard() {
       />
       <ErrorBox error={dash.error} />
       <SetupBanner />
+      {can("obligations:self") && mine.data && (
+        <Card className="mb-6 overflow-hidden" data-testid="today-card">
+          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-3">
+            <h2 className="text-base font-semibold text-slate-900">{t("wq.todayTitle")}</h2>
+            <span className="text-sm text-slate-500">{mineNow.length ? t("wq.todaySub", { n: mineNow.length, o: mineNow.filter((i) => i.urgency === "overdue").length }) : t("wq.todayNone")}</span>
+            <Link to="/my" className="ml-auto text-sm text-brand-600 hover:underline">
+              {t("wq.toMyWork")}
+            </Link>
+          </div>
+          {mineNow.length > 0 && <WorkQueue items={mineNow} showCompany={group} limit={5} compact />}
+        </Card>
+      )}
       {!group && (showRisks || showControls) && <KpiStrip className="mb-6" />}
       <AiEntryCard className="mb-6" overdue={d?.obligations?.overdue ?? 0} />
 
@@ -667,10 +739,7 @@ export function Dashboard() {
                   <div className="text-xs text-slate-500">
                     {t("dash.regimeFw", { fw: mainFw.shortName })}
                   </div>
-                  <div className="text-4xl font-semibold tabular-nums">
-                    {mainFw.summary.score.toLocaleString(formatLocale())} %
-                  </div>
-                  <ComplianceBar s={mainFw.summary} />
+                  <ComplianceRing s={mainFw.summary} />
                 </Link>
               )}
               <ul className="space-y-2">
@@ -704,11 +773,9 @@ export function Dashboard() {
         </Card>
       </div>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {areas}
-      </div>
+      <AreaSections areas={areas} />
       {!group && (showRisks || showControls) && (
-        <TrendsCard className="mb-6" months={12} metrics={["compliance", "risks_unacceptable", "vulns_p1", "vulns_sla_overdue", "obligations_overdue", "findings_overdue"]} />
+        <TrendsCard id="dashboard" className="mb-6" months={12} metrics={["compliance", "risks_unacceptable", "vulns_p1", "vulns_sla_overdue", "obligations_overdue", "findings_overdue"]} />
       )}
 
       {runs.data && runs.data.length > 0 && (
@@ -780,21 +847,22 @@ function AreaCard({
   const t = useT();
   // prázdná evidence není „v pořádku“ – jen ještě nevyplněná
   const lvl = empty ? { color: STATUS_COLORS.neutral, Icon: CircleDashed, label: "dash.level.empty" as MsgKey } : LEVEL[levelOf(metrics)];
+  const tint = (pct: number) => `color-mix(in srgb, ${lvl.color} ${pct}%, transparent)`;
   const body = (
-    <Card className="flex h-full flex-col p-4 transition-shadow hover:shadow-md">
+    <Card className={cn("relative flex h-full flex-col overflow-hidden p-4 transition duration-150 hover:-translate-y-0.5 hover:shadow-md", empty && "opacity-90")}>
+      {/* barevný proužek nahoře = stav oblasti (text stavu je vpravo – barva není jediný nosič) */}
+      <span className="absolute inset-x-0 top-0 h-1" style={{ background: tint(empty ? 30 : 70) }} aria-hidden />
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-center gap-2.5 text-sm font-medium text-slate-700">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-50 text-brand-700">
-            <Icon size={16} aria-hidden />
+        <div className="flex items-center gap-2.5 text-sm font-semibold text-slate-800">
+          <span className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: tint(14), color: empty ? undefined : lvl.color }}>
+            <Icon size={17} aria-hidden className={empty ? "text-slate-500" : undefined} />
           </span>
           {title}
         </div>
-        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-slate-600">
-          <lvl.Icon size={14} color={lvl.color} aria-hidden /> {t(lvl.label)}
-        </span>
+        <StatusPill level={empty ? "empty" : levelOf(metrics)} />
       </div>
-      <div className="mt-2 flex items-baseline gap-2">
-        <span className="whitespace-nowrap text-3xl font-semibold tabular-nums">
+      <div className="mt-3 flex items-baseline gap-2">
+        <span className="whitespace-nowrap text-[32px] font-semibold leading-none tracking-tight tabular-nums text-slate-900">
           {main}
         </span>
         <span className="text-sm text-slate-500">{mainLabel}</span>
@@ -802,19 +870,17 @@ function AreaCard({
       {segments && !empty && <StackBar segments={segments} />}
       {empty && <p className="mt-3 text-sm text-slate-500">{emptyHint ?? t("dash.emptyHint")}</p>}
       {metrics.length > 0 && !empty && (
-        <dl className="mt-3 space-y-1 text-sm">
+        <dl className="mt-3 divide-y divide-slate-100 border-t border-slate-100 text-sm">
           {metrics.map((m) => (
-            <div key={m.label} className="flex justify-between gap-3">
+            <div key={m.label} className="flex justify-between gap-3 py-1.5">
               <dt className="text-slate-600">{m.label}</dt>
               <dd
                 className={cn(
-                  "tabular-nums",
-                  Number(m.value) > 0 &&
-                    m.tone === "bad" &&
-                    "font-semibold text-red-700",
-                  Number(m.value) > 0 &&
-                    m.tone === "warn" &&
-                    "font-semibold text-amber-800",
+                  "tabular-nums font-medium text-slate-800",
+                  // nuly ztlumeně – stejně jako ve Zprávě pro vedení (v1.58.1)
+                  (m.value === 0 || m.value === "0") && "font-normal text-slate-400",
+                  Number(m.value) > 0 && m.tone === "bad" && "rounded bg-red-50 px-1.5 font-semibold text-red-700",
+                  Number(m.value) > 0 && m.tone === "warn" && "rounded bg-amber-50 px-1.5 font-semibold text-amber-800",
                 )}
               >
                 {m.value}
@@ -823,9 +889,7 @@ function AreaCard({
           ))}
         </dl>
       )}
-      {foot && (
-        <div className="mt-auto pt-3 text-xs text-slate-400">{foot}</div>
-      )}
+      {foot && <div className="mt-auto pt-3 text-xs text-slate-400">{foot}</div>}
     </Card>
   );
   return to ? (
@@ -834,6 +898,100 @@ function AreaCard({
     </Link>
   ) : (
     body
+  );
+}
+
+/** Oblasti rozdělené do sekcí; nevyplněné oblasti v jedné kompaktní kartě (v1.57). */
+const TECH_AREAS = new Set(["assets", "vulns", "incidents", "identity", "sectests", "hosts"]);
+function AreaSections({ areas }: { areas: ReactNode[] }) {
+  const t = useT();
+  type P = Parameters<typeof AreaCard>[0];
+  const els = areas.filter((a): a is ReactElement<P> => !!a && typeof a === "object" && "props" in (a as object));
+  const filled = els.filter((e) => !e.props.empty);
+  const empty = els.filter((e) => e.props.empty);
+  const attention = (list: ReactElement<P>[]) => list.filter((e) => levelOf(e.props.metrics) !== "ok").length;
+  const section = (title: string, list: ReactElement<P>[], testId: string) =>
+    list.length > 0 && (
+      <section className="mb-6" data-testid={testId}>
+        <div className="mb-3 flex items-baseline gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h2>
+          {attention(list) > 0 && <span className="text-xs font-medium text-amber-800">{t("dash.sec.attention", { n: attention(list) })}</span>}
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{list}</div>
+      </section>
+    );
+  return (
+    <>
+      {section(t("dash.sec.tech"), filled.filter((e) => TECH_AREAS.has(String(e.key))), "dash-tech")}
+      {section(t("dash.sec.gov"), filled.filter((e) => !TECH_AREAS.has(String(e.key))), "dash-gov")}
+      {empty.length > 0 && (
+        <Card className="mb-6 p-4" data-testid="dash-empty">
+          <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <CircleDashed size={16} className="text-slate-400" aria-hidden /> {t("dash.sec.empty")}
+            <span className="font-normal text-slate-500">{t("dash.sec.emptyHint")}</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {empty.map((e) => {
+              const I = e.props.icon;
+              const chip = (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm text-slate-700 hover:border-brand-300 hover:bg-brand-50">
+                  <I size={14} aria-hidden className="text-slate-500" /> {e.props.title}
+                </span>
+              );
+              return e.props.to ? (
+                <Link key={String(e.key)} to={e.props.to}>
+                  {chip}
+                </Link>
+              ) : (
+                <span key={String(e.key)}>{chip}</span>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+    </>
+  );
+}
+
+/** Prstenec míry shody: splněno / částečně / nesplněno / neposouzeno + legenda s počty. */
+function ComplianceRing({ s }: { s: { score: number; applicable: number; byCompliance: Record<string, number> } }) {
+  const t = useT();
+  const parts = [
+    { k: "compliant", c: STATUS_COLORS.good, l: t("dash.ring.compliant") },
+    { k: "partial", c: STATUS_COLORS.serious, l: t("dash.ring.partial") },
+    { k: "non_compliant", c: STATUS_COLORS.critical, l: t("dash.ring.non") },
+    { k: "not_assessed", c: STATUS_COLORS.neutral, l: t("dash.ring.na") },
+  ];
+  const total = Math.max(1, s.applicable);
+  const R = 52;
+  const C = 2 * Math.PI * R;
+  let off = 0;
+  return (
+    <div className="mt-2 flex items-center gap-5">
+      <svg viewBox="0 0 128 128" className="h-32 w-32 shrink-0 -rotate-90" role="img" aria-label={`${s.score} %`}>
+        <circle cx="64" cy="64" r={R} fill="none" stroke="var(--color-slate-100)" strokeWidth="14" />
+        {parts.map((p) => {
+          const n = s.byCompliance[p.k] ?? 0;
+          if (!n) return null;
+          const len = (n / total) * C;
+          const el = <circle key={p.k} cx="64" cy="64" r={R} fill="none" stroke={p.c} strokeWidth="14" strokeDasharray={`${Math.max(0, len - 2)} ${C}`} strokeDashoffset={-off} />;
+          off += len;
+          return el;
+        })}
+        <text x="64" y="64" transform="rotate(90 64 64)" textAnchor="middle" dominantBaseline="central" className="fill-slate-900 text-[26px] font-semibold tabular-nums">
+          {s.score.toLocaleString(formatLocale())} %
+        </text>
+      </svg>
+      <ul className="min-w-0 space-y-1 text-sm">
+        {parts.map((p) => (
+          <li key={p.k} className="flex items-center gap-2">
+            <span className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: p.c }} aria-hidden />
+            <span className="flex-1 truncate text-slate-600">{p.l}</span>
+            <span className="tabular-nums font-medium text-slate-800">{s.byCompliance[p.k] ?? 0}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -917,6 +1075,18 @@ function SetupBanner() {
   const t = useT();
   const can = useCan();
   const q = useQuery({ queryKey: ["setup"], queryFn: api.setup.get, enabled: can("admin:settings"), staleTime: 5 * 60_000 });
+  // nová instalace (v1.73): dokud správce průvodce nedokončí, nabízí se průvodce prvním nastavením
+  const w = useQuery({ queryKey: ["setup", "wizard"], queryFn: api.setup.wizard, enabled: can("admin:settings"), staleTime: 5 * 60_000 });
+  if (w.data && !w.data.finishedAt && w.data.done < w.data.total)
+    return (
+      <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-brand-200 bg-brand-50 px-5 py-3 text-sm" data-testid="dash-wizard">
+        <span className="font-medium text-brand-900">{t("wiz.banner", { done: w.data.done, total: w.data.total })}</span>
+        <span className="text-brand-800">{t("wiz.bannerHint")}</span>
+        <Link to="/setup-wizard" className="ml-auto font-medium text-brand-700 hover:underline">
+          {t("wiz.bannerOpen")}
+        </Link>
+      </div>
+    );
   if (!q.data || q.data.ready) return null;
   return (
     <div className="mb-6 flex flex-wrap items-center gap-3 rounded-lg border border-brand-200 bg-brand-50 px-5 py-3 text-sm">

@@ -41,6 +41,13 @@ export const OBLIGATION_KINDS = [
   "soc_sla",
   "vuln_remediation",
   "info_assessment",
+  "access_approval",
+  "access_certification",
+  "project_gate",
+  "project_task",
+  "project_change",
+  "guide_step",
+  "nukib_notice",
 ] as const;
 export type ObligationKind = (typeof OBLIGATION_KINDS)[number];
 
@@ -48,6 +55,13 @@ export const OBLIGATION_LABELS: Record<ObligationKind, string> = {
   doc_approval: "Kontrola / schválení dokumentu",
   doc_retention: "Skartace / archivace dokumentu",
   access_review: "Přezkum přístupů",
+  access_approval: "Schválení žádosti o přístup",
+  access_certification: "Recertifikace oprávnění",
+  project_gate: "Brána projektu",
+  project_task: "Úkol v projektu",
+  project_change: "Změna projektu ke schválení",
+  guide_step: "Další krok postupu",
+  nukib_notice: "Ohlášení regulované služby NÚKIB",
   legal_review: "Posouzení změny předpisu",
   legal_task: "Úkol ze změny předpisu",
   exception_expiry: "Konec platnosti výjimky",
@@ -99,7 +113,37 @@ export interface ObligationItem {
   /** Odpovědné funkční místo (pokud je). */
   ownerPositionId: string | null;
   ownerName: string | null;
+  /** Akce proveditelná přímo z fronty Moje práce (v1.37, ADR-134); server ji vždy znovu ověří. */
+  action?: ObligationAction | null;
+  /**
+   * Eskalace v hierarchii (v1.60, ADR-155): položka po termínu odpovědné funkce, kterou vidí nadřízený.
+   * level 1 = vedoucí útvaru, 2 = vedoucí nadřazeného útvaru…; přibývá po týdnu po termínu.
+   */
+  escalation?: ObligationEscalation | null;
+  /** Osoba, které je položka přidělena přímo (úkol bez funkčního místa, v1.62). */
+  assigneeUserId?: string | null;
+  /** Zástupce odpovědné osoby, který položku také vidí (úkoly z nálezů – zástupce technického garanta, v1.62). */
+  deputyUserId?: string | null;
 }
+
+export interface ObligationEscalation {
+  level: number;
+  daysOverdue: number;
+}
+
+/** Celé dny po termínu (0 = v termínu). */
+export function daysOverdue(due: string | null, now = new Date()): number {
+  if (!due) return 0;
+  const d = Date.parse(`${due.slice(0, 10)}T00:00:00Z`);
+  const today = Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00Z`);
+  return Math.max(0, Math.round((today - d) / 86_400_000));
+}
+
+export type ObligationAction =
+  | { type: "access_decide"; requestId: string }
+  | { type: "project_change"; projectId: string; changeId: string }
+  | { type: "project_task_done"; projectId: string; taskId: string }
+  | { type: "task_done"; taskId: string };
 
 export const NotificationSettingsInput = z.object({
   emailEnabled: z.boolean().optional(),

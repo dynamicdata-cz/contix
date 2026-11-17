@@ -1,9 +1,11 @@
+import { useUrlParam } from "@/lib/urlState";
 import { useT } from "@/lib/i18n";
 import { CompanyCell, TargetCompanyField, useGroupView, useTargetCompany } from "@/components/company";
 import { PositionSelect, UnitSelect } from "@/components/pickers";
 import { Badge, Button, Card, criticalityTone, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
+import { BulkBar, RowCheck, useSelection } from "@/components/bulk";
 import { cn, plural, useDebounced } from "@/lib/utils";
 import { LABELS, PROCESS_LABELS, PROCESS_STATUSES, PROCESS_TYPES, type ProcessListItem, type ProcessStatus, type ProcessType } from "@contix/shared";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -41,10 +43,14 @@ export function ProcessesPage() {
   const [q, setQ] = useState("");
   const dq = useDebounced(q);
   const [status, setStatus] = useState("");
+  // útvar z adresy (odkaz z Organizace, v1.76)
+  const [unit, setUnit] = useUrlParam("unit");
   const [view, setView] = useState<"map" | "list">("map");
   const [creating, setCreating] = useState(false);
-  const list = useQuery({ queryKey: ["processes", dq, status], queryFn: () => api.processes.list({ q: dq, status }) });
+  const list = useQuery({ queryKey: ["processes", dq, status, unit], queryFn: () => api.processes.list({ q: dq, status, unit: unit || undefined }) });
   const rows = useMemo(() => treeOrder(list.data ?? []), [list.data]);
+  const selection = useSelection();
+  const canBulk = can("processes:write");
 
   return (
     <>
@@ -61,7 +67,8 @@ export function ProcessesPage() {
       />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Input className="max-w-xs" placeholder={t("prc.hledatNazevNeboKod")} value={q} onChange={(e) => setQ(e.target.value)} />
-        <Select className="w-44" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <UnitSelect className="w-56" value={unit || null} onChange={(v) => setUnit(v ?? "")} emptyLabel={t("org.f.anyUnit")} ariaLabel={t("org.f.unit")} />
+        <Select className="w-44" value={status} onChange={(e) => setStatus(e.target.value)} aria-label={t("prc.vsechnyStavy")}>
           <option value="">{t("prc.vsechnyStavy")}</option>
           {PROCESS_STATUSES.map((s) => (
             <option key={s} value={s}>
@@ -125,6 +132,11 @@ export function ProcessesPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                {canBulk && (
+                  <th className="w-8 pl-5">
+                    <RowCheck checked={rows.length > 0 && rows.every(({ p }) => selection.has(p.id))} onChange={(v) => selection.setAll(rows.map(({ p }) => p.id), v)} label={t("bulk.selectAll")} />
+                  </th>
+                )}
                 <th className="px-5 py-2">{t("prc.proces")}</th>
                 <th className="px-3 py-2">{t("prc.typ")}</th>
                 <th className="px-3 py-2">{t("prc.stav")}</th>
@@ -137,6 +149,11 @@ export function ProcessesPage() {
             <tbody className="divide-y divide-slate-100">
               {rows.map(({ p, depth }) => (
                 <tr key={p.id} className="hover:bg-slate-50">
+                  {canBulk && (
+                    <td className="pl-5">
+                      <RowCheck checked={selection.has(p.id)} onChange={(v) => selection.toggle(p.id, v)} label={t("bulk.selectRow", { name: p.name })} />
+                    </td>
+                  )}
                   <td className="px-5 py-2.5" style={{ paddingLeft: 20 + depth * 20 }}>
                     <Link to="/processes/$processId" params={{ processId: p.id }} className="flex items-center gap-1.5 font-medium text-slate-900 hover:text-brand-700">
                       {depth > 0 && <ChevronRight size={14} className="text-slate-300" />}
@@ -159,6 +176,11 @@ export function ProcessesPage() {
               ))}
             </tbody>
           </table>
+          {canBulk && (
+            <div className="px-3 pb-3">
+              <BulkBar entity="processes" ids={selection.sel} onClear={selection.clear} />
+            </div>
+          )}
         </Card>
       )}
       {creating && <CreateProcessModal onClose={() => setCreating(false)} processes={list.data ?? []} />}

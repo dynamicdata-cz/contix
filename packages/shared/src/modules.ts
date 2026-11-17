@@ -20,11 +20,14 @@ export const MODULES = [
   { key: "aiact", name: "Umělá inteligence (AI Act)", description: "Registr AI systémů, zakázané praktiky, klasifikace rizika, povinnosti zavádějícího subjektu a poskytovatele, FRIA a AI gramotnost", dependsOn: [] },
   { key: "cra", name: "Kybernetická odolnost produktů (CRA)", description: "Produkty s digitálními prvky: kategorie, posouzení shody, požadavky přílohy I, podpůrné období, SBOM a hlášení zranitelností a incidentů podle čl. 14", dependsOn: [] },
   { key: "identity", name: "Identity a přístupy", description: "Kontroly účtů v Active Directory a Entra ID: neaktivní a privilegované účty, rizikové příznaky, MFA", dependsOn: [] },
+  { key: "access", name: "Žádosti o přístup", description: "Evidence osob z personalistiky, katalog oprávnění, žádosti se schválením vedoucím a vlastníkem, přidělená oprávnění a jejich odebrání při odchodu nebo konci platnosti", dependsOn: [] },
+  { key: "projects", name: "Projekty", description: "Projekty s fázemi a branami, povinné dokumenty včetně bezpečnostních požadavků, schválení brány sponzorem", dependsOn: [] },
   { key: "legislation", name: "Legislativa", description: "Sledované předpisy z e-Sbírky a ručně vedené normy: nová znění, rozdíly, posouzení dopadu a úkoly", dependsOn: [] },
   { key: "soc", name: "SOC", description: "Fronta bezpečnostních alertů (Wazuh + ruční), triáž, MITRE ATT&CK, playbooky a AI poradci", dependsOn: ["incidents"] },
   { key: "soc2", name: "Zprávy SOC 2", description: "Zakázka auditora SOC 2: rozsah TSC, popis systému, CUEC a subdodavatelé, matice kritérium → opatření → testy → výjimky, pracovní papíry, PBC a zpráva Type I / II ve Wordu", dependsOn: ["audits", "controls"] },
   { key: "trust", name: "Dotazníky zákazníků a Trust Center", description: "Bezpečnostní dotazníky od zákazníků s AI návrhy odpovědí z dokumentace a opatření, knihovna schválených odpovědí, veřejná stránka důvěry s dokumenty po NDA", dependsOn: ["controls"] },
   { key: "knowledge", name: "Znalostní báze", description: "Vlastní znalostní články (postupy, FAQ, runbooky SOC) – hledání podle významu a podklad pro odpovědi AI", dependsOn: [] },
+  { key: "sectests", name: "Bezpečnostní testy", description: "Katalog testů (porty, TLS, SSH, web, Windows a AD), schválený rozsah cílů, sonda na Kali Linuxu, import výstupů nástrojů, nálezy s AI rozborem", dependsOn: ["assets"] },
   { key: "audits", name: "Audity", description: "Plán a evidence auditů kybernetické bezpečnosti, zjištění a nápravná opatření (§ 16 vyhl. 409)", dependsOn: [] },
 ] as const;
 
@@ -44,6 +47,9 @@ export const MODULE_UPGRADES: { version: string; modules: string[] }[] = [
   { version: "0.97", modules: ["cra"] },
   { version: "1.04", modules: ["trust"] },
   { version: "1.07", modules: ["knowledge"] },
+  { version: "1.26", modules: ["access"] },
+  { version: "1.31", modules: ["projects"] },
+  { version: "1.56", modules: ["sectests"] },
 ];
 
 export type ModuleKey = (typeof MODULES)[number]["key"];

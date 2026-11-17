@@ -1,4 +1,5 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { ProcessGuide } from "@/components/processGuide";
 import { TasksCard } from "@/components/tasks";
 import { CompanyCell, TargetCompanyField, useGroupView, useTargetCompany } from "@/components/company";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, toggle, type Tone } from "@/components/ui";
@@ -78,6 +79,7 @@ export function Soc2Page() {
           )
         }
       />
+      <ProcessGuide id="soc2" />
       <div role="tablist" aria-label={t("soc2.title")} className="mb-4 flex flex-wrap gap-1 border-b border-slate-200">
         {(["engagements", "mapping"] as const).map((x) => (
           <button key={x} role="tab" type="button" aria-selected={tab === x} onClick={() => setTab(x)} className={cn("-mb-px border-b-2 px-3 py-2 text-sm font-medium", tab === x ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800")}>

@@ -2,7 +2,7 @@
  * Provoz – stav systému, zálohy, plánovač, monitoring.
  * ============================================================ */
 
-export const CONTIX_VERSION = "1.24.6";
+export const CONTIX_VERSION = "1.83.0";
 /** Veřejný zdrojový kód (AGPL, ADR-112) – výchozí odkaz, když server nemá CONTIX_SOURCE_URL. */
 export const CONTIX_DEFAULT_SOURCE_URL = "https://github.com/dynamicdata-cz/contix";
 /** Licence CONTIXu (v1.15, ADR-112) – AGPL-3.0: uživatelé přes síť mají nárok na zdrojový kód (čl. 13). */
@@ -24,6 +24,13 @@ export const BACKUP_MAX_AGE_HOURS = 26;
 
 export type OpsLevel = "ok" | "warning" | "error" | "off";
 
+/** Celkový stav pro vedení 0–100 z úrovní ukazatelů (v pořádku 100, pozor 50, vyžaduje rozhodnutí 0); vypnuté se nepočítají (v1.38). */
+export function managementHealthScore(kpis: { level: OpsLevel }[]): number | null {
+  const score: Partial<Record<OpsLevel, number>> = { ok: 100, warning: 50, error: 0 };
+  const v = kpis.map((k) => score[k.level]).filter((x): x is number => x !== undefined);
+  return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : null;
+}
+
 export interface BackupRunDto {
   id: string;
   startedAt: string;
@@ -34,6 +41,16 @@ export interface BackupRunDto {
   encrypted: boolean;
   host: string | null;
   message: string | null;
+  kind: "backup" | "restore_test";
+}
+
+/** Test obnovy zálohy nejméně jednou za čtvrtletí (§ 26 vyhl. 409, SOC 2 A1.3) – v1.48, ADR-145. */
+export const RESTORE_TEST_MAX_DAYS = 92;
+
+export function restoreTestLevel(last: { at: string; ok: boolean } | null, now = new Date()): OpsLevel {
+  if (!last) return "warning";
+  if (!last.ok) return "error";
+  return (now.getTime() - new Date(last.at).getTime()) / 86_400_000 <= RESTORE_TEST_MAX_DAYS ? "ok" : "warning";
 }
 
 export interface OpsCheck {

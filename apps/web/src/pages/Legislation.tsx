@@ -3,6 +3,7 @@ import { askConfirm } from "@/components/ui/overlay";
  * Legislativa (v0.34, EU v0.39): sledované předpisy z e-Sbírky a EUR-Lex a ručně vedené normy, nová znění, rozdíly,
  * posouzení dopadu odpovědnou osobou, dotčené požadavky / opatření / dokumenty a úkoly.
  */
+import { ProcessGuide } from "@/components/processGuide";
 import { FrameworkOptions } from "@/components/frameworkOptions";
 import { useT } from "@/lib/i18n";
 import { AiSuggestPanel } from "@/components/ai";
@@ -70,6 +71,7 @@ export function LegislationPage() {
           )
         }
       />
+      <ProcessGuide id="legislation" />
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Kpi icon={<Scale size={16} />} label={t("leg.kpi.acts")} value={acts.data?.length ?? "–"} note={problems ? t("leg.kpi.attention", { n: problems }) : t("leg.kpi.allOk")} tone={problems ? "amber" : "slate"} onClick={() => setTab("acts")} />
         <Kpi icon={<FileDiff size={16} />} label={t("leg.kpi.reviews")} value={open} note={overdue ? t("leg.kpi.overdue", { n: overdue }) : open ? t("leg.kpi.onTime") : t("leg.kpi.nothing")} tone={overdue ? "red" : open ? "amber" : "slate"} onClick={() => setTab("reviews")} />
@@ -1046,7 +1048,7 @@ function TextSourceSelect({ value, apiConfigured }: { value: "auto" | "opendata"
   return (
     <label className="inline-flex items-center gap-1.5">
       {t("leg.mode.label")}
-      <select className="rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs" value={value} disabled={save.isPending} onChange={(e) => save.mutate(e.target.value as typeof value)}>
+      <select className="ctx-select rounded border border-slate-300 bg-white px-1.5 py-0.5 text-xs" value={value} disabled={save.isPending} onChange={(e) => save.mutate(e.target.value as typeof value)}>
         <option value="auto">{t("leg.mode.auto")}</option>
         <option value="opendata">{t("leg.mode.opendata")}</option>
         <option value="web">{t("leg.mode.web")}</option>

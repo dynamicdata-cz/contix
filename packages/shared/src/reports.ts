@@ -38,6 +38,8 @@ export interface ManagementReport {
   assets: { total: number; red: number; orange: number; green: number; unknown: number } | null;
   continuity: { plans: number; approved: number; testOverdue: number; neverTested: number } | null;
   documents: { title: string; version: number; approvedAt: string | null }[];
+  /** Nálezy ze všech zdrojů a jejich náprava v období (v1.69, ADR-162). */
+  findings?: import("./findings").FindingsRemediationDto | null;
 }
 
 /** Úroveň podle prahů (vyšší = horší). */

@@ -126,18 +126,21 @@ import {
   LEGAL_REVIEW_STATUSES,
   LEGAL_IMPACTS,
   LEGAL_TASK_STATUSES,
+  type SodConflict,
 } from "@contix/shared";
 import { sql } from "drizzle-orm";
 import {
   customType,
   bigint,
   boolean,
+  doublePrecision,
   date,
   serial,
   index,
   real,
   integer,
   jsonb,
+  numeric,
   primaryKey,
   pgEnum,
   pgTable,
@@ -145,6 +148,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  unique,
   uuid,
   varchar,
   type AnyPgColumn,
@@ -405,8 +409,14 @@ export const assets = pgTable(
     location: varchar("location", { length: 255 }),
     /** Volný text (např. z importu), pokud vlastník není uživatel systému. */
     ownerName: varchar("owner_name", { length: 255 }),
-    /** Garant / vlastník aktiva – uživatel CONTIX. */
+    /** Odpovědný útvar (v1.74, ADR-167) – z organizační struktury; `ownerName` zůstává jako starší volný text. */
+    ownerUnitId: uuid("owner_unit_id").references(() => orgUnits.id, { onDelete: "set null" }),
+    /** Business vlastník aktiva – uživatel CONTIX (odpovídá za aktivum, audity, přijetí rizika). */
     ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Technický garant (v1.60, ADR-155) – řeší technické nálezy (zranitelnosti, bezpečnostní testy). */
+    technicalOwnerUserId: uuid("technical_owner_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Zástupce technického garanta. */
+    technicalDeputyUserId: uuid("technical_deputy_user_id").references(() => users.id, { onDelete: "set null" }),
     criticality: criticalityEnum("criticality").notNull().default("medium"),
     confidentiality: smallint("confidentiality"),
     integrity: smallint("integrity"),
@@ -438,6 +448,8 @@ export const assets = pgTable(
     index("assets_health_idx").on(t.healthStatus),
     index("assets_class_idx").on(t.assetClass),
     index("assets_owner_idx").on(t.ownerUserId),
+    index("assets_tech_owner_idx").on(t.technicalOwnerUserId),
+    index("assets_owner_unit_idx").on(t.ownerUnitId),
     index("assets_hostname_idx").on(sql`lower(${t.hostname})`),
     index("assets_serial_idx").on(t.serialNumber),
     index("assets_ip_gin").using("gin", t.ipAddresses),
@@ -446,6 +458,304 @@ export const assets = pgTable(
 );
 
 /** Odkud aktivum známe (1 aktivum : N zdrojů). Klíč pro deduplikaci a synchronizaci. */
+/**
+ * Připojení k cizím systémům (v1.49, ADR-146): instance (např. několik Wazuhů), rozsah společnosti,
+ * mapování skupin agentů na společnosti, nastavení schopností bez tajemství; tajemství šifrovaně (AES-GCM, APP_SECRET).
+ */
+export const connections = pgTable(
+  "connections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: varchar("kind", { length: 30 }).notNull(),
+    name: varchar("name", { length: 120 }).notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    /** null = celá skupina (společnost nově nalezených záznamů podle `groupMap`, jinak kořenová). */
+    companyId: uuid("company_id").references(() => companies.id, { onDelete: "restrict" }),
+    config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
+    secrets: jsonb("secrets").$type<Record<string, string>>().notNull().default({}),
+    /** Skupina agentů (Wazuh) → společnost. */
+    groupMap: jsonb("group_map").$type<{ group: string; companyId: string }[]>().notNull().default([]),
+    /** Provozní stav schopností (poslední synchronizace alertů, výsledky). */
+    state: jsonb("state").$type<Record<string, unknown>>().notNull().default({}),
+    ...timestamps,
+  },
+  (t) => [index("connections_kind_idx").on(t.kind)],
+);
+
+/** Inventář serveru ze sběrače (v1.51, ADR-148): poslední hlášení na server (připojení + identita hostitele). */
+export const hostInventories = pgTable(
+  "host_inventories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => connections.id, { onDelete: "cascade" }),
+    companyId: companyRef(),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    /** machine-id, jinak hostname. */
+    hostKey: varchar("host_key", { length: 255 }).notNull(),
+    hostname: varchar("hostname", { length: 255 }).notNull(),
+    collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull(),
+    findings: jsonb("findings").$type<Record<string, unknown>[]>().notNull().default([]),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("host_inventories_host_uq").on(t.connectionId, t.hostKey), index("host_inventories_asset_idx").on(t.assetId), index("host_inventories_company_idx").on(t.companyId)],
+);
+
+/**
+ * Nálezy serveru ze sběrače s životním cyklem (v1.65, ADR-158): z `evaluateHost` při každém hlášení – nový = otevřený,
+ * chybějící = opravený, přijatý zůstává (po termínu se znovu otevře). Úkoly `host_finding`, výjimky, podněty k riziku.
+ */
+export const hostFindings = pgTable(
+  "host_findings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    inventoryId: uuid("inventory_id")
+      .notNull()
+      .references(() => hostInventories.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    key: varchar("key", { length: 64 }).notNull(),
+    code: varchar("code", { length: 60 }).notNull(),
+    severity: varchar("severity", { length: 10 }).notNull(),
+    subject: varchar("subject", { length: 500 }),
+    status: varchar("status", { length: 20 }).notNull().default("open"),
+    note: text("note"),
+    acceptedById: uuid("accepted_by_id").references(() => users.id, { onDelete: "set null" }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedUntil: date("accepted_until"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    fixedAt: timestamp("fixed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("host_findings_key_uq").on(t.inventoryId, t.key), index("host_findings_asset_idx").on(t.assetId), index("host_findings_company_idx").on(t.companyId, t.status)],
+);
+
+/** Změny mezi inventáři serveru (v1.55): jen když se něco změnilo. */
+export const hostInventoryChanges = pgTable(
+  "host_inventory_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    inventoryId: uuid("inventory_id")
+      .notNull()
+      .references(() => hostInventories.id, { onDelete: "cascade" }),
+    collectedAt: timestamp("collected_at", { withTimezone: true }).notNull(),
+    changes: jsonb("changes").$type<Record<string, unknown>[]>().notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("host_inventory_changes_inv_idx").on(t.inventoryId, t.collectedAt)],
+);
+
+/** Vzhled výstupů společnosti (v1.59, ADR-154): logo, barva, zápatí v PDF / tisku a ve Wordu. */
+export const companyBranding = pgTable("company_branding", {
+  companyId: uuid("company_id")
+    .primaryKey()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  logo: text("logo"),
+  logoWidth: integer("logo_width"),
+  logoHeight: integer("logo_height"),
+  accentColor: varchar("accent_color", { length: 7 }),
+  footerText: varchar("footer_text", { length: 200 }).notNull().default(""),
+  showName: boolean("show_name").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Pravidelné bezpečnostní testy (v1.63, ADR-157): plán sady, další spuštění. */
+export const secTestSchedules = pgTable(
+  "sec_test_schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    scopeId: uuid("scope_id")
+      .notNull()
+      .references(() => secTestScopes.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 200 }).notNull(),
+    testIds: text("test_ids").array().notNull(),
+    targets: text("targets").array().notNull(),
+    ports: integer("ports").array().notNull().default(sql`'{}'::integer[]`),
+    probeId: uuid("probe_id").references(() => connections.id, { onDelete: "set null" }),
+    intervalDays: integer("interval_days").notNull().default(7),
+    autoFollow: boolean("auto_follow").notNull().default(true),
+    autoAi: boolean("auto_ai").notNull().default(false),
+    autoTasks: boolean("auto_tasks").notNull().default(true),
+    enabled: boolean("enabled").notNull().default(true),
+    nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull(),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("sec_test_schedules_next_idx").on(t.enabled, t.nextRunAt)],
+);
+
+/** Údaje pro ohlášení regulované služby NÚKIB (v1.63, ADR-157) – podklad, stav ohlášení a změny k ohlášení. */
+export const regulationRegistrations = pgTable("regulation_registrations", {
+  companyId: uuid("company_id")
+    .primaryKey()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+  /** Datum podání ohlášení na Portálu NÚKIB a číslo podání / jednací. */
+  notifiedAt: date("notified_at"),
+  notifiedRef: varchar("notified_ref", { length: 200 }),
+  /** Snímek údajů v okamžiku posledního ohlášení – z něj se počítají změny k ohlášení. */
+  notifiedSnapshot: jsonb("notified_snapshot").$type<Record<string, unknown>>(),
+  /** Kdy se údaje naposledy liší od ohlášených (počátek lhůty pro ohlášení změny). */
+  changedAt: timestamp("changed_at", { withTimezone: true }),
+  /** Funkční místo odpovědné za ohlášení (v1.65 – sloupec kvůli evidenci použití funkčních míst). */
+  responsiblePositionId: uuid("responsible_position_id").references(() => positions.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Určení regulace (v1.61, ADR-156): sebeidentifikace podle vyhl. 408/2025 – vlastní společnost nebo dodavatel. */
+export const regulationAssessments = pgTable(
+  "regulation_assessments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    subjectKind: varchar("subject_kind", { length: 20 }).notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    ico: varchar("ico", { length: 8 }),
+    staff: integer("staff"),
+    turnoverMCzk: doublePrecision("turnover_m_czk"),
+    balanceMCzk: doublePrecision("balance_m_czk"),
+    eurRate: doublePrecision("eur_rate"),
+    sizeOverride: varchar("size_override", { length: 10 }),
+    size: varchar("size", { length: 10 }),
+    sizeBasis: varchar("size_basis", { length: 10 }).notNull().default("none"),
+    linkedNote: text("linked_note").notNull().default(""),
+    services: jsonb("services").$type<{ code: string; conds: Record<string, boolean> }[]>().notNull().default([]),
+    result: jsonb("result").$type<Record<string, unknown>>().notNull(),
+    regime: varchar("regime", { length: 10 }).notNull(),
+    note: text("note").notNull().default(""),
+    res: jsonb("res").$type<Record<string, unknown>>(),
+    applied: boolean("applied").notNull().default(false),
+    assessedById: uuid("assessed_by_id").references(() => users.id, { onDelete: "set null" }),
+    assessedAt: timestamp("assessed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("regulation_assessments_subject_idx").on(t.subjectKind, t.subjectId, t.assessedAt)],
+);
+
+/* ---------- Bezpečnostní testy (v1.56, ADR-153) ---------- */
+
+/** Schválený rozsah testů: co smí být testováno, kdy a na základě čeho. */
+export const secTestScopes = pgTable(
+  "sec_test_scopes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    name: varchar("name", { length: 200 }).notNull(),
+    targets: text("targets").array().notNull().default(sql`'{}'::text[]`),
+    exclusions: text("exclusions").array().notNull().default(sql`'{}'::text[]`),
+    validFrom: date("valid_from").notNull(),
+    validTo: date("valid_to").notNull(),
+    authorization: text("authorization").notNull(),
+    categories: text("categories").array().notNull().default(sql`'{}'::text[]`),
+    note: text("note"),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    approvedById: uuid("approved_by_id").references(() => users.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index("sec_test_scopes_company_idx").on(t.companyId)],
+);
+
+/** Sada testů (v1.56.1): více testů na stejné cíle, navazující testy a AI po dokončení. */
+export const secTestBatches = pgTable(
+  "sec_test_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    scopeId: uuid("scope_id")
+      .notNull()
+      .references(() => secTestScopes.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 200 }).notNull().default(""),
+    autoFollow: boolean("auto_follow").notNull().default(true),
+    autoAi: boolean("auto_ai").notNull().default(false),
+    /** Po dokončení založit úkoly na odstranění nálezů technickým garantům (v1.60). */
+    autoTasks: boolean("auto_tasks").notNull().default(false),
+    /** Sada vznikla z plánu pravidelných testů (v1.63). */
+    scheduleId: uuid("schedule_id"),
+    requestedById: uuid("requested_by_id").references(() => users.id, { onDelete: "set null" }),
+    summary: jsonb("summary").$type<Record<string, unknown>>(),
+    ...timestamps,
+  },
+  (t) => [index("sec_test_batches_company_idx").on(t.companyId, t.createdAt)],
+);
+
+/** Běh testu: úloha pro sondu, nebo ruční import výstupu. */
+export const secTestRuns = pgTable(
+  "sec_test_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    scopeId: uuid("scope_id")
+      .notNull()
+      .references(() => secTestScopes.id, { onDelete: "cascade" }),
+    batchId: uuid("batch_id").references(() => secTestBatches.id, { onDelete: "cascade" }),
+    /** Navazující test vznikl z tohoto běhu (průzkum portů → SSH, TLS…). */
+    parentRunId: uuid("parent_run_id"),
+    /** Ověření opravy nálezu (v1.63) – opakovaný test po splnění úkolu. */
+    retestFindingId: uuid("retest_finding_id"),
+    testId: varchar("test_id", { length: 40 }).notNull(),
+    targets: text("targets").array().notNull().default(sql`'{}'::text[]`),
+    ports: integer("ports").array().notNull().default(sql`'{}'::integer[]`),
+    source: varchar("source", { length: 10 }).notNull(),
+    /** Sonda: pevně zvolená, nebo ta, která úlohu převzala. */
+    probeId: uuid("probe_id").references(() => connections.id, { onDelete: "set null" }),
+    status: varchar("status", { length: 12 }).notNull().default("queued"),
+    error: text("error"),
+    requestedById: uuid("requested_by_id").references(() => users.id, { onDelete: "set null" }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** Výstupy nástrojů (zkrácené) – důkaz a podklad pro AI. */
+    outputs: jsonb("outputs").$type<Record<string, unknown>[]>().notNull().default([]),
+    facts: jsonb("facts").$type<Record<string, unknown>[]>().notNull().default([]),
+    stats: jsonb("stats").$type<Record<string, number>>().notNull().default({}),
+    warnings: text("warnings").array().notNull().default(sql`'{}'::text[]`),
+    summary: jsonb("summary").$type<Record<string, unknown>>(),
+    ...timestamps,
+  },
+  (t) => [index("sec_test_runs_company_idx").on(t.companyId, t.createdAt), index("sec_test_runs_status_idx").on(t.status)],
+);
+
+/** Nález testu – jeden řádek na (společnost, test, hostitel, port, pravidlo); opakovaný běh ho aktualizuje. */
+export const secTestFindings = pgTable(
+  "sec_test_findings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    key: varchar("key", { length: 64 }).notNull(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => secTestRuns.id, { onDelete: "cascade" }),
+    testId: varchar("test_id", { length: 40 }).notNull(),
+    code: varchar("code", { length: 200 }).notNull(),
+    severity: varchar("severity", { length: 10 }).notNull(),
+    title: varchar("title", { length: 500 }).notNull(),
+    detail: text("detail").notNull().default(""),
+    host: varchar("host", { length: 300 }).notNull(),
+    port: integer("port"),
+    evidence: text("evidence").notNull().default(""),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    /** Opatření, jehož účinnost nález dokládá (v1.63) – ručně, nebo převzaté z AI rozboru. */
+    controlId: uuid("control_id").references((): AnyPgColumn => controls.id, { onDelete: "set null" }),
+    status: varchar("status", { length: 20 }).notNull().default("open"),
+    note: text("note"),
+    /** Přijaté riziko (v1.64): kdo, kdy a do kdy – nález je pak ve Výjimkách a přijatých rizicích. */
+    acceptedById: uuid("accepted_by_id").references(() => users.id, { onDelete: "set null" }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedUntil: date("accepted_until"),
+    advice: jsonb("advice").$type<Record<string, unknown>>(),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    fixedAt: timestamp("fixed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("sec_test_findings_key_uq").on(t.companyId, t.key), index("sec_test_findings_asset_idx").on(t.assetId), index("sec_test_findings_run_idx").on(t.runId)],
+);
+
 export const assetSources = pgTable(
   "asset_sources",
   {
@@ -456,12 +766,14 @@ export const assetSources = pgTable(
     sourceType: sourceTypeEnum("source_type").notNull(),
     /** ID v cizím systému – např. Wazuh agent ID, MAC/IP ze skenu, řádek importu. */
     sourceRef: varchar("source_ref", { length: 255 }).notNull(),
+    /** Připojení, ze kterého záznam pochází (ID agenta je jedinečné jen v rámci jednoho Wazuhu). */
+    connectionId: uuid("connection_id").references(() => connections.id, { onDelete: "cascade" }),
     raw: jsonb("raw").$type<Record<string, unknown>>(),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).notNull().defaultNow(),
     ...timestamps,
   },
   (t) => [
-    uniqueIndex("asset_sources_ref_uq").on(t.sourceType, t.sourceRef),
+    unique("asset_sources_src_uq").on(t.sourceType, t.sourceRef, t.connectionId).nullsNotDistinct(),
     index("asset_sources_asset_idx").on(t.assetId),
   ],
 );
@@ -699,6 +1011,7 @@ export const discoveryRuns = pgTable("discovery_runs", {
   id: uuid("id").primaryKey().defaultRandom(),
     companyId: companyRef(),
   connector: connectorEnum("connector").notNull(),
+  connectionId: uuid("connection_id").references(() => connections.id, { onDelete: "set null" }),
   status: runStatusEnum("status").notNull().default("queued"),
   params: jsonb("params").$type<Record<string, unknown>>().notNull().default({}),
   stats: jsonb("stats").$type<Record<string, number>>().notNull().default({}),
@@ -1379,6 +1692,8 @@ export const suppliers = pgTable("suppliers", {
   notes: text("notes"),
   /** DORA – poskytovatel služeb IKT (ADR-069). */
   dora: jsonb("dora").$type<Partial<DoraProvider>>().notNull().default({}),
+  /** Útvar odpovědný za vztah s dodavatelem (v1.80, ADR-173). */
+  ownerUnitId: uuid("owner_unit_id").references(() => orgUnits.id, { onDelete: "set null" }),
   ...timestamps,
 });
 
@@ -1451,6 +1766,8 @@ export const tasks = pgTable(
     /** Krok playbooku alertu SOC (ADR-060). */
     sourceStep: smallint("source_step"),
     ownerPositionId: uuid("owner_position_id").references(() => positions.id, { onDelete: "set null" }),
+    /** Odpovědná osoba (v1.62) – např. technický garant aktiva; úkol vidí i bez funkčního místa. */
+    assigneeUserId: uuid("assignee_user_id").references(() => users.id, { onDelete: "set null" }),
     dueDate: date("due_date"),
     priority: varchar("priority", { length: 10 }).notNull().default("medium"),
     status: varchar("status", { length: 20 }).notNull().default("open"),
@@ -2025,6 +2342,8 @@ export const auditFindings = pgTable("audit_findings", {
   controlId: uuid("control_id").references(() => controls.id, { onDelete: "set null" }),
   /** Výjimka zprávy SOC 2 zjištěná testem opatření (ADR-091). */
   controlTestId: uuid("control_test_id").references((): AnyPgColumn => controlTests.id, { onDelete: "set null" }),
+  /** Aktivum, kterého se zjištění týká (v1.60) – výchozím odpovědným je business vlastník aktiva. */
+  assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
   ...timestamps,
 });
 
@@ -2089,6 +2408,8 @@ export const policies = pgTable(
     ownerPositionId: uuid("owner_position_id").references(() => positions.id, { onDelete: "set null" }),
     reviewerPositionId: uuid("reviewer_position_id").references(() => positions.id, { onDelete: "set null" }),
     approverPositionId: uuid("approver_position_id").references(() => positions.id, { onDelete: "set null" }),
+    /** Útvar, kterému dokument patří (v1.80, ADR-173). */
+    ownerUnitId: uuid("owner_unit_id").references(() => orgUnits.id, { onDelete: "set null" }),
     ackDueDays: smallint("ack_due_days").notNull().default(14),
     retrainOnNewVersion: boolean("retrain_on_new_version").notNull().default(false),
     quizPassPct: smallint("quiz_pass_pct").notNull().default(80),
@@ -2321,6 +2642,8 @@ export const assessmentCycles = pgTable(
     periodTo: date("period_to"),
     dueDate: date("due_date"),
     leaderPositionId: uuid("leader_position_id").references(() => positions.id, { onDelete: "set null" }),
+    /** Tým hodnocení – funkční místa (v1.76, ADR-169); `team` zůstává jako poznámka / další členové. */
+    teamPositionIds: uuid("team_position_ids").array().notNull().default(sql`'{}'::uuid[]`),
     team: text("team"),
     scope: text("scope"),
     /** Metodika rizik v okamžiku zahájení. */
@@ -2367,6 +2690,8 @@ export const alertSuggestions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     companyId: companyRef(),
     source: varchar("source", { length: 20 }).notNull().default("wazuh"),
+    /** Wazuh, ze kterého alert přišel (v1.49) – agent a reakce se hledají v něm. */
+    connectionId: uuid("connection_id").references(() => connections.id, { onDelete: "set null" }),
     /** Seskupení: pravidlo + agent. */
     groupKey: varchar("group_key", { length: 200 }).notNull(),
     ruleId: varchar("rule_id", { length: 50 }).notNull(),
@@ -2810,6 +3135,8 @@ export const backupRuns = pgTable(
     encrypted: boolean("encrypted").notNull().default(false),
     host: varchar("host", { length: 200 }),
     message: text("message"),
+    /** backup = záloha, restore_test = test obnovy do dočasné databáze (v1.48, ADR-145). */
+    kind: varchar("kind", { length: 20 }).notNull().default("backup"),
   },
   (t) => [index("backup_runs_started_idx").on(t.startedAt)],
 );
@@ -3203,6 +3530,8 @@ export const craProducts = pgTable(
     requirements: jsonb("requirements").$type<Record<string, unknown>>().notNull().default({}),
     /** Dovozce / distributor: ověření dokladů výrobce { klíč: { status, note, url, at, byName } } (v1.16). */
     supplyChecks: jsonb("supply_checks").$type<Record<string, unknown>>().notNull().default({}),
+    /** Doplňující údaje pro prohlášení o shodě a informace pro uživatele (v1.30, ADR-127). */
+    docInfo: jsonb("doc_info").$type<Record<string, unknown>>().notNull().default({}),
     ...timestamps,
   },
   (t) => [index("cra_products_company_idx").on(t.companyId)],
@@ -3227,6 +3556,45 @@ export const capabilityDeclarations = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.companyId, t.key] })],
+);
+
+/** Mapa / půdorys (v1.25, ADR-122): originál souboru a obrázek pro zobrazení (PDF/DXF/DWG převedené převodní službou). */
+export const siteMaps = pgTable(
+  "site_maps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    name: varchar("name", { length: 200 }).notNull(),
+    site: varchar("site", { length: 200 }),
+    building: varchar("building", { length: 200 }),
+    floor: varchar("floor", { length: 100 }),
+    fileName: varchar("file_name", { length: 255 }).notNull(),
+    fileMime: varchar("file_mime", { length: 100 }).notNull(),
+    fileSha256: varchar("file_sha256", { length: 64 }).notNull(),
+    original: bytea("original").notNull(),
+    image: bytea("image").notNull(),
+    imageMime: varchar("image_mime", { length: 50 }).notNull(),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("site_maps_company_idx").on(t.companyId)],
+);
+
+/** Umístění aktiva na mapě – souřadnice 0–1 vůči obrázku (v1.25, ADR-122). */
+export const mapPlacements = pgTable(
+  "map_placements",
+  {
+    mapId: uuid("map_id")
+      .notNull()
+      .references(() => siteMaps.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    x: real("x").notNull(),
+    y: real("y").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.mapId, t.assetId] }), index("map_placements_asset_idx").on(t.assetId)],
 );
 
 /** Ochota riskovat po kategoriích (v1.23, ADR-120). */
@@ -4382,4 +4750,656 @@ export const savedViews = pgTable(
     ...timestamps,
   },
   (t) => [uniqueIndex("saved_views_uq").on(t.userId, t.page, t.name), index("saved_views_page_idx").on(t.page)],
+);
+
+/* ================================================================
+ * Žádosti o přístup (v1.26, ADR-123)
+ * ================================================================ */
+
+/** Osoba z personální evidence (zaměstnanec, externista) – nemusí mít účet v CONTIXu. */
+export const iamPeople = pgTable(
+  "iam_people",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    personalNumber: varchar("personal_number", { length: 50 }),
+    firstName: varchar("first_name", { length: 100 }).notNull(),
+    lastName: varchar("last_name", { length: 100 }).notNull(),
+    email: varchar("email", { length: 320 }),
+    login: varchar("login", { length: 200 }),
+    department: varchar("department", { length: 200 }),
+    jobTitle: varchar("job_title", { length: 200 }),
+    kind: varchar("kind", { length: 20 }).notNull().default("employee"),
+    managerId: uuid("manager_id").references((): AnyPgColumn => iamPeople.id, { onDelete: "set null" }),
+    startDate: date("start_date"),
+    endDate: date("end_date"),
+    /** manual | import */
+    source: varchar("source", { length: 20 }).notNull().default("manual"),
+    ...timestamps,
+  },
+  (t) => [
+    uniqueIndex("iam_people_number_uq").on(t.companyId, t.personalNumber),
+    index("iam_people_email_idx").on(sql`lower(${t.email})`),
+    index("iam_people_manager_idx").on(t.managerId),
+  ],
+);
+
+/** Oprávnění, o které lze žádat (skupina AD, aplikace, role, fyzický přístup). */
+export const iamResources = pgTable(
+  "iam_resources",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    name: varchar("name", { length: 200 }).notNull(),
+    kind: varchar("kind", { length: 20 }).notNull().default("application"),
+    description: text("description"),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    adGroup: varchar("ad_group", { length: 500 }),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    approvalManager: boolean("approval_manager").notNull().default(true),
+    approvalOwner: boolean("approval_owner").notNull().default(true),
+    maxDays: integer("max_days"),
+    privileged: boolean("privileged").notNull().default(false),
+    active: boolean("active").notNull().default(true),
+    /** Skupina v AD ještě neexistuje – CONTIX ji vytvoří (skript / zápis), pak se příznak smaže (v1.33). */
+    adCreate: boolean("ad_create").notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("iam_resources_name_uq").on(t.companyId, sql`lower(${t.name})`)],
+);
+
+export const iamRequests = pgTable(
+  "iam_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => iamPeople.id, { onDelete: "cascade" }),
+    resourceId: uuid("resource_id")
+      .notNull()
+      .references(() => iamResources.id, { onDelete: "cascade" }),
+    action: varchar("action", { length: 10 }).notNull().default("grant"),
+    origin: varchar("origin", { length: 20 }).notNull().default("request"),
+    justification: text("justification").notNull(),
+    validUntil: date("valid_until"),
+    status: varchar("status", { length: 20 }).notNull().default("pending"),
+    requestedById: uuid("requested_by_id").references(() => users.id, { onDelete: "set null" }),
+    fulfilledById: uuid("fulfilled_by_id").references(() => users.id, { onDelete: "set null" }),
+    fulfilledAt: timestamp("fulfilled_at", { withTimezone: true }),
+    fulfilNote: text("fulfil_note"),
+    /** Toxické kombinace (SoD), které přidělení způsobí – zjištěno při založení žádosti (v1.34). */
+    sodConflicts: jsonb("sod_conflicts").$type<SodConflict[]>().notNull().default(sql`'[]'::jsonb`),
+    ...timestamps,
+  },
+  (t) => [index("iam_requests_status_idx").on(t.companyId, t.status), index("iam_requests_person_idx").on(t.personId)],
+);
+
+export const iamApprovals = pgTable(
+  "iam_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => iamRequests.id, { onDelete: "cascade" }),
+    step: integer("step").notNull(),
+    kind: varchar("kind", { length: 20 }).notNull(),
+    /** Určený schvalovatel; null = kdokoli s oprávněním access:manage ve společnosti. */
+    approverId: uuid("approver_id").references(() => users.id, { onDelete: "set null" }),
+    decision: varchar("decision", { length: 20 }),
+    comment: text("comment"),
+    decidedById: uuid("decided_by_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("iam_approvals_step_uq").on(t.requestId, t.step), index("iam_approvals_approver_idx").on(t.approverId)],
+);
+
+/** Přidělené oprávnění (evidence v CONTIXu); revokedAt = odebráno. */
+export const iamGrants = pgTable(
+  "iam_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => iamPeople.id, { onDelete: "cascade" }),
+    resourceId: uuid("resource_id")
+      .notNull()
+      .references(() => iamResources.id, { onDelete: "cascade" }),
+    since: date("since").notNull(),
+    validUntil: date("valid_until"),
+    requestId: uuid("request_id").references(() => iamRequests.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokeRequestId: uuid("revoke_request_id").references(() => iamRequests.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("iam_grants_active_uq").on(t.personId, t.resourceId).where(sql`${t.revokedAt} is null`), index("iam_grants_resource_idx").on(t.resourceId)],
+);
+
+/** Automatický import osob ze souboru v adresáři ACCESS_IMPORT_DIR (v1.27, ADR-124). */
+export const iamImportSettings = pgTable("iam_import_settings", {
+  companyId: uuid("company_id")
+    .primaryKey()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  fileName: varchar("file_name", { length: 200 }).notNull().default(""),
+  /** Osoby z dřívějšího importu, které v souboru chybí, označit jako odešlé (export obsahuje jen aktivní zaměstnance). */
+  missingAsLeft: boolean("missing_as_left").notNull().default(false),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  lastSha256: varchar("last_sha256", { length: 64 }),
+  lastResult: jsonb("last_result").$type<{ create: number; update: number; skip: number; errors: number; leavers: number; missing: number } | null>(),
+  lastError: text("last_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Recertifikace (pravidelný přezkum) přidělených oprávnění (v1.27, ADR-124). */
+export const iamCertifications = pgTable(
+  "iam_certifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    name: varchar("name", { length: 200 }).notNull(),
+    /** owner = vlastník oprávnění, manager = nadřízený osoby */
+    reviewer: varchar("reviewer", { length: 20 }).notNull().default("owner"),
+    resourceId: uuid("resource_id").references(() => iamResources.id, { onDelete: "set null" }),
+    privilegedOnly: boolean("privileged_only").notNull().default(false),
+    dueDate: date("due_date").notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("open"),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index("iam_certifications_company_idx").on(t.companyId, t.status)],
+);
+
+export const iamCertificationItems = pgTable(
+  "iam_certification_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    certificationId: uuid("certification_id")
+      .notNull()
+      .references(() => iamCertifications.id, { onDelete: "cascade" }),
+    grantId: uuid("grant_id")
+      .notNull()
+      .references(() => iamGrants.id, { onDelete: "cascade" }),
+    /** Určený posuzovatel; null = kdokoli s access:manage. */
+    reviewerId: uuid("reviewer_id").references(() => users.id, { onDelete: "set null" }),
+    decision: varchar("decision", { length: 20 }),
+    comment: text("comment"),
+    decidedById: uuid("decided_by_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    revokeRequestId: uuid("revoke_request_id").references(() => iamRequests.id, { onDelete: "set null" }),
+  },
+  (t) => [uniqueIndex("iam_cert_items_uq").on(t.certificationId, t.grantId), index("iam_cert_items_reviewer_idx").on(t.reviewerId)],
+);
+
+/** Nastavení zápisu členství skupin do AD (v1.29, ADR-126) – oddělený zapisovací účet, povolená OU, limit. */
+export const iamProvisioning = pgTable("iam_provisioning", {
+  companyId: uuid("company_id")
+    .primaryKey()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  mode: varchar("mode", { length: 20 }).notNull().default("off"),
+  sourceId: uuid("source_id").references(() => identitySources.id, { onDelete: "set null" }),
+  bindDn: varchar("bind_dn", { length: 500 }).notNull().default(""),
+  secretEnc: text("secret_enc"),
+  allowedOu: varchar("allowed_ou", { length: 500 }).notNull().default(""),
+  dailyLimit: integer("daily_limit").notNull().default(50),
+  extraForbidden: text("extra_forbidden").array().notNull().default(sql`'{}'::text[]`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Záznam každého zápisu do AD (i neúspěšného). */
+export const iamProvisioningLog = pgTable(
+  "iam_provisioning_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    requestId: uuid("request_id").references(() => iamRequests.id, { onDelete: "set null" }),
+    action: varchar("action", { length: 10 }).notNull(),
+    groupDn: text("group_dn").notNull(),
+    member: text("member").notNull(),
+    ok: boolean("ok").notNull(),
+    message: text("message"),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("iam_prov_log_company_idx").on(t.companyId, t.createdAt)],
+);
+
+/* ================================================================
+ * Projekty s fázemi a branami (v1.31, ADR-128)
+ * ================================================================ */
+
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    code: varchar("code", { length: 50 }),
+    name: varchar("name", { length: 300 }).notNull(),
+    description: text("description"),
+    templateKey: varchar("template_key", { length: 60 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("active"),
+    managerId: uuid("manager_id").references(() => users.id, { onDelete: "set null" }),
+    sponsorId: uuid("sponsor_id").references(() => users.id, { onDelete: "set null" }),
+    startDate: date("start_date"),
+    endDate: date("end_date"),
+    /** Rozpočet projektu v Kč (v1.32); null = nesleduje se. */
+    budget: numeric("budget", { precision: 14, scale: 2 }),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("projects_company_idx").on(t.companyId, t.status)],
+);
+
+export const projectPhases = pgTable(
+  "project_phases",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    order: integer("order").notNull(),
+    name: varchar("name", { length: 200 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull().default("planned"),
+    /** Harmonogram (v1.32): plánovaný začátek fáze. */
+    plannedStart: date("planned_start"),
+    plannedEnd: date("planned_end"),
+    approvedById: uuid("approved_by_id").references(() => users.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    gateComment: text("gate_comment"),
+  },
+  (t) => [uniqueIndex("project_phases_order_uq").on(t.projectId, t.order)],
+);
+
+export const projectDocs = pgTable(
+  "project_docs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    phaseId: uuid("phase_id")
+      .notNull()
+      .references(() => projectPhases.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 300 }).notNull(),
+    required: boolean("required").notNull().default(true),
+    security: boolean("security").notNull().default(false),
+    status: varchar("status", { length: 20 }).notNull().default("missing"),
+    note: text("note"),
+    url: text("url"),
+    fileName: varchar("file_name", { length: 300 }),
+    fileMime: varchar("file_mime", { length: 200 }),
+    fileSize: integer("file_size"),
+    fileSha256: varchar("file_sha256", { length: 64 }),
+    content: bytea("content"),
+    submittedById: uuid("submitted_by_id").references(() => users.id, { onDelete: "set null" }),
+    updatedById: uuid("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }),
+  },
+  (t) => [index("project_docs_phase_idx").on(t.phaseId)],
+);
+
+/** Náklady projektu (v1.32, ADR-129). */
+export const projectCosts = pgTable(
+  "project_costs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    phaseId: uuid("phase_id").references(() => projectPhases.id, { onDelete: "set null" }),
+    date: date("date").notNull(),
+    description: varchar("description", { length: 500 }).notNull(),
+    amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+    supplierId: uuid("supplier_id").references(() => suppliers.id, { onDelete: "set null" }),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("project_costs_project_idx").on(t.projectId)],
+);
+
+/** Vlastní šablony projektů organizace (v1.32, ADR-129) – fáze a dokumenty ve stejném tvaru jako vestavěné. */
+export const projectTemplates = pgTable("project_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyId: companyRef(),
+  name: varchar("name", { length: 200 }).notNull(),
+  phases: jsonb("phases").$type<{ name: string; docs: { name: string; required: boolean; security?: boolean }[] }[]>().notNull(),
+  active: boolean("active").notNull().default(true),
+  createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+  ...timestamps,
+});
+
+/** Vazby projektu na aktiva, rizika, dodavatele a procesy (v1.32). */
+const projectLink = <N extends string>(name: N, col: string, target: () => any) =>
+  pgTable(
+    name,
+    {
+      projectId: uuid("project_id")
+        .notNull()
+        .references(() => projects.id, { onDelete: "cascade" }),
+      targetId: uuid(col)
+        .notNull()
+        .references(target, { onDelete: "cascade" }),
+    },
+    (t) => [primaryKey({ columns: [t.projectId, t.targetId] }), index(`${name}_target_idx`).on(t.targetId)],
+  );
+export const projectAssets = projectLink("project_assets", "asset_id", () => assets.id);
+export const projectRisks = projectLink("project_risks", "risk_id", () => risks.id);
+export const projectSuppliers = projectLink("project_suppliers", "supplier_id", () => suppliers.id);
+export const projectProcesses = projectLink("project_processes", "process_id", () => processes.id);
+
+/* ---- Projekty III (v1.35, ADR-132): tým, úkoly, milníky, rizika a problémy, stav, změny, poučení ---- */
+const projectRef = () =>
+  uuid("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" });
+
+export const projectMembers = pgTable(
+  "project_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: projectRef(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 100 }).notNull(),
+    raci: varchar("raci", { length: 1 }).notNull().default("R"),
+  },
+  (t) => [uniqueIndex("project_members_uq").on(t.projectId, t.userId), index("project_members_user_idx").on(t.userId)],
+);
+
+export const projectTasks = pgTable(
+  "project_tasks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: projectRef(),
+    phaseId: uuid("phase_id").references(() => projectPhases.id, { onDelete: "set null" }),
+    title: varchar("title", { length: 300 }).notNull(),
+    description: text("description"),
+    assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
+    dueDate: date("due_date"),
+    priority: varchar("priority", { length: 10 }).notNull().default("medium"),
+    status: varchar("status", { length: 10 }).notNull().default("todo"),
+    order: integer("order").notNull().default(0),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("project_tasks_project_idx").on(t.projectId, t.status), index("project_tasks_assignee_idx").on(t.assigneeId)],
+);
+
+export const projectMilestones = pgTable(
+  "project_milestones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: projectRef(),
+    phaseId: uuid("phase_id").references(() => projectPhases.id, { onDelete: "set null" }),
+    name: varchar("name", { length: 200 }).notNull(),
+    dueDate: date("due_date").notNull(),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+  },
+  (t) => [index("project_milestones_project_idx").on(t.projectId)],
+);
+
+export const projectIssues = pgTable(
+  "project_issues",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: projectRef(),
+    kind: varchar("kind", { length: 10 }).notNull().default("risk"),
+    title: varchar("title", { length: 300 }).notNull(),
+    description: text("description"),
+    probability: varchar("probability", { length: 10 }),
+    impact: varchar("impact", { length: 10 }).notNull().default("medium"),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    status: varchar("status", { length: 12 }).notNull().default("open"),
+    response: text("response"),
+    dueDate: date("due_date"),
+    ...timestamps,
+  },
+  (t) => [index("project_issues_project_idx").on(t.projectId, t.status)],
+);
+
+export const projectStatusReports = pgTable(
+  "project_status_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: projectRef(),
+    date: date("date").notNull(),
+    overall: varchar("overall", { length: 6 }).notNull(),
+    schedule: varchar("schedule", { length: 6 }).notNull(),
+    budget: varchar("budget", { length: 6 }).notNull(),
+    scope: varchar("scope", { length: 6 }).notNull(),
+    summary: text("summary").notNull(),
+    achievements: text("achievements"),
+    nextSteps: text("next_steps"),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("project_reports_project_idx").on(t.projectId, t.date)],
+);
+
+export const projectChanges = pgTable(
+  "project_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: projectRef(),
+    number: integer("number").notNull(),
+    title: varchar("title", { length: 300 }).notNull(),
+    description: text("description").notNull(),
+    newEndDate: date("new_end_date"),
+    oldEndDate: date("old_end_date"),
+    budgetDelta: numeric("budget_delta", { precision: 14, scale: 2 }),
+    scope: text("scope"),
+    status: varchar("status", { length: 12 }).notNull().default("submitted"),
+    requestedById: uuid("requested_by_id").references(() => users.id, { onDelete: "set null" }),
+    decidedById: uuid("decided_by_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    comment: text("comment"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("project_changes_number_uq").on(t.projectId, t.number)],
+);
+
+export const projectLessons = pgTable(
+  "project_lessons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: projectRef(),
+    kind: varchar("kind", { length: 10 }).notNull(),
+    text: text("text").notNull(),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("project_lessons_project_idx").on(t.projectId)],
+);
+
+/** Skupiny AD z posledního načtení zdroje identit (v1.33, ADR-130) – katalog oprávnění a výběr OU. */
+export const identityGroups = pgTable(
+  "identity_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => identitySources.id, { onDelete: "cascade" }),
+    companyId: companyRef(),
+    dn: text("dn").notNull(),
+    cn: varchar("cn", { length: 300 }).notNull(),
+    description: text("description"),
+    privileged: boolean("privileged").notNull().default(false),
+    protectedGroup: boolean("protected_group").notNull().default(false),
+    members: integer("members").notNull().default(0),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("identity_groups_dn_uq").on(t.sourceId, sql`lower(${t.dn})`), index("identity_groups_company_idx").on(t.companyId)],
+);
+
+/* ================================================================
+ * IDM – business role (v1.34, ADR-131)
+ * ================================================================ */
+
+/** Business role = balíček oprávnění; přiřazení osobám podle útvaru / funkce (bez kritérií jen balíček k žádosti). */
+export const iamRoles = pgTable(
+  "iam_roles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    name: varchar("name", { length: 200 }).notNull(),
+    description: text("description"),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    department: varchar("department", { length: 200 }),
+    jobTitle: varchar("job_title", { length: 200 }),
+    active: boolean("active").notNull().default(true),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("iam_roles_name_uq").on(t.companyId, sql`lower(${t.name})`)],
+);
+
+export const iamRoleResources = pgTable(
+  "iam_role_resources",
+  {
+    roleId: uuid("role_id")
+      .notNull()
+      .references(() => iamRoles.id, { onDelete: "cascade" }),
+    resourceId: uuid("resource_id")
+      .notNull()
+      .references(() => iamResources.id, { onDelete: "cascade" }),
+  },
+  (t) => [uniqueIndex("iam_role_resources_uq").on(t.roleId, t.resourceId), index("iam_role_resources_res_idx").on(t.resourceId)],
+);
+
+/* ================================================================
+ * Modelování hrozeb podle reality prostředí (v1.40, ADR-137)
+ * ================================================================ */
+
+/** Profil hrozeb společnosti: odvětví a ruční rozhodnutí o relevanci aktérů (se zdůvodněním). */
+export const threatProfiles = pgTable("threat_profiles", {
+  companyId: uuid("company_id")
+    .primaryKey()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  sector: varchar("sector", { length: 40 }),
+  overrides: jsonb("overrides").$type<Record<string, { relevant: boolean; reason: string }>>().notNull().default({}),
+  updatedById: uuid("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Rozhodnutí o útočné cestě (klíč vstup>cíl): založené riziko, nebo akceptace se zdůvodněním. */
+export const attackPathDecisions = pgTable(
+  "attack_path_decisions",
+  {
+    companyId: companyRef(),
+    pathKey: varchar("path_key", { length: 200 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull(),
+    riskId: uuid("risk_id").references(() => risks.id, { onDelete: "set null" }),
+    reason: text("reason"),
+    decidedById: uuid("decided_by_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.companyId, t.pathKey] })],
+);
+
+/** Threat model (STRIDE) aplikace, procesu, projektu nebo aktiva: prvky, toky, hrozby a rozhodnutí. */
+export const threatModels = pgTable(
+  "threat_models",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    name: varchar("name", { length: 300 }).notNull(),
+    scope: varchar("scope", { length: 20 }).notNull().default("application"),
+    scopeId: uuid("scope_id"),
+    description: text("description"),
+    status: varchar("status", { length: 20 }).notNull().default("draft"),
+    elements: jsonb("elements").$type<unknown[]>().notNull().default([]),
+    threats: jsonb("threats").$type<unknown[]>().notNull().default([]),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("threat_models_company_idx").on(t.companyId)],
+);
+
+/** Garant postupu krok za krokem (v1.44, ADR-141): funkční místo, které dostává další krok průvodce do Moje práce. */
+export const guideOwners = pgTable(
+  "guide_owners",
+  {
+    companyId: companyRef(),
+    guideId: varchar("guide_id", { length: 40 }).notNull(),
+    positionId: uuid("position_id")
+      .notNull()
+      .references(() => positions.id, { onDelete: "cascade" }),
+    updatedById: uuid("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.companyId, t.guideId] })],
+);
+
+/* ================================================================
+ * Společné štítky (v1.52, ADR-149): katalog a přiřazení k záznamům různých evidencí.
+ * Aktiva mají štítky dál jako text (assets.tags) – katalog je s nimi propojen názvem.
+ * ================================================================ */
+export const tags = pgTable(
+  "tags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 60 }).notNull(),
+    color: varchar("color", { length: 20 }).notNull().default("slate"),
+    description: text("description"),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("tags_name_uq").on(sql`lower(${t.name})`)],
+);
+
+export const objectTags = pgTable(
+  "object_tags",
+  {
+    tagId: uuid("tag_id")
+      .notNull()
+      .references(() => tags.id, { onDelete: "cascade" }),
+    entityType: varchar("entity_type", { length: 30 }).notNull(),
+    entityId: uuid("entity_id").notNull(),
+    companyId: companyRef(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.tagId, t.entityType, t.entityId] }), index("object_tags_entity_idx").on(t.entityType, t.entityId)],
+);
+
+/* ================================================================
+ * Umístění dat (v1.52, ADR-149): kde se data zpracovávají (hosting, cloud, SaaS), země a pravidla k ní.
+ * ================================================================ */
+export const dataLocations = pgTable(
+  "data_locations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    name: varchar("name", { length: 200 }).notNull(),
+    supplierId: uuid("supplier_id").references(() => suppliers.id, { onDelete: "set null" }),
+    provider: varchar("provider", { length: 200 }),
+    country: varchar("country", { length: 2 }).notNull(),
+    region: varchar("region", { length: 100 }),
+    dataCategories: text("data_categories").array().notNull().default(sql`'{}'::text[]`),
+    transferMechanism: varchar("transfer_mechanism", { length: 20 }),
+    dpaSigned: boolean("dpa_signed").notNull().default(false),
+    note: text("note"),
+    ...timestamps,
+  },
+  (t) => [index("data_locations_company_idx").on(t.companyId)],
+);
+
+/** Issue v cizím systému (JIRA) k záznamu CONTIXu (v1.53, ADR-150). */
+export const externalIssues = pgTable(
+  "external_issues",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => connections.id, { onDelete: "cascade" }),
+    companyId: companyRef(),
+    entityType: varchar("entity_type", { length: 30 }).notNull(),
+    entityId: uuid("entity_id").notNull(),
+    issueKey: varchar("issue_key", { length: 60 }).notNull(),
+    issueUrl: varchar("issue_url", { length: 1000 }).notNull(),
+    status: varchar("status", { length: 100 }),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("external_issues_entity_uq").on(t.connectionId, t.entityType, t.entityId), index("external_issues_entity_idx").on(t.entityType, t.entityId)],
 );

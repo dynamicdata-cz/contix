@@ -53,7 +53,7 @@ export function HealthIndicator({
   const Icon = HEALTH_ICON[status];
   const title = [lbl(VULN_LABELS.health[status]), ...(reasons ?? []).map((r) => `• ${r.text}`)].join("\n");
   return (
-    <span className="inline-flex items-center gap-1.5" title={title} aria-label={title}>
+    <span className="inline-flex items-center gap-1.5" title={title} role="img" aria-label={title}>
       <Icon size={size} color={HEALTH_COLOR[status]} strokeWidth={2.25} aria-hidden />
       {withLabel && <span className="text-sm font-medium text-slate-800">{lbl(VULN_LABELS.health[status])}</span>}
     </span>

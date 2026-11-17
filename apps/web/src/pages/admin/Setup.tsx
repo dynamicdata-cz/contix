@@ -46,6 +46,9 @@ export function AdminSetupPage() {
                 <div className="h-full rounded-full bg-emerald-500" style={{ width: `${d.total ? (d.done / d.total) * 100 : 0}%` }} />
               </div>
               <p className="mt-2 text-sm text-slate-600">{d.ready ? t("set.organizaceJePripravenaKPredani") : t("set.projdeteKrokyShoraDoluOdkaz")}</p>
+              <Link to="/setup-wizard" className="mt-2 inline-block text-sm font-medium text-brand-700 hover:underline" data-testid="setup-wizard-link">
+                {t("wiz.openFromChecklist")} →
+              </Link>
             </div>
             <div className="flex flex-col gap-2">
               <div className="text-xs font-medium text-slate-600">{t("set.predavaciProtokol")}</div>

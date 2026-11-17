@@ -13,7 +13,7 @@ export const TASK_PRIORITIES = ["low", "medium", "high"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
 /** Druh záznamu, ke kterému je úkol navázán (null = samostatný úkol). */
-export const TASK_SOURCES = ["incident", "supplier", "change", "control", "asset", "process", "risk", "policy", "audit", "processing", "isms_review", "soc_alert", "exercise", "info_item", "ai_system", "cra_product", "soc2"] as const;
+export const TASK_SOURCES = ["incident", "supplier", "change", "control", "asset", "process", "risk", "policy", "audit", "processing", "isms_review", "soc_alert", "exercise", "info_item", "ai_system", "cra_product", "soc2", "project", "sectest_finding", "host_finding"] as const;
 export type TaskSource = (typeof TASK_SOURCES)[number];
 
 /** Druhy akcí v jednotném přehledu. */
@@ -42,6 +42,9 @@ export const TASK_LABELS = {
     ai_system: "AI systém",
     cra_product: "Produkt (CRA)",
     soc2: "Zakázka SOC 2",
+    project: "Projekt",
+    sectest_finding: "Nález bezpečnostního testu",
+    host_finding: "Nález konfigurace serveru",
   } satisfies Record<TaskSource, string>,
 } as const;
 
@@ -66,6 +69,9 @@ export function taskSourceLink(kind: TaskSource | null, id: string | null): stri
     ai_system: `/aiact/${id}`,
     cra_product: `/cra/${id}`,
     soc2: `/soc2/${id}`,
+    project: `/projects/${id}`,
+    sectest_finding: `/security-tests?finding=${id}`,
+    host_finding: `/findings?source=host&focus=${id}`,
   };
   return map[kind];
 }
@@ -101,6 +107,9 @@ export interface TaskDto {
   sourceLink: string | null;
   ownerPositionId: string | null;
   ownerName: string | null;
+  /** Odpovědná osoba (v1.62) – úkoly z nálezů jdou přímo technickému garantovi aktiva. */
+  assigneeUserId: string | null;
+  assigneeName: string | null;
   dueDate: string | null;
   priority: TaskPriority;
   status: TaskStatus;
@@ -125,6 +134,8 @@ export interface ActionItem {
   link: string;
   ownerPositionId: string | null;
   ownerName: string | null;
+  /** Odpovědná osoba úkolu (v1.62), když je přidělen přímo uživateli. */
+  assigneeUserId?: string | null;
   dueDate: string | null;
   status: TaskStatus;
   priority: TaskPriority | null;

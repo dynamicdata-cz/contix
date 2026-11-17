@@ -1,20 +1,21 @@
-import { OrgUnitInput, OrgUnitPatch, PositionInput, PositionPatch, type OrgUnitDto, type PositionDto } from "@contix/shared";
+import { OrgUnitInput, OrgUnitPatch, PositionInput, PositionPatch, type OrgUnitDto, type OrgUnitOverviewDto, type Permission, type PositionDto } from "@contix/shared";
+import { unitPositionsSql, unitSubtreeSql } from "./hierarchy";
 import { zValidator } from "@hono/zod-validator";
-import { asc, count, eq, inArray, sql } from "drizzle-orm";
+import { asc, count, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { currentUser, requireModule, requirePerm } from "../../auth/middleware";
-import { audit, type AppEnv } from "../../auth/service";
-import { assertScope, getCompanies, scopeOf, targetCompany, visibleIds } from "../../auth/scope";
+import { audit, getSettings, type AppEnv } from "../../auth/service";
+import { assertScope, getCompanies, hasPermIn, scopeOf, targetCompany, visibleIds } from "../../auth/scope";
 import type { Db } from "../../db/client";
-import { orgUnits, positionHolders, positions, processes, risks, users } from "../../db/schema";
+import { assets, orgUnits, positionHolders, positions, processes, risks, users } from "../../db/schema";
 import { ApiError } from "../../lib/apiError";
 
 /** Načte celou organizační strukturu (útvary + funkční místa + držitelé) – typicky stovky záznamů. */
 export async function loadOrg(db: Db, companyIds?: string[], inScopeIds?: string[]): Promise<OrgUnitDto[]> {
   const cos = new Map((await getCompanies(db)).map((x) => [x.id, x]));
   const own = inScopeIds ? new Set(inScopeIds) : null;
-  const [units, pos, holders] = await Promise.all([
+  const [units, pos, holders, assetN] = await Promise.all([
     db
       .select()
       .from(orgUnits)
@@ -25,7 +26,10 @@ export async function loadOrg(db: Db, companyIds?: string[], inScopeIds?: string
       .select({ positionId: positionHolders.positionId, id: users.id, displayName: users.displayName, email: users.email })
       .from(positionHolders)
       .innerJoin(users, eq(users.id, positionHolders.userId)),
+    // aktiva s odpovědným útvarem (v1.74, ADR-167)
+    db.select({ unitId: assets.ownerUnitId, n: count() }).from(assets).where(isNotNull(assets.ownerUnitId)).groupBy(assets.ownerUnitId),
   ]);
+  const assetsOf = new Map(assetN.map((x) => [x.unitId, Number(x.n)]));
   const posDto = (p: typeof positions.$inferSelect): PositionDto => ({
     id: p.id,
     orgUnitId: p.orgUnitId,
@@ -48,6 +52,7 @@ export async function loadOrg(db: Db, companyIds?: string[], inScopeIds?: string
     unitType: u.unitType,
     description: u.description,
     sortOrder: u.sortOrder,
+    assetCount: assetsOf.get(u.id) ?? 0,
     positions: pos.filter((p) => p.orgUnitId === u.id).map(posDto),
   }));
 }
@@ -87,6 +92,39 @@ export function orgRoutes(db: Db) {
       .use("*", requireModule(db, "organization"))
       // org. struktura společností v rozsahu + nadřazených (holding) – funkční místa holdingu lze přiřadit i ve společnosti
       .get("/", requirePerm("org:read"), async (c) => c.json(await loadOrg(db, await visibleIds(db, c), scopeOf(c).ids)))
+
+      /** Útvar jako centrum (v1.76, ADR-169): co mu patří – včetně podřízených útvarů, jen evidence s oprávněním. */
+      .get("/units/:id/overview", requirePerm("org:read"), async (c) => {
+        const u = await unitOf(c, c.req.param("id"));
+        const mods = new Set((await getSettings(db)).enabledModules as string[]);
+        const can = (perm: Permission, mod?: string) => (!mod || mods.has(mod)) && hasPermIn(c, perm, u.companyId);
+        const tree = unitSubtreeSql(u.id);
+        const pos = unitPositionsSql(u.id);
+        const n = async (q: SQL) => Number(((await db.execute(q)) as unknown as { n: number }[])[0]?.n ?? 0);
+        const [assetsN, processesN, risksN, controlsN, tasksRow, suppliersN, documentsN] = await Promise.all([
+          can("assets:read", "assets") ? n(sql`select count(*)::int as n from assets where owner_unit_id in ${tree}`) : null,
+          can("processes:read", "processes") ? n(sql`select count(*)::int as n from processes where org_unit_id in ${tree} or owner_position_id in ${pos}`) : null,
+          can("risks:read", "risks") ? n(sql`select count(*)::int as n from risks where status <> 'closed' and owner_position_id in ${pos}`) : null,
+          can("controls:read", "controls") ? n(sql`select count(*)::int as n from controls where status <> 'not_applicable' and owner_position_id in ${pos}`) : null,
+          can("actions:read")
+            ? db.execute(sql`select count(*)::int as open, count(*) filter (where due_date < current_date)::int as overdue from tasks
+                where status in ('open', 'in_progress') and (owner_position_id in ${pos} or assignee_user_id in (select h.user_id from position_holders h where h.position_id in ${pos}))`)
+            : null,
+          can("suppliers:read", "suppliers") ? n(sql`select count(*)::int as n from suppliers where status = 'active' and owner_unit_id in ${tree}`) : null,
+          can("policies:read", "policies") ? n(sql`select count(*)::int as n from policies where status <> 'retired' and owner_unit_id in ${tree}`) : null,
+        ]);
+        const tr = (tasksRow as unknown as { open: number; overdue: number }[] | null)?.[0];
+        return c.json({
+          unitId: u.id,
+          assets: assetsN,
+          processes: processesN,
+          risks: risksN,
+          controls: controlsN,
+          tasks: tr ? { open: Number(tr.open), overdue: Number(tr.overdue) } : null,
+          suppliers: suppliersN,
+          documents: documentsN,
+        } satisfies OrgUnitOverviewDto);
+      })
 
       /* ---------- útvary ---------- */
       .post("/units", requirePerm("org:write"), zValidator("json", OrgUnitInput), async (c) => {

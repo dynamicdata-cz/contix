@@ -28,7 +28,9 @@ import { currentUser, hasPerm, requireModule, requirePerm } from "../../auth/mid
 import { audit as auditLog, type AppEnv } from "../../auth/service";
 import { assertScope, inScope, scopeOf, settingsFor, targetCompany } from "../../auth/scope";
 import type { Db } from "../../db/client";
-import { auditChanges, auditChecks, auditFindings, audits, changes, controls, positions, risks, suppliers } from "../../db/schema";
+import { assetCompanies, assets, auditChanges, auditChecks, auditFindings, audits, changes, controls, positions, risks, suppliers } from "../../db/schema";
+import { orgSnapshot } from "../org/hierarchy";
+import { businessAssignee } from "../sectests/tasks";
 import { ApiError } from "../../lib/apiError";
 
 type Ctx = Context<AppEnv>;
@@ -42,16 +44,17 @@ const openStatus = (s: string) => s === "open" || s === "in_progress";
 
 export async function loadFindings(db: Db, where?: SQL): Promise<FindingDto[]> {
   const rows = await db
-    .select({ f: auditFindings, a: { id: audits.id, code: audits.code, title: audits.title }, owner: positions.name, risk: risks.name, ctlCode: controls.code, ctlName: controls.name })
+    .select({ f: auditFindings, a: { id: audits.id, code: audits.code, title: audits.title }, owner: positions.name, risk: risks.name, ctlCode: controls.code, ctlName: controls.name, assetName: assets.name })
     .from(auditFindings)
     .innerJoin(audits, eq(audits.id, auditFindings.auditId))
     .leftJoin(positions, eq(positions.id, auditFindings.ownerPositionId))
     .leftJoin(risks, eq(risks.id, auditFindings.riskId))
     .leftJoin(controls, eq(controls.id, auditFindings.controlId))
+    .leftJoin(assets, eq(assets.id, auditFindings.assetId))
     .where(where)
     .orderBy(asc(auditFindings.code), asc(auditFindings.createdAt));
   const t = today();
-  return rows.map(({ f, a, owner, risk, ctlCode, ctlName }) => ({
+  return rows.map(({ f, a, owner, risk, ctlCode, ctlName, assetName }) => ({
     id: f.id,
     auditId: a.id,
     auditCode: a.code,
@@ -73,6 +76,8 @@ export async function loadFindings(db: Db, where?: SQL): Promise<FindingDto[]> {
     riskName: risk,
     controlId: f.controlId,
     controlLabel: ctlName ? (ctlCode ? `${ctlCode} ${ctlName}` : ctlName) : null,
+    assetId: f.assetId,
+    assetName,
     awareness: f.awareness,
     overdue: openStatus(f.status) && !!f.dueDate && f.dueDate < t,
   }));
@@ -161,6 +166,27 @@ export type AuditSummary = Awaited<ReturnType<typeof auditSummary>>;
 /** Audity kybernetické bezpečnosti – § 16 vyhl. č. 409/2025 Sb. */
 export function auditRoutes(db: Db) {
   /** Riziko a opatření zjištění jen ze společnosti auditu (v1.05). */
+  /** Aktivum musí patřit společnosti auditu nebo s ní být sdílené. */
+  async function assetOfCompany(companyId: string, assetId?: string | null) {
+    if (!assetId) return;
+    const [a] = await db.select({ companyId: assets.companyId }).from(assets).where(eq(assets.id, assetId));
+    if (a?.companyId === companyId) return;
+    const [sh] = a ? await db.select({ id: assetCompanies.assetId }).from(assetCompanies).where(and(eq(assetCompanies.assetId, assetId), eq(assetCompanies.companyId, companyId))) : [];
+    if (!sh) throw new HTTPException(400, { message: "Aktivum nepatří do společnosti auditu" });
+  }
+  /** Výchozí odpovědná funkce zjištění (v1.60): business vlastník aktiva, jinak vlastník opatření. */
+  async function defaultFindingOwner(companyId: string, assetId?: string | null, controlId?: string | null): Promise<string | null> {
+    if (assetId) {
+      const [a] = await db.select({ ownerUserId: assets.ownerUserId, technicalOwnerUserId: assets.technicalOwnerUserId, technicalDeputyUserId: assets.technicalDeputyUserId }).from(assets).where(eq(assets.id, assetId));
+      const p = businessAssignee(await orgSnapshot(db), a, companyId);
+      if (p) return p;
+    }
+    if (controlId) {
+      const [x] = await db.select({ p: controls.ownerPositionId }).from(controls).where(eq(controls.id, controlId));
+      if (x?.p) return x.p;
+    }
+    return null;
+  }
   async function sameCompany(companyId: string, riskId?: string | null, controlId?: string | null) {
     if (riskId) {
       const [r] = await db.select({ companyId: risks.companyId }).from(risks).where(eq(risks.id, riskId));
@@ -378,7 +404,9 @@ export function auditRoutes(db: Db) {
         const input = c.req.valid("json");
         if (input.requirementId && !requirementById(input.requirementId)) throw new HTTPException(400, { message: "Neznámý požadavek" });
         await sameCompany(au.companyId, input.riskId, input.controlId);
-        const [f] = await db.insert(auditFindings).values({ ...input, auditId }).returning();
+        await assetOfCompany(au.companyId, input.assetId);
+        const ownerPositionId = input.ownerPositionId ?? (await defaultFindingOwner(au.companyId, input.assetId, input.controlId));
+        const [f] = await db.insert(auditFindings).values({ ...input, ownerPositionId, auditId }).returning();
         await auditLog(db, { c, user: currentUser(c), action: "audit.finding_created", entityType: "audit", entityId: auditId, details: { findingId: f!.id, severity: f!.severity } });
         return c.json(await detail(c, auditId), 201);
       })
@@ -387,7 +415,13 @@ export function auditRoutes(db: Db) {
         const au = await detail(c, id);
         const input = Object.fromEntries(Object.entries(c.req.valid("json")).filter(([, v]) => v !== undefined)) as Partial<FindingRow>;
         await sameCompany(au.companyId, input.riskId, input.controlId);
+        await assetOfCompany(au.companyId, input.assetId);
         if (input.requirementId && !requirementById(input.requirementId)) throw new HTTPException(400, { message: "Neznámý požadavek" });
+        // nové aktivum u zjištění bez odpovědné funkce → business vlastník aktiva
+        if (input.assetId && input.ownerPositionId === undefined) {
+          const [cur] = await db.select({ p: auditFindings.ownerPositionId }).from(auditFindings).where(eq(auditFindings.id, findingId));
+          if (cur && !cur.p) input.ownerPositionId = await defaultFindingOwner(au.companyId, input.assetId, null);
+        }
         if ((input.status === "closed" || input.status === "accepted") && !input.closedAt) input.closedAt = today();
         const [f] = await db.update(auditFindings).set({ ...input, updatedAt: new Date() }).where(and(eq(auditFindings.id, findingId), eq(auditFindings.auditId, id))).returning();
         if (!f) throw new HTTPException(404, { message: "Zjištění nenalezeno" });

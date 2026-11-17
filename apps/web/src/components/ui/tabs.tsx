@@ -21,7 +21,7 @@ export function Tabs<K extends string>({ items, value, onChange, label, classNam
       ref={ref}
       role="tablist"
       aria-label={label}
-      className={cn("mb-4 flex flex-wrap gap-1 border-b border-slate-200", className)}
+      className={cn("mb-4 flex gap-1 overflow-x-auto border-b border-slate-200 [scrollbar-width:thin]", className)}
       onKeyDown={(e) => {
         if (e.key === "ArrowRight") focusAt(idx + 1);
         else if (e.key === "ArrowLeft") focusAt(idx - 1);
@@ -41,7 +41,7 @@ export function Tabs<K extends string>({ items, value, onChange, label, classNam
           tabIndex={value === x.key ? 0 : -1}
           onClick={() => onChange(x.key)}
           className={cn(
-            "-mb-px border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300",
+            "-mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300",
             value === x.key ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800",
           )}
         >

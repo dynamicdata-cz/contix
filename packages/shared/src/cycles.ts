@@ -43,6 +43,8 @@ export const CycleInput = z.object({
   dueDate: z.string().date().nullable().optional(),
   leaderPositionId: z.string().uuid().nullable().optional(),
   team: z.string().trim().max(2000).nullable().optional(),
+  /** Tým – funkční místa (v1.76). */
+  teamPositionIds: z.array(z.string().uuid()).max(50).default([]),
   scope: z.string().trim().max(5000).nullable().optional(),
   /** Omezení rozsahu na vybrané položky (rizika / BIA); prázdné = vše otevřené ve společnosti. */
   entityIds: z.array(z.string().uuid()).max(5000).default([]),
@@ -111,6 +113,8 @@ export interface CycleDetail extends CycleListItem {
   changeId: string | null;
   changeTitle: string | null;
   team: string | null;
+  /** Tým – funkční místa s názvem a držiteli (v1.76). */
+  teamPositions?: { id: string; name: string; holders: string[] }[];
   scope: string | null;
   leaderPositionId: string | null;
   approvedByName: string | null;

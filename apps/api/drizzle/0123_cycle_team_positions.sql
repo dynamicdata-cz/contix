@@ -1,0 +1,1 @@
+ALTER TABLE "assessment_cycles" ADD COLUMN "team_position_ids" uuid[] DEFAULT '{}'::uuid[] NOT NULL;

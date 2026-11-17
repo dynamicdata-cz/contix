@@ -13,6 +13,8 @@ import { useState } from "react";
 import { stateTone } from "./Awareness";
 import { ActionsBoard } from "./Actions";
 import { Tabs, useTab } from "@/components/ui/tabs";
+import { QueueFilters, WorkQueue, type QueueFilter } from "@/components/workQueue";
+import { useUrlParam } from "@/lib/urlState";
 
 const urgencyTone: Record<ObligationUrgency, Tone> = { overdue: "red", today: "amber", soon: "blue", later: "slate" };
 
@@ -69,7 +71,7 @@ export function MyPage() {
   const pols = useQuery({ queryKey: ["policies", "mine"], queryFn: api.policies.mine, enabled: mod("policies") && can("obligations:self") });
   const trainings = useQuery({ queryKey: ["awareness", "mine"], queryFn: api.awareness.mine, enabled: mod("awareness") && can("obligations:self") });
   const [reading, setReading] = useState<MyPolicyItem | null>(null);
-  const tasks = (mine.data ?? []).filter((i) => i.kind !== "policy_ack" && i.kind !== "training");
+  const [filter, setFilter] = useUrlParam<QueueFilter>("f", "all");
   const multi = me.companies.length > 1;
   return (
     <>
@@ -94,6 +96,14 @@ export function MyPage() {
         </Card>
       ) : (
         <div className="grid gap-6 lg:grid-cols-2">
+          <Card className="overflow-hidden lg:col-span-2">
+            <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-3">
+              <h2 className="text-base font-semibold text-slate-900">{t("wq.title")}</h2>
+              <QueueFilters items={mine.data ?? []} value={filter} onChange={setFilter} />
+              <span className="ml-auto hidden text-xs text-slate-500 lg:inline">{t("wq.keys")}</span>
+            </div>
+            {mine.isLoading ? <EmptyState>{t("common.loading")}</EmptyState> : <WorkQueue items={mine.data ?? []} showCompany={multi} filter={filter} />}
+          </Card>
           {mod("policies") && (
             <Card className="overflow-hidden">
               <CardHeader title={t("my.dokumentyKSeznameni")} subtitle={t("my.6Odst5PismB")} />
@@ -153,10 +163,6 @@ export function MyPage() {
               )}
             </Card>
           )}
-          <Card className="overflow-hidden lg:col-span-2">
-            <CardHeader title={t("my.ukolyMychFunkcnichMist")} subtitle={t("my.akcePlanuZvladaniRizikNapravna")} />
-            {mine.isLoading ? <EmptyState>{t("common.loading")}</EmptyState> : <ObligationList items={tasks} showCompany={multi} />}
-          </Card>
         </div>
       )}
       {reading && <ReadModal item={reading} onClose={() => setReading(null)} />}

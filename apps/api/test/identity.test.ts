@@ -250,6 +250,13 @@ describe.skipIf(!url)("Identity a přístupy (AD / Entra ID)", () => {
     expect(by("svc_sql").kind).toBe("service");
     expect(by("petr.odesel").enabled).toBe(false);
     expect(by("jana.svobodova").contixUser).toMatchObject({ active: false });
+    // skupiny AD pro katalog oprávnění (v1.33)
+    const grps = await db.select().from(schema.identityGroups);
+    const G = (cn: string) => grps.find((x) => x.cn === cn)!;
+    expect(grps.length).toBe(5);
+    expect(G("Domain Admins").privileged).toBe(true);
+    expect(G("Účetní")).toMatchObject({ privileged: false, dn: `CN=Účetní,OU=Groups,${BASE}` });
+    expect(G("IT Admins").members).toBe(1);
     expect(by("admin.novak").id).toMatch(/^[0-9a-f-]{36}$/);
 
     const f = (await admin.json("/api/identity/findings")).body as any[];

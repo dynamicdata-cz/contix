@@ -12,7 +12,7 @@ import { FrameworkIdSchema, type FrameworkId } from "./frameworks";
  * Nic se nepersistuje kromě snímků – stav se počítá při čtení.
  * ============================================================ */
 
-export const COVERAGE_GAPS = ["no_document", "ai_missing", "ai_partial", "no_control", "not_compliant"] as const;
+export const COVERAGE_GAPS = ["no_document", "ai_missing", "ai_partial", "no_control", "not_compliant", "control_findings"] as const;
 export type CoverageGap = (typeof COVERAGE_GAPS)[number];
 
 export const COVERAGE_LABELS = {
@@ -22,6 +22,7 @@ export const COVERAGE_LABELS = {
     ai_partial: "AI: pokryto částečně",
     no_control: "Žádné opatření",
     not_compliant: "Opatření nesplňuje",
+    control_findings: "Závažný nález k opatření",
   } satisfies Record<CoverageGap, string>,
   docState: { none: "Bez dokumentu", unscored: "Neohodnoceno", covered: "Pokryto", partial: "Částečně", missing: "Chybí" },
 };
@@ -50,7 +51,11 @@ export interface CoverageRow {
   text: string;
   applicable: boolean;
   compliance: Compliance;
+  /** Požadavek byl posouzen (ruční míra shody nebo navázané opatření) – v1.46. */
+  assessed?: boolean;
   controls: { id: string; code: string | null; name: string; status: ControlStatus; inherited?: boolean }[];
+  /** Otevřené závažné nálezy (kritický test / zásadní zjištění auditu) k navázaným opatřením (v1.67). */
+  findingsSerious?: number;
   docs: CoverageDoc[];
   /** Nejlepší AI verdikt mezi dokumenty (pokryto > částečně > chybí), „unscored“ = dokumenty bez hodnocení. */
   docState: CoverageDocState;
@@ -124,7 +129,7 @@ export function bestDocState(docs: Pick<CoverageDoc, "ai">[]): CoverageDocState 
 }
 
 /** Mezery u použitelného požadavku (neaplikovatelný = bez mezer). */
-export function coverageGaps(r: Pick<CoverageRow, "applicable" | "docs" | "docState" | "controls" | "compliance">): CoverageGap[] {
+export function coverageGaps(r: Pick<CoverageRow, "applicable" | "docs" | "docState" | "controls" | "compliance" | "findingsSerious">): CoverageGap[] {
   if (!r.applicable) return [];
   const out: CoverageGap[] = [];
   if (!r.docs.length) out.push("no_document");
@@ -132,6 +137,7 @@ export function coverageGaps(r: Pick<CoverageRow, "applicable" | "docs" | "docSt
   else if (r.docState === "partial") out.push("ai_partial");
   if (!r.controls.length) out.push("no_control");
   else if (r.compliance === "non_compliant" || r.compliance === "partial") out.push("not_compliant");
+  if ((r.findingsSerious ?? 0) > 0) out.push("control_findings");
   return out;
 }
 

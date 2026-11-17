@@ -59,6 +59,7 @@ import { zValidator } from "@hono/zod-validator";
 import { createHash } from "node:crypto";
 import { strToU8, zipSync, type Zippable } from "fflate";
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { assertUnitInCompany, unitSubtreeSql } from "../org/hierarchy";
 import { alias } from "drizzle-orm/pg-core";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -144,9 +145,10 @@ const addDays = (d: string, n: number) => {
 export async function loadPolicies(db: Db, where?: SQL, opts: { withAck?: boolean } = {}) {
   const withAck = opts.withAck ?? true;
   const rows = await db
-    .select({ p: policies, owner: positions.name, reviewerName: reviewer.name, approverName: approver.name })
+    .select({ p: policies, owner: positions.name, reviewerName: reviewer.name, approverName: approver.name, unitName: orgUnits.name })
     .from(policies)
     .leftJoin(positions, eq(positions.id, policies.ownerPositionId))
+    .leftJoin(orgUnits, eq(orgUnits.id, policies.ownerUnitId))
     .leftJoin(reviewer, eq(reviewer.id, policies.reviewerPositionId))
     .leftJoin(approver, eq(approver.id, policies.approverPositionId))
     .where(where)
@@ -202,7 +204,7 @@ export async function loadPolicies(db: Db, where?: SQL, opts: { withAck?: boolea
   const comments = new Map(openComments.map((f) => [f.policyId, Number(f.n)]));
   const t = today();
   const out = [];
-  for (const { p, owner, reviewerName, approverName } of rows) {
+  for (const { p, owner, reviewerName, approverName, unitName } of rows) {
     const vs = byPolicy.get(p.id) ?? [];
     const current = vs.find((x) => x.v.status === "approved") ?? null;
     const pending = vs.find((x) => x.v.status === "review" || x.v.status === "approval") ?? null;
@@ -226,6 +228,8 @@ export async function loadPolicies(db: Db, where?: SQL, opts: { withAck?: boolea
       sections: p.sections,
       classification: p.classification,
       ownerPositionId: p.ownerPositionId,
+      ownerUnitId: p.ownerUnitId,
+      ownerUnitName: unitName,
       ownerPositionName: owner,
       reviewerPositionName: reviewerName,
       approverPositionName: approverName,
@@ -1022,7 +1026,13 @@ export function policyRoutes(db: Db, config: Config = globalConfig) {
   return (
     new Hono<AppEnv>()
       .use("*", requireModule(db, "policies"))
-      .get("/", requirePerm("policies:read"), async (c) => c.json((await loadPolicies(db, inScope(c, policies.companyId))).map((x) => x.item)))
+      .get("/", requirePerm("policies:read"), async (c) => {
+        // útvar včetně podřízených (v1.80, odkaz z Organizace)
+        const unit = c.req.query("unit");
+        if (unit && !/^[0-9a-f-]{36}$/i.test(unit)) throw new HTTPException(400, { message: "Neplatný útvar" });
+        const where = unit ? and(inScope(c, policies.companyId), sql`${policies.ownerUnitId} in ${unitSubtreeSql(unit)}`) : inScope(c, policies.companyId);
+        return c.json((await loadPolicies(db, where)).map((x) => x.item));
+      })
 
       /** Pokrytí oddílů vyhlášky platnou dokumentací (§ 6 odst. 1). */
       .get("/coverage", requirePerm("policies:read"), async (c) => {
@@ -1302,6 +1312,10 @@ export function policyRoutes(db: Db, config: Config = globalConfig) {
         const companyId = targetCompany(c, requested, "policies:write");
         await checkFolder(input.folderId, companyId);
         await checkPositions(companyId, [input.ownerPositionId, input.reviewerPositionId, input.approverPositionId]);
+        await assertUnitInCompany(db, input.ownerUnitId, companyId, "Útvar nepatří do společnosti dokumentu");
+        // bez zvoleného útvaru patří dokument útvaru gestora (v1.80)
+        if (!input.ownerUnitId && input.ownerPositionId)
+          input.ownerUnitId = (await db.select({ u: positions.orgUnitId }).from(positions).where(eq(positions.id, input.ownerPositionId)))[0]?.u ?? null;
         const code = input.code?.trim() || (await autoCode(companyId, input.docType ?? "directive", input.folderId));
         const [p] = await db.insert(policies).values({ ...input, code, companyId, retiredAt: input.status === "retired" ? today() : null }).returning();
         await setControls(p!.id, controlIds, companyId);
@@ -1322,9 +1336,10 @@ export function policyRoutes(db: Db, config: Config = globalConfig) {
         const input = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)) as Partial<PolicyRow>;
         // role ve workflow, okruh dotčených osob, zařazení a skartační režim mění jen správce dokumentace (ne sám gestor)
         if (!hasPerm(c, "policies:write"))
-          for (const k of ["ownerPositionId", "reviewerPositionId", "approverPositionId", "audience", "status", "classification", "system", "folderId", "retentionYears", "retentionMark"] as const) delete input[k];
+          for (const k of ["ownerPositionId", "ownerUnitId", "reviewerPositionId", "approverPositionId", "audience", "status", "classification", "system", "folderId", "retentionYears", "retentionMark"] as const) delete input[k];
         if (input.folderId !== undefined) await checkFolder(input.folderId, p.companyId);
         await checkPositions(p.companyId, [input.ownerPositionId, input.reviewerPositionId, input.approverPositionId]);
+        await assertUnitInCompany(db, input.ownerUnitId, p.companyId, "Útvar nepatří do společnosti dokumentu");
         // spouštěcí událost skartační lhůty = zrušení dokumentu
         if (input.status && input.status !== p.status) input.retiredAt = input.status === "retired" ? today() : null;
         if (Object.keys(input).length) await db.update(policies).set({ ...input, updatedAt: new Date() }).where(eq(policies.id, id));

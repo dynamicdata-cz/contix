@@ -1,4 +1,38 @@
 import {
+  seriesOf,
+  trendsCsv,
+  trendsSvg,
+  managementHealthScore,
+  suggestRag,
+  issueScore,
+  ProjectTaskPatch,
+  roleMatches,
+  sodConflictsFor,
+  jmlPlan,
+  matrixState,
+  budgetState,
+  timelineRange,
+  timelinePct,
+  gateBlockers,
+  PROJECT_TEMPLATES,
+  provisioningGroupError,
+  provisioningScript,
+  groupKey,
+  bareLogin,
+  matchAccounts,
+  reconcileGroup,
+  splitFullName,
+  sensitiveColumns,
+  isPeopleHeader,
+  certProgress,
+  approvalSteps,
+  parsePersonRow,
+  peopleMapping,
+  personStatus,
+  requestStatusFrom,
+  validityError,
+  markerStatus,
+  markerCounts,
   analyzeResilience,
   layoutGraph,
   impactOf,
@@ -715,6 +749,7 @@ describe("SOC 2 a provoz", () => {
     expect(shared14.coverageGaps({ ...base, docs: [{}], docState: "partial", controls: [{}], compliance: "partial" } as any)).toEqual(["ai_partial", "not_compliant"]);
     expect(shared14.coverageGaps({ ...base, docs: [{}], docState: "unscored", controls: [{}], compliance: "compliant" } as any)).toEqual([]);
     expect(shared14.coverageGaps({ ...base, applicable: false })).toEqual([]);
+    expect(shared14.coverageGaps({ ...base, docs: [{}], docState: "covered", controls: [{}], compliance: "compliant", findingsSerious: 1 } as any)).toEqual(["control_findings"]);
     const row = (docState: string, extra: object = {}) => ({ applicable: true, docs: docState === "none" ? [] : [{}], docState, controls: [], compliance: "not_assessed", gaps: ["x"], ...extra }) as any;
     const s = shared14.summarizeCoverage([row("covered"), row("partial"), row("missing"), row("none", { applicable: false })]);
     expect(s).toMatchObject({ total: 4, applicable: 3, withDocs: 3, aiCovered: 1, aiPartial: 1, aiMissing: 1, docScore: 50, withGaps: 3 });
@@ -833,7 +868,7 @@ describe("AI II (v0.20)", () => {
 
   test("MCP: povolené IP adresy (IPv4, CIDR, IPv6, IPv4 mapovaná do IPv6)", () => {
     const { ipAllowed, isIpOrCidr } = require("@contix/shared") as typeof import("@contix/shared");
-    expect(["10.0.0.1", "10.0.0.0/8", "192.168.1.0/24", "fd00::1", "::1"].every(isIpOrCidr)).toBe(true);
+    expect(["10.0.0.1", "10.0.0.0/8", "192.0.2.0/24", "fd00::1", "::1"].every(isIpOrCidr)).toBe(true);
     expect(["10.0.0.256", "10.0.0.0/33", "fd00::/64", "abc", "1.2.3.4/5/6", ""].some(isIpOrCidr)).toBe(false);
     const allow = ["10.20.0.0/24", "192.168.5.10", "fd00::5"];
     expect(ipAllowed("10.20.0.77", allow)).toBe(true);
@@ -1744,7 +1779,7 @@ describe("Cortex a MISP (ADR-073)", () => {
     expect(enrichGuard("domain", "srv.firma.cz", ["firma.cz"])).toEqual({ reason: "internal_domain" });
     expect(enrichGuard("domain", "firma.cz", [".firma.cz"])).toEqual({ reason: "internal_domain" });
     expect(enrichGuard("domain", "jinafirma.cz", ["firma.cz"])).toEqual({ value: "jinafirma.cz" });
-    expect(enrichGuard("url", "http://192.168.1.10/login")).toEqual({ reason: "private_ip" });
+    expect(enrichGuard("url", "http://10.0.0.10/login")).toEqual({ reason: "private_ip" });
     expect(enrichGuard("url", "https://intranet.corp/x")).toEqual({ reason: "internal_domain" });
     expect(enrichGuard("email", "jan@firma.cz", ["firma.cz"])).toEqual({ reason: "internal_domain" });
     expect(enrichGuard("hash", "d41d8cd98f00b204e9800998ecf8427e")).toMatchObject({ value: "d41d8cd98f00b204e9800998ecf8427e" });
@@ -2679,6 +2714,14 @@ describe("plán zvládání z dat (v1.20, ADR-117)", () => {
     expect(evidencedEffectiveness({ code: null, name: "x", status: "implemented", effectiveness: "effective", monitorFailing: true }).effectiveness).toBe("ineffective");
     expect(evidencedEffectiveness({ code: null, name: "x", status: "implemented", effectiveness: "effective", lastTestResult: "effective_with_exceptions" }).effectiveness).toBe("partially_effective");
     expect(evidencedEffectiveness({ code: null, name: "x", status: "implemented", effectiveness: "effective", lastTestResult: "effective" }).reason).toBeNull();
+    // v1.67: otevřené nálezy k opatření
+    expect(evidencedEffectiveness({ code: null, name: "x", status: "implemented", effectiveness: "effective", findingsSerious: 1 })).toEqual({ effectiveness: "ineffective", reason: "finding_serious" });
+    expect(evidencedEffectiveness({ code: null, name: "x", status: "implemented", effectiveness: "effective", findingsOther: 2 })).toEqual({ effectiveness: "partially_effective", reason: "finding_open" });
+    expect(evidencedEffectiveness({ code: null, name: "x", status: "implemented", effectiveness: "partially_effective", findingsOther: 2 }).reason).toBeNull();
+    const s = _sr120({ impact: 4, threatLevel: 3, vulnLevel: 4, likelihood: null }, [{ code: null, name: "A", status: "implemented", effectiveness: "effective", findingsSerious: 1 }], "three_factor")!;
+    expect(s.reduction).toBe(0);
+    expect(s.basis[0]).toContain("závažný nález");
+    expect(planSuggestions({ controls: [{ id: "c9", code: null, name: "WAF", status: "implemented", effectiveness: "effective", findingsSerious: 1 }], capabilities: [], actions: [] })[0]!.objective).toContain("závažný nález");
   });
   test("zbytkové riziko nezapočte opatření s neúčinným testem", () => {
     const r = { impact: 4, threatLevel: 3, vulnLevel: 4, likelihood: null };
@@ -2770,5 +2813,833 @@ describe("ochota riskovat a KRI (v1.23, ADR-120)", () => {
       expect(RISK_APPETITE_LABELS.kri[k]).toBeTruthy();
       expect(KRI_META[k].direction === "min" ? KRI_META[k].alert <= KRI_META[k].warn : KRI_META[k].alert >= KRI_META[k].warn).toBe(true);
     }
+  });
+});
+
+describe("semafor prvku na mapě (v1.25, ADR-122)", () => {
+  const z = { health: null, openIncidents: 0, alertsHigh: 0, alerts: 0, kev: 0, critVulns: 0, risksUnacceptable: 0 };
+  test("priorita barev a důvody", () => {
+    expect(markerStatus(z).status).toBe("unknown");
+    expect(markerStatus({ ...z, health: "green" }).status).toBe("green");
+    expect(markerStatus({ ...z, health: "green", critVulns: 2 })).toEqual({ status: "orange", reasons: [{ key: "vuln_critical", n: 2 }] });
+    expect(markerStatus({ ...z, alerts: 3, alertsHigh: 1 })).toEqual({ status: "red", reasons: [{ key: "alert_high", n: 1 }, { key: "alert", n: 2 }] });
+    expect(markerStatus({ ...z, openIncidents: 1, health: "orange" }).status).toBe("red");
+    expect(markerStatus({ ...z, health: "red" }).status).toBe("red");
+    expect(markerStatus({ ...z, risksUnacceptable: 1 }).status).toBe("orange");
+  });
+  test("počty", () => {
+    const c = markerCounts([{ status: "red" }, { status: "red" }, { status: "green" }] as any);
+    expect(c.red).toBe(2);
+    expect(c.green).toBe(1);
+    expect(c.orange).toBe(0);
+  });
+});
+
+describe("žádosti o přístup (v1.26, ADR-123)", () => {
+  test("stav osoby, kroky a stav žádosti", () => {
+    expect(personStatus({ startDate: "2026-01-01", endDate: null }, "2026-06-01")).toBe("active");
+    expect(personStatus({ startDate: "2027-01-01", endDate: null }, "2026-06-01")).toBe("joiner");
+    expect(personStatus({ startDate: null, endDate: "2026-05-31" }, "2026-06-01")).toBe("leaver");
+    expect(personStatus({ startDate: null, endDate: "2026-06-01" }, "2026-06-01")).toBe("active");
+    expect(approvalSteps({ approvalManager: true, approvalOwner: true }, "grant")).toEqual(["manager", "owner"]);
+    expect(approvalSteps({ approvalManager: false, approvalOwner: true }, "grant")).toEqual(["owner"]);
+    expect(approvalSteps({ approvalManager: true, approvalOwner: true }, "revoke")).toEqual([]);
+    expect(requestStatusFrom(["approved", null])).toBe("pending");
+    expect(requestStatusFrom(["approved", "rejected"])).toBe("rejected");
+    expect(requestStatusFrom(["approved", "approved"])).toBe("approved");
+    expect(requestStatusFrom([])).toBe("approved");
+  });
+  test("platnost přidělení", () => {
+    expect(validityError(null, null, "2026-06-01")).toBeNull();
+    expect(validityError(null, "2026-05-01", "2026-06-01")).toContain("minulosti");
+    expect(validityError(30, null, "2026-06-01")).toContain("30");
+    expect(validityError(30, "2026-07-02", "2026-06-01")).toContain("2026-07-01");
+    expect(validityError(30, "2026-07-01", "2026-06-01")).toBeNull();
+  });
+  test("import osob: záhlaví z personalistiky a druh poměru", () => {
+    const m = peopleMapping(["Os. číslo", "Příjmení", "Jméno", "Služební e-mail", "Středisko", "Vedoucí", "Vznik PP", "Ukončení PP", "Druh PPV", "Poznámka"]);
+    expect(m).toEqual(["personalNumber", "lastName", "firstName", "email", "departmentCode", "manager", "startDate", "endDate", "kind", null]);
+    const r = parsePersonRow(m, ["7", "Nováková", "Jana", "jana@firma.cz", "IT", "1", "1. 2. 2024", "", "DPČ", "x"]);
+    expect(r).toEqual({ data: { personalNumber: "7", lastName: "Nováková", firstName: "Jana", email: "jana@firma.cz", department: "IT", manager: "1", startDate: "2024-02-01", kind: "contractor" }, errors: [] });
+    expect(parsePersonRow(m, ["8", "", "Petr", "spatny-mail", "", "", "1.1.2025", "1.1.2024", "HPP", ""]).errors).toEqual(["Chybí Příjmení", "E-mail „spatny-mail“ není platný", "Datum ukončení je před nástupem"]);
+  });
+});
+
+describe("import z personalistiky a recertifikace (v1.27, ADR-124)", () => {
+  test("celé jméno, tituly, citlivé sloupce, řádek záhlaví", () => {
+    expect(splitFullName("Ing. Svobodová Alena", "lastFirst")).toEqual({ lastName: "Svobodová", firstName: "Alena" });
+    expect(splitFullName("Dvořák Petr, DiS.", "lastFirst")).toEqual({ lastName: "Dvořák", firstName: "Petr" });
+    expect(splitFullName("Mgr. Jan Pavel Novák, Ph.D.", "firstLast")).toEqual({ lastName: "Novák", firstName: "Jan Pavel" });
+    expect(splitFullName("Novák", "lastFirst")).toBeNull();
+    expect(sensitiveColumns(["Os.č.", "Rodné číslo", "RČ", "Datum narození", "Adresa trvalého bydliště", "E-mailová adresa", "Hrubá mzda", "Platnost od", "Číslo účtu", "Zdravotní pojišťovna", "Útvar"])).toEqual(["Rodné číslo", "RČ", "Datum narození", "Adresa trvalého bydliště", "Hrubá mzda", "Číslo účtu", "Zdravotní pojišťovna"]);
+    expect(isPeopleHeader(["Seznam zaměstnanců k 1. 11. 2026", "", ""])).toBe(false);
+    expect(isPeopleHeader(["Os.č.", "Příjmení a jméno", "Středisko"])).toBe(true);
+    expect(isPeopleHeader(["Jméno", "Příjmení"])).toBe(true);
+    const m = peopleMapping(["Středisko", "Název střediska", "Pracovní zařazení", "Os.č. nadřízeného", "Den nástupu", "Druh PP"]);
+    expect(m).toEqual(["departmentCode", "department", "jobTitle", "manager", "startDate", "kind"]);
+    expect(parsePersonRow(["fullNameLastFirst", "departmentCode"], ["Malá Jana", "120"]).data).toEqual({ lastName: "Malá", firstName: "Jana", department: "120" });
+    expect(parsePersonRow(["fullNameLastFirst"], ["Malá"]).errors).toEqual(["Jméno „Malá“ nelze rozdělit na jméno a příjmení"]);
+  });
+  test("průběh recertifikace", () => {
+    expect(certProgress([{ decision: "keep" }, { decision: "revoke" }, { decision: null }])).toEqual({ total: 3, decided: 2, revoked: 1, done: false });
+    expect(certProgress([{ decision: "keep" }]).done).toBe(true);
+    expect(certProgress([]).done).toBe(false);
+  });
+});
+
+describe("soulad s AD (v1.28, ADR-125)", () => {
+  test("název skupiny a login", () => {
+    expect(groupKey("CN=ERP-Users,OU=Groups,DC=firma,DC=cz")).toBe("erp-users");
+    expect(groupKey("CN=Účtárna\\, mzdy,OU=G,DC=f")).toBe("účtárna, mzdy");
+    expect(groupKey("VPN")).toBe("vpn");
+    expect(bareLogin("FIRMA\\jnovak")).toBe("jnovak");
+    expect(bareLogin("JNovak@firma.cz")).toBe("jnovak");
+  });
+  test("nesoulady", () => {
+    const people = [
+      { id: "p1", name: "A", login: "a", email: null, status: "active" as const },
+      { id: "p2", name: "B", login: null, email: "b@f.cz", status: "active" as const },
+      { id: "p3", name: "C", login: "c", email: null, status: "leaver" as const },
+      { id: "p4", name: "D", login: "d", email: null, status: "active" as const },
+      { id: "p5", name: "E", login: null, email: null, status: "active" as const },
+    ];
+    const accounts = [
+      { id: "a1", login: "F\\a", email: null, enabled: true, groups: ["G1"] },
+      { id: "a2", login: "bb", email: "B@f.cz", enabled: true, groups: ["g1"] },
+      { id: "a3", login: "c", email: null, enabled: false, groups: ["G1"] },
+      { id: "a4", login: "d", email: null, enabled: true, groups: [] },
+      { id: "a5", login: "x", email: null, enabled: true, groups: ["G1"] },
+    ];
+    const m = matchAccounts(people, accounts);
+    expect([...m.entries()].map(([p, a]) => [p, a.id])).toEqual([["p1", "a1"], ["p2", "a2"], ["p3", "a3"], ["p4", "a4"]]);
+    const items = reconcileGroup("CN=G1,OU=x", people, accounts, new Set(["p1", "p4", "p5"]), m);
+    expect(items.map((i) => [i.type, i.personId ?? i.login])).toEqual([["unapproved", "p2"], ["leaver_in_ad", "p3"], ["unknown_account", "x"], ["missing", "p4"], ["no_account", "p5"]]);
+  });
+});
+
+describe("nastavení skupin v AD (v1.29, ADR-126)", () => {
+  const OU = "OU=CONTIX,OU=Groups,DC=firma,DC=cz";
+  test("pojistky cílové skupiny", () => {
+    expect(provisioningGroupError(`CN=VPN,${OU}`, OU)).toBeNull();
+    expect(provisioningGroupError("CN=VPN, OU=CONTIX ,OU=Groups,DC=firma,DC=cz", "ou=contix,ou=groups,dc=firma,dc=cz")).toBeNull();
+    expect(provisioningGroupError("VPN", OU)).toContain("rozlišující jméno");
+    expect(provisioningGroupError(`CN=VPN,${OU}`, "")).toContain("OU");
+    expect(provisioningGroupError("CN=VPN,OU=Jinde,DC=firma,DC=cz", OU)).toContain("mimo");
+    expect(provisioningGroupError(OU, OU)).toContain("rozlišující");
+    expect(provisioningGroupError(`CN=Domain Admins,${OU}`, OU)).toContain("privilegovaná");
+    expect(provisioningGroupError(`CN=Správci domény,${OU}`, OU)).toContain("privilegovaná");
+    expect(provisioningGroupError(`CN=Helpdesk,${OU}`, OU, ["helpdesk"])).toContain("privilegovaná");
+  });
+  test("skript PowerShell", () => {
+    const ps = provisioningScript([{ requestId: "r1", action: "revoke", groupDn: `CN=VPN,${OU}`, member: "CN=O'Brien\nx,OU=U", personName: "Pat O'Brien" }], "2026-11-06 10:00");
+    expect(ps).toContain(`Remove-ADGroupMember -Identity 'CN=VPN,${OU}' -Members 'CN=O''Brien x,OU=U' -Confirm:$false`);
+    expect(ps).toContain("#Requires -Modules ActiveDirectory");
+    expect(ps.split("\r\n").filter((l) => l.startsWith("Remove-")).length).toBe(1);
+  });
+});
+
+describe("projekty (v1.31, ADR-128)", () => {
+  test("blokace brány a šablony", () => {
+    expect(gateBlockers([{ name: "A", required: true, status: "approved" }, { name: "B", required: true, status: "na" }, { name: "C", required: false, status: "missing" }])).toEqual([]);
+    expect(gateBlockers([{ name: "A", required: true, status: "submitted" }, { name: "B", required: true, status: "rejected" }])).toEqual(["A", "B"]);
+    for (const t of PROJECT_TEMPLATES) {
+      expect(t.phases.length).toBeGreaterThan(2);
+      expect(t.phases.every((p) => p.docs.some((d) => d.required))).toBe(true);
+      expect(t.phases.some((p) => p.docs.some((d) => d.security))).toBe(true);
+    }
+  });
+});
+
+describe("projekty II (v1.32, ADR-129)", () => {
+  test("čerpání rozpočtu", () => {
+    expect(budgetState(null, 500)).toBe("none");
+    expect(budgetState(1000, 899)).toBe("ok");
+    expect(budgetState(1000, 900)).toBe("warn");
+    expect(budgetState(1000, 1000)).toBe("warn");
+    expect(budgetState(1000, 1001)).toBe("over");
+    expect(budgetState(0, 0)).toBe("ok");
+  });
+  test("časová osa", () => {
+    const bars = [{ id: "a", label: "A", start: "2026-01-01", end: "2026-01-31", actualEnd: null, status: "active" }, { id: "b", label: "B", start: null, end: "2026-03-02", actualEnd: null, status: "planned" }];
+    const r = timelineRange(bars, "2026-02-01")!;
+    expect(r).toEqual({ from: "2026-01-01", to: "2026-03-02", days: 60 });
+    expect(timelinePct("2026-01-31", r)).toBe(50);
+    expect(timelinePct("2025-01-01", r)).toBe(0);
+    expect(timelineRange([{ id: "x", label: "X", start: null, end: null, actualEnd: null, status: "planned" }], "2026-01-01")).toBeNull();
+  });
+});
+
+describe("IDM (v1.34, ADR-131)", () => {
+  test("role podle útvaru a funkce, bez kritérií nikomu", () => {
+    expect(roleMatches({ department: "Účtárna", jobTitle: null }, { department: " účtárna ", jobTitle: "x" })).toBe(true);
+    expect(roleMatches({ department: "Účtárna", jobTitle: "Účetní" }, { department: "Účtárna", jobTitle: "Vedoucí" })).toBe(false);
+    expect(roleMatches({ department: null, jobTitle: null }, { department: "A", jobTitle: "B" })).toBe(false);
+    expect(roleMatches({ department: "A", jobTitle: null, active: false }, { department: "A", jobTitle: null })).toBe(false);
+  });
+  test("SoD jen pro nově vzniklé konflikty, skupiny i DN i funkční místa", () => {
+    const rules = [{ id: "r", name: "Platby", severity: "high", sideA: { groups: ["GG_Pay_Enter"], positionIds: [] }, sideB: { groups: ["gg_pay_approve"], positionIds: ["p1"] } }];
+    expect(sodConflictsFor(rules, { groups: ["CN=GG_PAY_ENTER,OU=X,DC=f"], positionIds: [] }, ["GG_Pay_Approve"])[0]).toMatchObject({ ruleId: "r", sideA: ["GG_Pay_Enter"], sideB: ["gg_pay_approve"] });
+    expect(sodConflictsFor(rules, { groups: [], positionIds: ["p1"], positionNames: { p1: "Pokladní" } }, ["GG_Pay_Enter"])[0]!.sideB).toEqual(["funkční místo Pokladní"]);
+    expect(sodConflictsFor(rules, { groups: ["GG_Pay_Enter", "GG_Pay_Approve"], positionIds: [] }, ["GG_Pay_Enter"])).toEqual([]);
+    expect(sodConflictsFor(rules, { groups: [], positionIds: [] }, ["GG_Pay_Enter"])).toEqual([]);
+  });
+  test("JML návrh: nástup, přesun, odchod", () => {
+    const before = [{ name: "Účetní", resourceIds: ["a", "b"] }];
+    const after = [{ name: "Obchod", resourceIds: ["b", "c"] }];
+    const j = jmlPlan({ kind: "joiner", rolesBefore: [], rolesAfter: after, granted: [], openGrant: ["c"], openRevoke: [] });
+    expect(j.add).toEqual([{ id: "b", roles: ["Obchod"], suggested: true, note: null }, { id: "c", roles: ["Obchod"], suggested: false, note: "open" }]);
+    const m = jmlPlan({ kind: "mover", rolesBefore: before, rolesAfter: after, granted: ["a", "b", "x"], openGrant: [], openRevoke: [] });
+    expect(m.add.map((x) => x.id)).toEqual(["c"]);
+    expect(m.keep.map((x) => x.id)).toEqual(["b"]);
+    expect(m.remove).toEqual([{ id: "a", roles: ["Účetní"], suggested: true, note: null }, { id: "x", roles: [], suggested: false, note: "outside" }]);
+    const l = jmlPlan({ kind: "leaver", rolesBefore: before, rolesAfter: [], granted: ["a", "x"], openGrant: [], openRevoke: ["x"] });
+    expect(l.remove.map((x) => [x.id, x.suggested])).toEqual([["a", true], ["x", false]]);
+  });
+  test("stav buňky matice", () => {
+    const b = { granted: false, inAd: null, pendingGrant: false, pendingRevoke: false, expected: false };
+    expect(matrixState({ ...b, granted: true, inAd: true })).toBe("ok");
+    expect(matrixState({ ...b, granted: true, inAd: false })).toBe("ad_missing");
+    expect(matrixState({ ...b, granted: true })).toBe("granted");
+    expect(matrixState({ ...b, granted: true, pendingRevoke: true })).toBe("revoking");
+    expect(matrixState({ ...b, inAd: true })).toBe("ad_only");
+    expect(matrixState({ ...b, pendingGrant: true, inAd: true })).toBe("pending");
+    expect(matrixState({ ...b, expected: true })).toBe("expected");
+    expect(matrixState(b)).toBeNull();
+  });
+});
+
+describe("projekty III (v1.35, ADR-132)", () => {
+  const base = { overduePhases: 0, overdueMilestones: 0, overdueTasks: 0, blockedTasks: 0, budgetState: "ok" as const, highIssues: 0, pendingChanges: 0, projectOverdue: false };
+  test("návrh semaforu z dat", () => {
+    expect(suggestRag(base)).toEqual({ schedule: "green", budget: "green", scope: "green", overall: "green" });
+    expect(suggestRag({ ...base, overdueTasks: 1 })).toMatchObject({ schedule: "amber", overall: "amber" });
+    expect(suggestRag({ ...base, overduePhases: 1 })).toMatchObject({ schedule: "red", overall: "red" });
+    expect(suggestRag({ ...base, budgetState: "over" })).toMatchObject({ budget: "red", overall: "red" });
+    expect(suggestRag({ ...base, budgetState: "warn", pendingChanges: 1 })).toMatchObject({ budget: "amber", scope: "amber", overall: "amber" });
+    expect(suggestRag({ ...base, highIssues: 2 }).scope).toBe("red");
+  });
+  test("skóre rizika a problému", () => {
+    expect(issueScore("risk", "high", "high")).toEqual({ score: 9, level: "high" });
+    expect(issueScore("risk", "low", "medium")).toEqual({ score: 2, level: "low" });
+    expect(issueScore("issue", "low", "low")).toEqual({ score: 3, level: "medium" });
+    expect(issueScore("risk", null, "high")).toEqual({ score: 6, level: "high" });
+  });
+  test("úprava úkolu nepřepíše neposlaná pole", () => {
+    const defined = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+    expect(defined(ProjectTaskPatch.parse({ status: "done" }))).toEqual({ status: "done" });
+    expect(ProjectTaskPatch.parse({ assigneeId: "" })).toMatchObject({ assigneeId: null });
+  });
+});
+
+describe("řídicí panel pro vedení (v1.38, ADR-135)", () => {
+  test("celkový stav z úrovní ukazatelů", () => {
+    expect(managementHealthScore([])).toBeNull();
+    expect(managementHealthScore([{ level: "off" }])).toBeNull();
+    expect(managementHealthScore([{ level: "ok" }, { level: "warning" }, { level: "error" }, { level: "off" }])).toBe(50);
+    expect(managementHealthScore([{ level: "ok" }, { level: "ok" }, { level: "warning" }])).toBe(83);
+  });
+});
+
+describe("formát grafů (v1.39, ADR-136)", () => {
+  const pts = [
+    { period: "2026-08", values: { risks_total: 10, compliance: 40 } },
+    { period: "2026-09", values: { risks_total: 15, compliance: 45 } },
+    { period: "2026-10", values: { compliance: 50 } },
+  ] as any;
+  test("měřítko změny: % u počtů, procentní body u procentních", () => {
+    expect(seriesOf(pts, "risks_total", "change").map((x) => x.v)).toEqual([0, 50, null]);
+    expect(seriesOf(pts, "compliance", "change").map((x) => x.v)).toEqual([0, 5, 10]);
+    expect(seriesOf([{ period: "2026-01", values: { risks_total: 0 } }, { period: "2026-02", values: { risks_total: 3 } }] as any, "risks_total", "change").map((x) => x.v)).toEqual([null, null]);
+  });
+  test("SVG escapuje popisky, CSV se středníkem a BOM", () => {
+    const svg = trendsSvg({ points: pts, keys: ["risks_total"], label: () => "A<b>&\"", type: "columns", month: (p) => p });
+    expect(svg).toContain("A&lt;b&gt;&amp;&quot;");
+    expect(svg).toContain("<rect");
+    const csv = trendsCsv(pts, ["compliance"], () => "Shoda; celkem");
+    expect(csv.startsWith("﻿Ukazatel;2026-08;2026-09;2026-10")).toBe(true);
+    expect(csv).toContain('"Shoda; celkem";40;45;50');
+  });
+});
+
+import { THREAT_ACTORS as TM_ACTORS, actorRelevance, attackPaths, calibrateRisk, cidrContains, mtpdLevel4, pathLevel, sectorDelta, segmentOf, strideThreats, type PathNode, type TmElement } from "@contix/shared";
+
+describe("modelování hrozeb (v1.40, ADR-137)", () => {
+  const node = (id: string, x: Partial<PathNode> = {}): PathNode => ({ id, name: id, assetType: "server", assetClass: "supporting", criticality: "medium", cia: { c: null, i: null, a: null }, internetFacing: false, kev: 0, critical: 0, high: 0, noEdr: false, eol: false, segment: null, ...x });
+  const id0 = { known: true, privileged: 3, privNoMfa: 0, mfaGap: 0, kerberosWeak: 0 };
+  test("útočná cesta vede přes slabiny a úzké hrdlo", () => {
+    const nodes = [
+      node("crown", { assetType: "information_asset", assetClass: "primary", criticality: "critical", cia: { c: 4, i: 3, a: 2 } }),
+      node("web", { assetType: "application", internetFacing: true, kev: 1 }),
+      node("vpn", { assetType: "network_device", internetFacing: true }),
+      node("db", { assetType: "database" }),
+    ];
+    const r = attackPaths({ nodes, edges: [{ from: "web", to: "db", kind: "uses" }, { from: "vpn", to: "db", kind: "network" }, { from: "crown", to: "db", kind: "link" }], identity: id0, segmentation: "strong", levels: 4 });
+    expect(r.targets).toBe(1);
+    expect(r.paths[0]!.steps.map((s) => s.assetId)).toEqual(["web", "db", "crown"]);
+    expect(r.paths[0]!.steps.at(-1)!.technique).toBe("T1567");
+    // alternativní cesta přes VPN je méně pravděpodobná, databáze je úzké hrdlo
+    expect(r.paths[1]!.entryId).toBe("vpn");
+    expect(r.paths[1]!.probability).toBeLessThan(r.paths[0]!.probability);
+    expect(r.chokepoints[0]!.assetId).toBe("db");
+    // bez vstupu z internetu ani koncových stanic žádná cesta
+    expect(attackPaths({ nodes: nodes.map((n) => ({ ...n, internetFacing: false })), edges: [], identity: id0, segmentation: "strong", levels: 4 }).paths).toEqual([]);
+  });
+  test("phishing a doména: koncová stanice → AD → server", () => {
+    const nodes = [node("pc", { assetType: "workstation", noEdr: true }), node("fs", { assetType: "server" }), node("data", { assetType: "information_asset", assetClass: "primary", criticality: "high", cia: { c: 2, i: 2, a: 4 } })];
+    const r = attackPaths({ nodes, edges: [{ from: "data", to: "fs", kind: "link" }], identity: { ...id0, privNoMfa: 2 }, segmentation: "strong", levels: 4 });
+    expect(r.paths[0]!.entry).toBe("phishing");
+    expect(r.paths[0]!.steps.map((s) => s.technique)).toEqual(["T1566", "T1003", "T1078", "T1486"]);
+    expect(r.chokepoints.some((c) => c.fixes.includes("tm.fix.privMfa"))).toBe(true);
+  });
+  test("úrovně, segmenty, MTPD", () => {
+    expect(pathLevel(1, 4)).toBe(4);
+    expect(pathLevel(0.0001, 4)).toBe(1);
+    expect(cidrContains("10.1.0.0/16", "10.1.200.3")).toBe(true);
+    expect(cidrContains("10.1.0.0/16", "10.2.0.1")).toBe(false);
+    expect(segmentOf(["192.168.5.10"], [{ name: "DMZ", cidrs: ["192.168.5.0/24"] }])).toBe("DMZ");
+    expect([1, 4, 24, 72, 200].map(mtpdLevel4)).toEqual([4, 4, 3, 2, 1]);
+  });
+  test("kalibrace: BIA, osobní údaje, incidenty, účinná opatření", () => {
+    const base = { levels: 4, cia: { c: 2, i: 2, a: 2 }, criticality: "medium" as const, bia: [], personalData: { any: false, special: false }, incidents: { total: 0, significant: 0, downtimeHours: 0, financialLoss: 0 }, alerts: 0, exposure: { internet: false, kev: 0, critical: 0 }, controls: { total: 0, effective: 0, partial: 0, ineffective: 0 }, sectorDelta: 0 };
+    const quiet = calibrateRisk(base);
+    expect(quiet).toMatchObject({ impact: 2, threatLevel: 2, vulnLevel: 2, confidence: "low" });
+    const hot = calibrateRisk({ ...base, bia: [{ process: "Prodej", mtpdHours: 8, maxImpact: 3, financial: 3 }], personalData: { any: true, special: true }, incidents: { total: 3, significant: 1, downtimeHours: 5, financialLoss: 10000 }, alerts: 2, exposure: { internet: true, kev: 1, critical: 2 }, sectorDelta: 1, sectorActors: ["APT28"] });
+    expect(hot).toMatchObject({ impact: 4, threatLevel: 4, vulnLevel: 4, likelihood: 4, confidence: "high" });
+    const strong = calibrateRisk({ ...base, controls: { total: 4, effective: 4, partial: 0, ineffective: 0 } });
+    expect(strong.vulnLevel).toBe(1);
+    expect(strong.reasons.some((r) => r.text === "tm.cal.ctlStrong")).toBe(true);
+  });
+  test("aktéři: relevance a posun šablon", () => {
+    const apt28 = TM_ACTORS.find((a) => a.key === "apt28")!;
+    const none = { mentions: [], intel: 0, alerts: 0 };
+    expect(actorRelevance(apt28, "energy", none).relevance).toBe("medium");
+    expect(actorRelevance(apt28, "energy", { ...none, intel: 3 }).relevance).toBe("high");
+    expect(actorRelevance(apt28, "retail", none).relevance).toBe("low");
+    expect(actorRelevance(apt28, "energy", { ...none, intel: 3 }, { relevant: false, reason: "x" }).relevance).toBe("low");
+    const actors = [{ name: "APT28", relevance: "high" as const, techniques: apt28.techniques }];
+    expect(sectorDelta(["T1566.001"], actors, true)).toEqual({ delta: 1, actors: ["APT28"] });
+    expect(sectorDelta(["T1498"], actors, true).delta).toBe(-1);
+    expect(sectorDelta(["T1498"], actors, false).delta).toBe(0);
+    expect(sectorDelta(["T1566"], actors, false)).toEqual({ delta: 0, actors: ["APT28"] });
+  });
+  test("STRIDE: per-element, hranice důvěry, zachování rozhodnutí", () => {
+    const e = (x: Partial<TmElement> & Pick<TmElement, "id" | "kind" | "name">): TmElement => ({ zone: "internal", data: "internal", auth: "unknown", encrypted: null, logging: null, assetId: null, from: null, to: null, note: null, ...x });
+    const els = [e({ id: "u", kind: "external", name: "Klient", zone: "internet", auth: "password" }), e({ id: "api", kind: "process", name: "API", zone: "dmz" }), e({ id: "db", kind: "store", name: "DB", data: "personal", zone: "restricted" }), e({ id: "f", kind: "flow", name: "HTTPS", from: "u", to: "api", encrypted: false })];
+    const t = strideThreats(els);
+    expect(t.filter((x) => x.elementId === "api").map((x) => x.stride).sort()).toEqual(["D", "E", "I", "R", "S", "T"]);
+    expect(t.filter((x) => x.elementId === "u").map((x) => x.stride).sort()).toEqual(["R", "S"]);
+    expect(t.find((x) => x.key === "f:I")!.severity).toBeGreaterThanOrEqual(3);
+    expect(t.find((x) => x.key === "db:I")!.severity).toBeGreaterThanOrEqual(3);
+    const kept = strideThreats(els.filter((x) => x.id !== "db"), t.map((x) => (x.key === "api:T" ? { ...x, status: "accepted" as const } : x.key === "db:I" ? { ...x, riskId: "r1" } : x)));
+    expect(kept.find((x) => x.key === "api:T")!.status).toBe("accepted");
+    expect(kept.find((x) => x.key === "db:I")!.riskId).toBe("r1");
+    expect(kept.some((x) => x.key === "db:T")).toBe(false);
+  });
+});
+
+import { calibrationPriority as tmCalPrio, modelingSteps, pathPriority as tmPathPrio, readinessItems } from "@contix/shared";
+
+describe("modelování hrozeb – postup (v1.41)", () => {
+  const empty = { crownJewels: 0, internetFacing: 0, supporting: 10, supportingLinked: 0, segments: 0, vulnData: false, identityAccounts: 0, edrMeasured: false, primaryProcesses: 0, primaryProcessesWithBia: 0, controlsImplemented: 0, controlsEvidenced: 0 };
+  const zero = { paths: 0, pathsOpen: 0, drift: 0, unrated: 0, models: 0, openThreats: 0 };
+  test("připravenost dat a doporučený krok", () => {
+    const r0 = readinessItems(empty);
+    expect(r0.every((r) => r.status === "missing")).toBe(true);
+    let s = modelingSteps({ sector: null, readiness: r0, counts: zero });
+    expect(s.next).toBe("sector");
+    expect(s.steps.find((x) => x.key === "paths")!.state).toBe("waiting");
+    s = modelingSteps({ sector: "energy", readiness: r0, counts: zero });
+    expect(s.next).toBe("data");
+    const r1 = readinessItems({ ...empty, crownJewels: 2, internetFacing: 1, supportingLinked: 3, segments: 1, vulnData: true, identityAccounts: 5, edrMeasured: true });
+    expect(r1.find((r) => r.key === "dependencies")!.status).toBe("partial");
+    // chybí jen část dat a jsou korunní klenoty → pokračuje se cestami
+    s = modelingSteps({ sector: "energy", readiness: r1, counts: { ...zero, paths: 3, pathsOpen: 2 } });
+    expect(s.next).toBe("paths");
+    expect(s.steps.find((x) => x.key === "paths")!.count).toBe(2);
+    const full = readinessItems({ ...empty, crownJewels: 2, internetFacing: 1, supportingLinked: 9, segments: 3, vulnData: true, identityAccounts: 5, edrMeasured: true, primaryProcesses: 2, primaryProcessesWithBia: 2, controlsImplemented: 4, controlsEvidenced: 3 });
+    s = modelingSteps({ sector: "energy", readiness: full, counts: { ...zero, paths: 3, models: 1 } });
+    expect(s.next).toBeNull();
+  });
+  test("pořadí cest a kalibrace", () => {
+    expect(tmPathPrio({ impact: 4, level: 3, probability: 0.1 })).toBeGreaterThan(tmPathPrio({ impact: 3, level: 3, probability: 0.9 }));
+    const c = (i: number | null, l: number | null) => ({ drift: { impact: i, likelihood: l }, proposed: { impact: 3, likelihood: 3 } });
+    expect(tmCalPrio(c(null, null))).toBeGreaterThan(tmCalPrio(c(2, 2)));
+    expect(tmCalPrio(c(2, 0))).toBeGreaterThan(tmCalPrio(c(1, 0)));
+    expect(tmCalPrio(c(1, 0))).toBeGreaterThan(tmCalPrio(c(-1, 0)));
+  });
+});
+
+import { GUIDES, GUIDE_FACT_KEYS, compliancePathSummary, evaluateGuide, type GuideFacts } from "@contix/shared";
+import { CS as CS_MSG } from "../../../packages/shared/src/i18n/cs";
+import { EN as EN_MSG } from "../../../packages/shared/src/i18n/en";
+
+describe("postup krok za krokem (v1.42, ADR-139)", () => {
+  const zero = Object.fromEntries(GUIDE_FACT_KEYS.map((k) => [k, 0])) as GuideFacts;
+  test("každý krok má texty v češtině i angličtině", () => {
+    const missing: string[] = [];
+    for (const g of GUIDES) {
+      for (const key of [`gd.${g.id}.title`, ...g.steps.flatMap((s) => ["title", "hint", "todo"].map((x) => `gd.${g.id}.${s.key}.${x}`))]) {
+        if (!(key in CS_MSG) || !(key in EN_MSG)) missing.push(key);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+  test("stav kroků a další krok z faktů", () => {
+    const risks = GUIDES.find((g) => g.id === "risks")!;
+    let r = evaluateGuide(risks, zero);
+    expect(r.next).toBe("assets");
+    expect(r.steps.find((s) => s.key === "owners")!.state).toBe("waiting");
+    r = evaluateGuide(risks, { ...zero, primaryAssets: 3, primaryUnrated: 1, appetiteApproved: 1, risks: 4, risksNoOwner: 2 });
+    expect(r.steps.find((s) => s.key === "assets")).toMatchObject({ state: "todo", count: 1 });
+    expect(r.steps.find((s) => s.key === "owners")).toMatchObject({ state: "todo", count: 2 });
+    expect(r.steps.find((s) => s.key === "assess")!.state).toBe("done");
+    const inc = evaluateGuide(GUIDES.find((g) => g.id === "incidents")!, zero);
+    expect(inc).toMatchObject({ next: null, progress: 100 });
+    expect(compliancePathSummary([r, inc]).progress).toBe(Math.round((r.progress + 100) / 2));
+  });
+});
+
+import { onboardingState, stepRefs } from "@contix/shared";
+
+describe("vazba kroků na předpisy a úvodní cesta (v1.45, ADR-142)", () => {
+  test("odkazy kroku podle rámce", () => {
+    expect(stepRefs("risks", "assess", "cz409")).toEqual(["§ 8"]);
+    expect(stepRefs("suppliers", "contracts", "cz410").length).toBeGreaterThan(0);
+    expect(stepRefs("suppliers", "contracts", "nis2").join(" ")).toMatch(/21/);
+    expect(stepRefs("dora", "providers", "dora").length).toBeGreaterThan(0);
+    expect(stepRefs("gdpr", "ropa", "cz409")).toEqual(["GDPR čl. 30"]);
+    expect(stepRefs("aiact", "literacy", "nis2")).toEqual(["AI Act čl. 4"]);
+    expect(stepRefs("legislation", "watch", "cz409")).toEqual([]);
+  });
+  test("aktuální fáze zavádění", () => {
+    const st = onboardingState([{ id: "org", progress: 100 }, { id: "isms", progress: 100 }, { id: "risks", progress: 40 }, { id: "audits", progress: 0 }]);
+    expect(st.phase).toBe("analysis");
+    expect(st.phases.map((p) => p.key)).toEqual(["foundation", "analysis", "verification"]);
+    expect(onboardingState([{ id: "org", progress: 100 }]).phase).toBeNull();
+  });
+});
+
+describe("provoz a CRA (v1.48)", () => {
+  test("test obnovy: chybí / selhal / čerstvý / starý", () => {
+    const { restoreTestLevel, RESTORE_TEST_MAX_DAYS } = require("@contix/shared") as typeof import("@contix/shared");
+    const now = new Date("2026-11-08T10:00:00Z");
+    expect(restoreTestLevel(null, now)).toBe("warning");
+    expect(restoreTestLevel({ at: "2026-11-01T00:00:00Z", ok: false }, now)).toBe("error");
+    expect(restoreTestLevel({ at: "2026-10-01T00:00:00Z", ok: true }, now)).toBe("ok");
+    expect(restoreTestLevel({ at: new Date(now.getTime() - (RESTORE_TEST_MAX_DAYS + 1) * 86_400_000).toISOString(), ok: true }, now)).toBe("warning");
+  });
+
+  test("SBOM z bun.lock: jen produkční závislosti, vnořené verze, purl a SHA-512", () => {
+    const { buildSbom, parseBunLock } = require("../src/lib/sbom") as typeof import("../src/lib/sbom");
+    const lock = parseBunLock(`{
+      "lockfileVersion": 1,
+      "workspaces": {
+        "": { "name": "root", "devDependencies": { "playwright": "1" }, },
+        "apps/api": { "name": "@contix/api", "dependencies": { "@contix/shared": "workspace:*", "a": "^1" }, "devDependencies": { "typescript": "^7" }, },
+        "packages/shared": { "name": "@contix/shared", "dependencies": { "@s/b": "^2" }, },
+      },
+      "packages": {
+        "@contix/shared": ["@contix/shared@workspace:packages/shared"],
+        "a": ["a@1.2.3", "", { "dependencies": { "c": "^1" } }, "sha512-AAAA"],
+        "@s/b": ["@s/b@2.0.0", "", { "dependencies": { "c": "^2" } }, "sha512-AAAA"],
+        "c": ["c@1.0.0", "", {}, "sha512-AAAA"],
+        "@s/b/c": ["c@2.0.0", "", {}, "sha512-AAAA"],
+        "typescript": ["typescript@7.0.2", "", {}, "sha512-AAAA"],
+        "playwright": ["playwright@1.0.0", "", {}, "sha512-AAAA"],
+      },
+    }`);
+    const bom = buildSbom(lock, { version: "9.9.9", serial: "00000000-0000-4000-8000-000000000000", now: new Date("2026-11-08T00:00:00Z"), license: (n) => (n === "a" ? "MIT" : n === "c" ? "(MIT OR Apache-2.0)" : null) });
+    expect(bom.components.map((x) => x.purl)).toEqual(["pkg:npm/%40s/b@2.0.0", "pkg:npm/a@1.2.3", "pkg:npm/c@1.0.0", "pkg:npm/c@2.0.0"]);
+    expect(bom.components.find((x) => x.name === "a")).toMatchObject({ hashes: [{ alg: "SHA-512", content: "000000" }], licenses: [{ license: { id: "MIT" } }] });
+    expect(bom.components.find((x) => x.purl === "pkg:npm/c@1.0.0")!.licenses).toEqual([{ expression: "(MIT OR Apache-2.0)" }]);
+    expect(bom.dependencies.find((d) => d.ref === "pkg:npm/%40s/b@2.0.0")!.dependsOn).toEqual(["pkg:npm/c@2.0.0"]);
+    expect(bom.dependencies[0]).toEqual({ ref: "pkg:generic/contix@9.9.9", dependsOn: ["pkg:npm/%40s/b@2.0.0", "pkg:npm/a@1.2.3"] });
+  });
+
+  test("import organizace: držitelé jako seznam e-mailů", () => {
+    const { parseCell, IMPORT_FIELDS, suggestMapping } = require("@contix/shared") as typeof import("@contix/shared");
+    const f = IMPORT_FIELDS.positions.find((x) => x.key === "holderIds")!;
+    expect(parseCell(f, "A@x.cz; b@x.cz a@x.cz").value).toEqual(["a@x.cz", "b@x.cz"]);
+    expect(suggestMapping("positions", ["Útvar", "Funkční místo", "E-mail"])).toEqual(["orgUnitId", "name", "holderIds"]);
+  });
+});
+
+describe("připojení (v1.49)", () => {
+  test("společnost agenta a pokrytí společnosti podle rozsahu připojení", () => {
+    const { companyForAgent, connectionCovers } = require("@contix/shared") as typeof import("@contix/shared");
+    const scoped = { companyId: "A", groupMap: [] };
+    const group = { companyId: null, groupMap: [{ group: "Zakaznik-B", companyId: "B" }, { group: "linux", companyId: "C" }] };
+    expect(companyForAgent(scoped, ["zakaznik-b"], "R")).toBe("A");
+    expect(companyForAgent(group, ["default", "zakaznik-b"], "R")).toBe("B");
+    expect(companyForAgent(group, ["linux", "zakaznik-b"], "R")).toBe("B");
+    expect(companyForAgent(group, ["default"], "R")).toBe("R");
+    expect(companyForAgent(group, null, null)).toBeNull();
+    expect(connectionCovers(scoped, "A")).toBe(true);
+    expect(connectionCovers(scoped, "B")).toBe(false);
+    expect(connectionCovers(group, "C")).toBe(true);
+    expect(connectionCovers(group, "D")).toBe(false);
+    expect(connectionCovers({ companyId: null, groupMap: [] }, "D")).toBe(true);
+  });
+});
+
+describe("sběrač ze serverů (v1.51)", () => {
+  test("vyhodnocení shody serveru", () => {
+    const { evaluateHost, HostInventoryInput } = require("@contix/shared") as typeof import("@contix/shared");
+    const base = HostInventoryInput.parse({ collectedAt: "2026-11-10T10:00:00Z", host: { hostname: "h" }, firewall: { tool: "iptables", rulesHash: "x", savedHash: "x", defaultInput: "drop", ruleCount: 3 } });
+    expect(evaluateHost(base)).toEqual([]);
+    const f = evaluateHost({
+      ...base,
+      sshKeys: [
+        { user: "a", type: "ssh-dss", bits: 1024, fingerprint: "F1", comment: "a@b", options: [] },
+        { user: "a", type: "ssh-rsa", bits: 1024, fingerprint: "F2", comment: "a@b", options: [] },
+        { user: "a", type: "ssh-rsa", bits: 4096, fingerprint: "F3", comment: "a@b", options: [] },
+        { user: "a", type: "ecdsa-sha2-nistp256", bits: 256, fingerprint: "F4", comment: "a@b", options: [] },
+      ],
+      containers: [{ name: "c", image: "i", imageId: null, status: "", privileged: false, user: "0:0", ports: [], project: null }],
+      firewall: { tool: "iptables", rulesHash: "x", savedHash: "x", defaultInput: "accept", ruleCount: 0 },
+    });
+    expect(f.map((x) => `${x.code}:${x.severity}`)).toEqual(["ssh_key_weak:high", "ssh_key_weak:high", "container_root:medium", "fw_default_accept:high"]);
+    expect(evaluateHost({ ...base, firewall: { tool: "none", rulesHash: null, savedHash: null, defaultInput: null, ruleCount: 0 } }).map((x) => x.code)).toEqual(["fw_none"]);
+  });
+});
+
+describe("umístění dat (v1.52)", () => {
+  test("pravidla podle země", () => {
+    const { locationRules } = require("@contix/shared") as typeof import("@contix/shared");
+    const codes = (l: any, o?: any) => locationRules(l, o).map((r) => `${r.code}:${r.level}`);
+    expect(codes({ country: "DE", dataCategories: ["personal"], dpaSigned: true })).toEqual(["gdpr_eu:ok"]);
+    expect(codes({ country: "CH", dataCategories: ["special"], dpaSigned: true })).toEqual(["gdpr_adequacy:ok"]);
+    expect(codes({ country: "BR", dataCategories: ["personal"], dpaSigned: true })).toEqual(["gdpr_adequacy:ok"]);
+    expect(codes({ country: "CA", dataCategories: ["personal"], dpaSigned: true })).toEqual(["gdpr_adequacy:info"]);
+    expect(codes({ country: "IN", dataCategories: ["personal"], transferMechanism: "scc", dpaSigned: true })).toEqual(["gdpr_transfer_safeguards:info"]);
+    expect(codes({ country: "IN", dataCategories: ["personal"], dpaSigned: false })).toEqual(["gdpr_transfer_missing:error", "gdpr_dpa_missing:warning"]);
+    expect(codes({ country: "RU", dataCategories: ["logs"] }, { doraEntity: true })).toEqual(["supply_chain_risk:warning", "dora_third_country:info"]);
+    expect(codes({ country: "US", dataCategories: ["backup"] })).toEqual([]);
+  });
+});
+
+describe("instalátor sběrače (v1.54)", () => {
+  test("platný POSIX sh, token v uvozovkách, bez CA odebere starý soubor", async () => {
+    const { buildCollectorInstaller } = await import("../src/modules/collector/service");
+    const script = "#!/usr/bin/env python3\nprint('ahoj $HOME')\n";
+    const sh = buildCollectorInstaller({ name: "Linux 'A'", url: "https://contix.firma.cz", token: "ctxh_abc'def", script, hostsIp: "", caPem: "", everyHours: 24 });
+    expect(sh).toContain("CONTIX_TOKEN=ctxh_abc'\\''def");
+    expect(sh).toContain("print('ahoj $HOME')");
+    expect(sh).toContain('rm -f "$CAF"');
+    expect(sh).toContain("root $BIN");
+    expect(sh).toMatch(/\$MIN 3 \* \* \* root/);
+    const dir = await import("node:fs/promises").then((f) => f.mkdtemp("/tmp/contix-inst-"));
+    await Bun.write(`${dir}/i.sh`, sh);
+    const r = Bun.spawnSync(["sh", "-n", `${dir}/i.sh`]);
+    expect(r.exitCode).toBe(0);
+    expect(() => buildCollectorInstaller({ name: "x", url: "https://a", token: "t", script: "a\nCONTIX_PY_END\n", hostsIp: "", caPem: "", everyHours: 6 })).toThrow();
+  });
+});
+
+describe("detail serveru (v1.55)", () => {
+  test("změny mezi inventáři a nová pravidla", async () => {
+    const { HostInventoryInput, diffHostInventory, evaluateHost } = await import("@contix/shared");
+    const base = HostInventoryInput.parse({
+      collectedAt: "2026-11-11T10:00:00Z",
+      host: { hostname: "a", os: "Debian 12", kernel: "6.1" },
+      users: [{ name: "jan", uid: 1000, sudo: false }],
+      listening: [{ proto: "tcp", address: "0.0.0.0", port: 22, process: "sshd" }, { proto: "tcp", address: "::", port: 22, process: "sshd" }],
+      firewall: { tool: "nftables", rulesHash: "a", savedHash: "a", defaultInput: "drop", ruleCount: 3 },
+    });
+    expect(diffHostInventory(base, base)).toEqual([]);
+    const next = HostInventoryInput.parse({
+      ...base,
+      host: { ...base.host, kernel: "6.1.2" },
+      users: [{ name: "jan", uid: 1000, sudo: true }, { name: "eva", uid: 1001 }],
+      listening: [{ proto: "tcp", address: "0.0.0.0", port: 22, process: "sshd" }, { proto: "tcp", address: "0.0.0.0", port: 8080, process: "java" }],
+      services: [{ name: "x.service", state: "failed" }],
+      sshd: { permitRootLogin: "yes", passwordAuthentication: false, permitEmptyPasswords: false },
+      system: { rebootRequired: true, updatesPending: 2, securityUpdates: 0, autoUpdates: true },
+    });
+    const ch = diffHostInventory(base, next);
+    expect(ch).toContainEqual({ kind: "user_added", subject: "eva" });
+    expect(ch).toContainEqual({ kind: "sudo_granted", subject: "jan" });
+    expect(ch).toContainEqual({ kind: "port_opened", subject: "tcp/8080 (java)" });
+    expect(ch.some((c) => c.kind === "port_closed")).toBe(false);
+    expect(ch).toContainEqual({ kind: "os_changed", subject: "Debian 12 · 6.1.2" });
+    expect(ch).toContainEqual({ kind: "finding_new", subject: "sshd_root_login|PermitRootLogin yes" });
+    const codes = evaluateHost(next).map((f) => f.code);
+    expect(codes).toEqual(expect.arrayContaining(["sshd_root_login", "updates_pending", "reboot_required", "service_failed"]));
+    expect(codes).not.toContain("sshd_password_auth");
+    expect(codes).not.toContain("no_auto_updates");
+  });
+});
+
+describe("bezpečnostní testy (v1.56)", () => {
+  test("parsery výstupů nástrojů", async () => {
+    const { parseSecTest } = await import("../src/modules/sectests/parsers");
+    const smb = `<nmaprun><host><address addr="10.0.0.9" addrtype="ipv4"/><ports><port protocol="tcp" portid="445"><state state="open"/><service name="microsoft-ds"/></port></ports><hostscript><script id="smb2-security-mode" output="&#xa;  3:1:1: &#xa;    Message signing enabled but not required"/><script id="smb-protocols" output="dialects: NT LM 0.12 (SMBv1) [dangerous, but default] 2:0:2"/></hostscript></host></nmaprun>`;
+    expect(parseSecTest("win.smb", smb).findings.map((f) => f.code).sort()).toEqual(["smb.signing_not_required", "smb.v1"]);
+    const ssh = JSON.stringify({ target: "10.0.0.9:22", banner: { software: "OpenSSH_7.4" }, cves: [{ name: "CVE-2023-38408", cvssv2: 9.8, description: "x" }], kex: [{ algorithm: "diffie-hellman-group1-sha1", notes: { fail: ["using weak hashing algorithm"] } }, { algorithm: "curve25519-sha256", notes: {} }], enc: [], mac: [{ algorithm: "hmac-sha1", notes: { warn: ["using weak hashing algorithm"] } }], key: [] });
+    const s = parseSecTest("ssh.audit", ssh);
+    expect(s.tested).toEqual(["10.0.0.9"]);
+    expect(s.findings.map((f) => [f.code, f.severity])).toEqual([["ssh.cve.CVE-2023-38408", "critical"], ["ssh.kex.diffie-hellman-group1-sha1", "medium"], ["ssh.mac.hmac-sha1", "low"]]);
+    const h = parseSecTest("web.headers", JSON.stringify({ url: "https://web.firma.cz/", status: 200, headers: { Server: "nginx/1.18.0", "X-Content-Type-Options": "nosniff" }, cookies: [{ name: "PHPSESSID", secure: false, httponly: false, samesite: "" }], httpRedirectsToHttps: false }));
+    expect(h.findings.map((f) => f.code).sort()).toEqual(["web.cookie_httponly.PHPSESSID", "web.cookie_secure.PHPSESSID", "web.csp", "web.frame", "web.hsts", "web.no_https_redirect", "web.server_version"]);
+    const nx = "\u001b[1;34mSMB\u001b[0m         10.0.0.9   445    DC01   [*] Windows Server 2019 x64 (name:DC01) (domain:corp) (signing:True) (SMBv1:False)\nSMB         10.0.0.9   445    DC01   [+] corp\\: \nSMB         10.0.0.9   445    DC01   [*] Enumerated shares\nSMB         10.0.0.9   445    DC01   Public          READ            \n";
+    const n = parseSecTest("win.null", nx, "");
+    expect(n.findings.map((f) => [f.code, f.severity])).toEqual([["smb.null_shares", "high"]]);
+    const ld = parseSecTest("win.ldap", "LDAP  10.0.0.9  389  DC01  [*] Windows Server 2019 (name:DC01) (domain:corp) (signing:None) (channel binding:Never)", "");
+    expect(ld.findings.map((f) => f.code)).toEqual(["ldap.signing", "ldap.channel_binding"]);
+    const nk = parseSecTest("web.nikto", JSON.stringify([{ host: "web.firma.cz", port: "443", vulnerabilities: [{ id: "1", method: "GET", url: "/phpmyadmin/", msg: "phpMyAdmin directory found." }, { id: "2", url: "/", msg: "The anti-clickjacking X-Frame-Options header is not present." }] }]));
+    expect(nk.findings.map((f) => [f.severity, f.title])).toEqual([["medium", "phpMyAdmin directory found."]]);
+    expect(parseSecTest("net.ports", "nesmysl").warnings.length).toBe(1);
+  });
+  test("rozsah: CIDR, domény, výjimky a injekce voleb", async () => {
+    const { scopeAllows, parseTarget, parseSecTestAdvice } = await import("@contix/shared");
+    const sc = { targets: ["192.0.2.0/24", "*.firma.cz"], exclusions: ["192.0.2.1"] };
+    expect(scopeAllows(sc, "192.0.2.242")).toBeNull();
+    expect(scopeAllows(sc, "192.0.2.128/25")).toBeNull();
+    expect(scopeAllows(sc, "192.0.2.0/28")).toContain("výjimky");
+    expect(scopeAllows(sc, "https://web.firma.cz/login")).toBeNull();
+    expect(scopeAllows(sc, "firma.cz.evil.com")).toContain("mimo");
+    expect(parseTarget("-sV")).toBeNull();
+    expect(parseTarget("10.0.0.0/8")).toBeNull();
+    expect(parseTarget("https://u:p@web.cz")).toBeNull();
+    expect(parseTarget("https://web.cz:8443/x?y=1")).toMatchObject({ kind: "url", host: "web.cz" });
+    expect(parseSecTestAdvice('{"summary":"a","nextTests":["tls.testssl","rm -rf"],"controlIds":["c1","x"]}', ["c1"])).toMatchObject({ nextTests: ["tls.testssl"], controlIds: ["c1"] });
+  });
+  test("instalátor sondy je platný POSIX sh", async () => {
+    const { buildProbeInstaller } = await import("../src/modules/sectests/service");
+    const sh = buildProbeInstaller({ name: "Kali", url: "https://contix.firma.cz", token: "ctxp_x", script: "print('a')\n", caPem: "-----BEGIN CERTIFICATE-----\nAA\n-----END CERTIFICATE-----" });
+    const dir = await import("node:fs/promises").then((f) => f.mkdtemp("/tmp/contix-probe-"));
+    await Bun.write(`${dir}/i.sh`, sh);
+    expect(Bun.spawnSync(["sh", "-n", `${dir}/i.sh`]).exitCode).toBe(0);
+    expect(sh).toContain("CONTIX_CA=$CAF");
+  });
+});
+
+describe("sady testů (v1.56.1)", () => {
+  test("navazující testy podle služeb a převod cílů", async () => {
+    const { followUpsFromFacts, targetFor, secTestDef } = await import("@contix/shared");
+    const f = followUpsFromFacts([{ host: "10.0.0.5", hostname: null, ports: [{ port: 22, proto: "tcp", service: "ssh", product: "", version: "" }, { port: 8443, proto: "tcp", service: "https-alt", product: "", version: "" }, { port: 80, proto: "tcp", service: "http", product: "", version: "" }, { port: 445, proto: "tcp", service: "microsoft-ds", product: "", version: "" }] }]);
+    expect(f.map((x) => `${x.testId} ${x.target} ${x.ports.join(",")}`).sort()).toEqual(["ssh.audit 10.0.0.5 22", "tls.testssl 10.0.0.5 8443", "web.headers http://10.0.0.5/ ", "web.headers https://10.0.0.5:8443/ ", "web.paths http://10.0.0.5/ ", "web.paths https://10.0.0.5:8443/ ", "win.null 10.0.0.5 445", "win.smb 10.0.0.5 445"]);
+    expect(targetFor(secTestDef("web.headers")!, "web.firma.cz")).toBe("https://web.firma.cz/");
+    expect(targetFor(secTestDef("web.headers")!, "10.0.0.0/24")).toBeNull();
+    expect(targetFor(secTestDef("ssh.audit")!, "https://web.firma.cz:8443/x")).toBe("web.firma.cz");
+  });
+});
+
+describe("rozšířené testy pro Kali (v1.60)", () => {
+  test("parsery skriptů nmap, UDP, citlivých cest a AXFR", async () => {
+    const { parseSecTest } = await import("../src/modules/sectests/parsers");
+    const host = (ports: string) => `<nmaprun><host><address addr="10.0.0.7" addrtype="ipv4"/><ports>${ports}</ports></host></nmaprun>`;
+    const port = (proto: string, n: number, svc: string, scripts = "") => `<port protocol="${proto}" portid="${n}"><state state="open"/><service name="${svc}"/>${scripts}</port>`;
+    const sc = (id: string, out: string) => `<script id="${id}" output="${out}"/>`;
+    expect(parseSecTest("svc.ftp", host(port("tcp", 21, "ftp", sc("ftp-anon", "Anonymous FTP login allowed (FTP code 230)&#xa;drwxrwxrwx pub [WRITEABLE]")))).findings.map((f) => [f.code, f.severity])).toEqual([["ftp.anonymous", "critical"]]);
+    expect(parseSecTest("svc.smtp", host(port("tcp", 25, "smtp", sc("smtp-commands", "mail.firma.cz, PIPELINING, SIZE, 8BITMIME") + sc("smtp-open-relay", "Server is an open relay (16/16 tests)")))).findings.map((f) => f.code).sort()).toEqual(["smtp.no_starttls", "smtp.open_relay"]);
+    const db = parseSecTest("svc.db", host(port("tcp", 3306, "mysql", sc("mysql-empty-password", "root account has empty password")) + port("tcp", 6379, "redis", sc("redis-info", "Version: 6.0.16&#xa;Operating System: Linux")) + port("tcp", 27017, "mongodb", sc("mongodb-info", "MongoDB Build info&#xa;  errmsg = command buildInfo requires authentication"))));
+    expect(db.findings.map((f) => f.code)).toEqual(["db.mysql_empty_password", "db.redis_noauth"]);
+    expect(parseSecTest("svc.nfs", host(port("tcp", 111, "rpcbind", sc("nfs-showmount", "&#xa;  /srv/data *&#xa;  /home 10.0.0.0/24")))).findings.map((f) => f.code)).toEqual(["nfs.world_export"]);
+    expect(parseSecTest("svc.vnc", host(port("tcp", 5900, "vnc", sc("vnc-info", "Protocol version: 3.8&#xa;  Security types: &#xa;    None (1)")))).findings.map((f) => f.code)).toEqual(["vnc.noauth"]);
+    expect(parseSecTest("svc.snmp", host(port("udp", 161, "snmp", sc("snmp-sysdescr", "Linux sw01 5.10")))).findings.map((f) => f.code)).toEqual(["snmp.public"]);
+    expect(parseSecTest("win.rdp", host(port("tcp", 3389, "ms-wbt-server", sc("rdp-enum-encryption", "&#xa;  Security layer&#xa;    CredSSP (NLA): SUCCESS&#xa;    Native RDP: SUCCESS&#xa;    SSL: SUCCESS")))).findings.map((f) => f.code)).toEqual(["rdp.native_allowed"]);
+    expect(parseSecTest("net.udp", host(port("udp", 623, "asf-rmcp") + port("udp", 53, "domain"))).findings.map((f) => [f.code, f.severity])).toEqual([["udp.ipmi", "high"]]);
+    const paths = parseSecTest("web.paths", JSON.stringify({ url: "https://web.firma.cz/", checks: [{ path: "/.git/HEAD", status: 200, size: 23, snippet: "ref: refs/heads/main\n" }, { path: "/.env", status: 200, size: 900, snippet: "<html>Not found</html>" }, { path: "/.well-known/security.txt", status: 404, size: 0, snippet: "" }] }));
+    expect(paths.findings.map((f) => f.code)).toEqual(["path.git", "path.security_txt_missing"]);
+    const axfr = ";; NS ns1.firma.cz\nfirma.cz. 3600 IN SOA ns1.firma.cz. admin.firma.cz. 1 2 3 4 5\nwww.firma.cz. 3600 IN A 192.0.2.1\nvpn.firma.cz. 3600 IN A 192.0.2.2\n;; XFR size: 4 records\n;; NS ns2.firma.cz\n; Transfer failed.\n";
+    expect(parseSecTest("dns.axfr", axfr, "firma.cz").findings.map((f) => f.code)).toEqual(["dns.axfr.ns1.firma.cz"]);
+    expect(parseSecTest("dns.axfr", "x", "").warnings.length).toBe(1);
+  });
+  test("navazující testy pro nové služby", async () => {
+    const { followUpsFromFacts } = await import("@contix/shared");
+    const p = (port: number, proto: string, service: string) => ({ port, proto, service, product: "", version: "" });
+    const f = followUpsFromFacts([{ host: "10.0.0.8", hostname: null, ports: [p(21, "tcp", "ftp"), p(3306, "tcp", "mysql"), p(3389, "tcp", "ms-wbt-server"), p(161, "udp", "snmp")] }]);
+    expect(f.map((x) => x.testId).sort()).toEqual(["svc.db", "svc.ftp", "svc.snmp", "win.rdp"]);
+  });
+});
+
+describe("odpovědnost a eskalace (v1.60)", () => {
+  test("eskalační řetězec, úroveň podle týdnů a funkce garanta", async () => {
+    const { escalationChain, escalationLevel, positionOfUser } = await import("../src/modules/org/hierarchy");
+    const { technicalAssignee } = await import("../src/modules/sectests/tasks");
+    const { daysOverdue } = await import("@contix/shared");
+    const snap = {
+      units: new Map([["root", { companyId: "c1", parentId: null }], ["it", { companyId: "c1", parentId: "root" }], ["srv", { companyId: "c1", parentId: "it" }]]),
+      positions: new Map([
+        ["ceo", { orgUnitId: "root", isManager: true, name: "Ředitel" }],
+        ["cio", { orgUnitId: "it", isManager: true, name: "Vedoucí IT" }],
+        ["lead", { orgUnitId: "srv", isManager: true, name: "Vedoucí serverů" }],
+        ["admin", { orgUnitId: "srv", isManager: false, name: "Správce" }],
+      ]),
+      managersOf: new Map([["root", ["ceo"]], ["it", ["cio"]], ["srv", ["lead"]]]),
+      positionsOfUser: new Map([["u-admin", ["admin"]], ["u-cio", ["cio"]]]),
+    };
+    expect(escalationChain(snap, "admin")).toEqual(["lead", "cio", "ceo"]);
+    expect(escalationChain(snap, "lead")).toEqual(["cio", "ceo"]);
+    expect([0, 6, 7, 13, 14, 40].map((d) => escalationLevel(d, 3))).toEqual([0, 0, 1, 1, 2, 3]);
+    expect(positionOfUser(snap, "u-admin", "c1")).toBe("admin");
+    expect(technicalAssignee(snap, { ownerUserId: "u-cio", technicalOwnerUserId: "u-bez-funkce", technicalDeputyUserId: "u-admin" }, "c1")).toEqual({ userId: "u-bez-funkce", positionId: "admin", via: "technical" });
+    expect(technicalAssignee(snap, { ownerUserId: "u-cio", technicalOwnerUserId: null, technicalDeputyUserId: null }, "c1")).toEqual({ userId: "u-cio", positionId: "cio", via: "business" });
+    expect(technicalAssignee(snap, null, "c1")).toEqual({ userId: null, positionId: null, via: "none" });
+    expect(daysOverdue("2026-11-02", new Date("2026-11-12T10:00:00Z"))).toBe(10);
+    expect(daysOverdue("2026-11-20", new Date("2026-11-12T10:00:00Z"))).toBe(0);
+  });
+});
+
+describe("určení regulace (v1.61)", () => {
+  test("velikost podniku, pravidla přílohy vyhl. 408, návrh z CZ-NACE", async () => {
+    const { enterpriseSize, sizeFromHeadcount, evaluateRegulation, suggestServices, naceMatches, REGULATED_SERVICES, sizeFromInput } = await import("@contix/shared");
+    expect([enterpriseSize(5, 1, 1), enterpriseSize(30, 12, 9), enterpriseSize(30, 12, 12), enterpriseSize(200, 60, 40), enterpriseSize(200, 60, 50), enterpriseSize(300, 1, 1)]).toEqual(["micro", "small", "medium", "medium", "large", "large"]);
+    expect([sizeFromHeadcount(50, 99), sizeFromHeadcount(200, 249), sizeFromHeadcount(10000, null), sizeFromHeadcount(1, 5)]).toEqual(["medium", "medium", "large", "micro"]);
+    expect(sizeFromInput({ staff: 100, turnoverMCzk: 2000, balanceMCzk: null, eurRate: 25, sizeOverride: null })).toEqual({ size: "large", basis: "full" });
+    expect(sizeFromInput({ staff: null, turnoverMCzk: null, balanceMCzk: null, eurRate: null, sizeOverride: null, resSize: "small" })).toEqual({ size: "small", basis: "res" });
+    // 2.1 výroba elektřiny: malý podnik s výrobnou ≥ 100 MW → vyšší
+    expect(evaluateRegulation("small", [{ code: "2.1", conds: { mw100: true } }]).regime).toBe("higher");
+    expect(evaluateRegulation("small", [{ code: "2.1", conds: {} }]).regime).toBe("none");
+    // 16.1 telekomunikace: malý → nižší, střední → vyšší
+    expect([evaluateRegulation("small", [{ code: "16.1", conds: {} }]).regime, evaluateRegulation("medium", [{ code: "16.1", conds: {} }]).regime]).toEqual(["lower", "higher"]);
+    // 9.4 havárie: skupina B jen pro střední / velký
+    expect([evaluateRegulation("medium", [{ code: "9.4", conds: { groupB: true } }]).regime, evaluateRegulation("small", [{ code: "9.4", conds: { groupB: true } }]).regime]).toEqual(["higher", "none"]);
+    // 5.1 teplo: velký bez licence na rozvod není regulovaný, ≥ 50 MW ano
+    expect([evaluateRegulation("large", [{ code: "5.1", conds: {} }]).regime, evaluateRegulation("micro", [{ code: "5.1", conds: { mw50heat: true } }]).regime]).toEqual(["none", "higher"]);
+    // veřejná správa bez velikosti; přednost vyššího režimu
+    expect(evaluateRegulation(null, [{ code: "1.1", conds: { pa_lower: true } }, { code: "18.2", conds: {} }]).regime).toBe("higher");
+    const r = evaluateRegulation(null, [{ code: "7.1", conds: {} }]);
+    expect(r.services[0]).toMatchObject({ regime: null, reason: "není určena velikost podniku" });
+    expect(naceMatches("26300", "26")).toBe(true);
+    expect(naceMatches("620", "62.03")).toBe(false);
+    const sug = suggestServices(["38110", "4941"], "13130", "38110");
+    expect(sug.slice(0, 2).map((x) => x.code)).toEqual(["11.1", "11.2"]);
+    expect(sug.some((x) => x.code === "1.1" && x.via.includes("sektor ESA 13130"))).toBe(true);
+    // katalog: 102 služby podle přílohy, unikátní kódy
+    expect(new Set(REGULATED_SERVICES.map((x) => x.code)).size).toBe(REGULATED_SERVICES.length);
+    expect(REGULATED_SERVICES.length).toBe(102);
+  });
+});
+
+describe("ohlášení NÚKIB (v1.63)", () => {
+  test("změny proti ohlášeným údajům a povinné údaje", async () => {
+    const { registrationChanges, registrationMissing, RegistrationData } = await import("@contix/shared");
+    const base = { data: { ...RegistrationData.parse({}), statutoryBody: "Jan Novák" }, regime: "lower" as const, services: ["16.13"] };
+    const { note: _n, responsiblePositionId: _p, ...data } = base.data;
+    const prev = { ...base, data };
+    expect(registrationChanges(prev, null)).toEqual([]);
+    expect(registrationChanges({ ...prev, data: { ...data, kbName: "Eva" }, services: ["16.13", "7.1"], regime: "higher" }, prev).map((c) => c.field)).toEqual(["kbName", "regime", "services"]);
+    expect(registrationMissing(RegistrationData.parse({}), null)).toEqual(["IČO", "Statutární orgán", "Kontaktní údaje"]);
+  });
+});
+
+describe("vzhled výstupů (v1.59)", () => {
+  test("rozměry PNG a JPEG z hlavičky", async () => {
+    const { imageSize } = await import("../src/modules/branding/service");
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+    expect(imageSize(png)).toEqual({ width: 1, height: 1, mime: "png" });
+    const jpg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x20, 0x00, 0x40, 0x03]);
+    expect(imageSize(jpg)).toEqual({ width: 64, height: 32, mime: "jpeg" });
+    expect(imageSize(Buffer.from("GIF89a"))).toBeNull();
+  });
+  test("tisková stránka bez vzhledu i se vzhledem", async () => {
+    const { printPage } = await import("../src/modules/documents/render");
+    const { withBrand } = await import("../src/modules/branding/service");
+    expect(printPage("T", "<h1>x</h1>")).not.toContain("brandbar");
+    const html = withBrand({ companyName: "Firma <s.r.o.>", logo: null, accent: "#112233", footerText: "Důvěrné", showName: true }, () => printPage("T", "<h1>x</h1>"));
+    expect(html).toContain('<span class="bn">Firma &lt;s.r.o.&gt;</span>');
+    expect(html).toContain('<div class="brandfoot">Důvěrné</div>');
+  });
+});
+
+import { findingPriority, parseFindingPlan, QUALITY_CHECKS, QUALITY_LABELS, QUALITY_META } from "@contix/shared";
+describe("priorita nálezů, plán oprav a kvalita dat (v1.70, ADR-163)", () => {
+  test("priorita: závažnost, internet, kritičnost, po termínu", () => {
+    expect(findingPriority({ severity: "critical" })).toBe(40);
+    expect(findingPriority({ severity: "high", internetFacing: true, criticality: "critical", overdue: true })).toBe(25 + 15 + 12 + 10);
+    expect(findingPriority({ severity: "medium", internetFacing: true })).toBeGreaterThan(findingPriority({ severity: "high" }));
+  });
+  test("plán: jen známé reference, bez duplicit, prázdné kroky pryč", () => {
+    const refs = new Map([
+      ["F1", { key: "sectest:a", title: "A", link: "/a", severity: "high" as const }],
+      ["F2", { key: "host:b", title: "B", link: "/b", severity: "medium" as const }],
+    ]);
+    const p = parseFindingPlan('<think>…</think>{"summary":"S","steps":[{"title":"Krok","refs":["f1","F2","F9"],"why":"W","effort":"huge"},{"title":"Znovu","refs":["F1"]},{"refs":["F2"]}]}', refs);
+    expect(p.summary).toBe("S");
+    expect(p.steps).toHaveLength(1);
+    expect(p.steps[0]).toMatchObject({ title: "Krok", effort: null });
+    expect(p.steps[0]!.items.map((x) => x.key)).toEqual(["sectest:a", "host:b"]);
+    expect(parseFindingPlan("bez JSON", refs)).toEqual({ summary: "bez JSON", steps: [] });
+  });
+  test("kvalita dat: každá kontrola má popisek a metadata", () => {
+    for (const k of QUALITY_CHECKS) {
+      expect(QUALITY_LABELS[k]).toBeTruthy();
+      expect(QUALITY_META[k].perm).toBeTruthy();
+    }
+  });
+});
+
+/* ---------- v1.71 (ADR-164): lhůty nálezů, plán oprav, kvalita ---------- */
+import { FINDING_ESCALATION_DAYS, FINDING_PLAN_DUE_DAYS, FINDING_SLA_DAYS, FindingPlanTasksInput, findingSlaDue, qualityScore, remediationStat as _rs171 } from "@contix/shared";
+import { renderGuarantorDigest as _rgd171 } from "../src/modules/findings/digest";
+describe("v1.71: lhůty nálezů, eskalace, kvalita", () => {
+  test("lhůta podle závažnosti od zjištění", () => {
+    expect(findingSlaDue("2026-01-01T10:00:00Z", "critical")).toBe("2026-01-08");
+    expect(findingSlaDue(new Date("2026-01-01T00:00:00Z"), "low")).toBe("2026-04-01");
+    expect(FINDING_SLA_DAYS.high).toBeLessThan(FINDING_SLA_DAYS.medium);
+    expect(FINDING_ESCALATION_DAYS).toBe(7);
+    expect(FINDING_PLAN_DUE_DAYS.low).toBeLessThan(FINDING_PLAN_DUE_DAYS.high);
+  });
+  test("ukazatel nápravy nese eskalované, výchozí 0", () => {
+    expect(_rs171({ open: 3, overdue: 2, fixed: 0, sumDays: 0, withDue: 0, onTime: 0 }).escalated).toBe(0);
+    expect(_rs171({ open: 3, overdue: 2, escalated: 1, fixed: 0, sumDays: 0, withDue: 0, onTime: 0 }).escalated).toBe(1);
+  });
+  test("úkoly z plánu: 1–20 kroků v rozsahu", () => {
+    expect(FindingPlanTasksInput.safeParse({ steps: [] }).success).toBe(false);
+    expect(FindingPlanTasksInput.safeParse({ steps: [20] }).success).toBe(false);
+    expect(FindingPlanTasksInput.safeParse({ steps: [0, 3] }).success).toBe(true);
+  });
+  test("skóre kvality = podíl kontrol bez nálezu", () => {
+    expect(qualityScore([])).toBeNull();
+    expect(qualityScore([0, 0, 3, 0])).toBe(75);
+  });
+  test("týdenní souhrn: jen oddíly s obsahem, předmět podle hlavního oddílu", () => {
+    const esc = { assetId: "a1", assetName: "Server <A>", companyId: "c", guarantorName: "Tomáš", overdue: 2, daysOverdue: 15, level: 1 };
+    const only = _rgd171({ userId: "u", assets: [], escalated: [esc], gaps: [] }, "https://contix.firma.local");
+    expect(only.subject).toContain("ve vašem týmu");
+    expect(only.html).toContain("Server &lt;A&gt;");
+    expect(only.html).not.toContain("Nálezy na vašich aktivech");
+    expect(only.html).not.toContain("Vaše chybějící údaje");
+    const gaps = _rgd171({ userId: "u", assets: [], escalated: [], gaps: [{ kind: "asset_unrated", label: "Agenda", link: "/assets/x" }] }, "https://contix.firma.local");
+    expect(gaps.subject).toContain("chybějící");
+    expect(gaps.html).toContain("https://contix.firma.local/assets/x");
+    expect(gaps.text).toContain("Agenda");
+    const all = _rgd171({ userId: "u", assets: [{ id: "a", name: "Web", critical: 1, high: 0, medium: 0, overdue: 0 }], escalated: [esc], gaps: [] }, "https://contix.firma.local");
+    expect(all.subject).toContain("na vašich aktivech");
+    expect(all.html).toContain("Nálezy po termínu ve vašem týmu");
+  });
+});
+
+/* ---------- v1.72 (ADR-165): stránkování nálezů, limity požadavku ---------- */
+import { FindingsQuery as _fq172 } from "@contix/shared";
+import { MAX_JSON_BYTES, MAX_UPLOAD_BYTES } from "../src/app";
+describe("v1.72: stránkování a limity", () => {
+  test("limit seznamu nálezů 50–1500, z adresy jako text", () => {
+    expect(_fq172.parse({ limit: "300" }).limit).toBe(300);
+    expect(_fq172.safeParse({ limit: "10" }).success).toBe(false);
+    expect(_fq172.safeParse({ limit: "5000" }).success).toBe(false);
+    expect(_fq172.parse({}).limit).toBeUndefined();
+  });
+  test("limit nahrávání pokryje největší povolený soubor (150 MB), JSON je menší", () => {
+    expect(MAX_UPLOAD_BYTES).toBeGreaterThan(150 * 1024 * 1024);
+    expect(MAX_JSON_BYTES).toBeLessThan(MAX_UPLOAD_BYTES);
+  });
+});
+
+/* ---------- v1.73 (ADR-166): průvodce prvním nastavením ---------- */
+import { PASSWORD_MIN as _pm173, WIZARD_STEPS, temporaryPassword as _tp173 } from "@contix/shared";
+describe("v1.73: průvodce prvním nastavením", () => {
+  test("kroky v pořadí organizace → aktiva", () => {
+    expect(WIZARD_STEPS).toEqual(["organization", "users", "structure", "ranges", "assets"]);
+  });
+  test("dočasné heslo: délka, velké/malé písmeno a číslice, bez zaměnitelných znaků, náhodné", () => {
+    const rnd = (n: number) => crypto.getRandomValues(new Uint8Array(n));
+    const a = _tp173(rnd);
+    expect(a.length).toBeGreaterThanOrEqual(_pm173);
+    expect(/[A-Z]/.test(a) && /[a-z]/.test(a) && /\d/.test(a)).toBe(true);
+    expect(/[0O1lI]/.test(a.slice(0, 13))).toBe(false);
+    expect(_tp173(rnd)).not.toBe(a);
   });
 });

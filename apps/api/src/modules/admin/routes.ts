@@ -388,7 +388,7 @@ export function adminRoutes(deps: { db: Db; config: Config }) {
 
 /** Adresář uživatelů pro výběr vlastníka aktiva apod. (bez citlivých údajů). */
 export function directoryRoutes(db: Db) {
-  return new Hono<AppEnv>().get("/users", requirePerm("assets:read"), async (c) => {
+  return new Hono<AppEnv>().get("/users", requirePerm("assets:read", "access:manage", "projects:write"), async (c) => {
     const rows = await db
       .select({ id: users.id, displayName: users.displayName, email: users.email, jobTitle: users.jobTitle })
       .from(users)

@@ -1,4 +1,5 @@
 import { Tabs, useTab } from "@/components/ui/tabs";
+import { ProcessGuide } from "@/components/processGuide";
 import { askConfirm } from "@/components/ui/overlay";
 import { AiSuggestPanel } from "@/components/ai";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone } from "@/components/ui";
@@ -31,6 +32,7 @@ export function TrustPage() {
   return (
     <>
       <PageHeader title={t("tr.title")} subtitle={t("tr.subtitle")} />
+      <ProcessGuide id="trust" />
       <Tabs label={t("tr.title")} value={tab} onChange={setTab} items={(["questionnaires", "library", "center"] as const).map((x) => ({ key: x, label: t(`tr.tab.${x}`) }))} />
       {tab === "questionnaires" && <QuestionnairesTab />}
       {tab === "library" && <LibraryTab />}

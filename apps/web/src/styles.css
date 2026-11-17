@@ -308,3 +308,66 @@ fieldset {
 select {
   max-width: 100%;
 }
+/* jednotný vzhled výběru (v1.62): bez nativního vzhledu (Safari ignoruje odsazení), vlastní šipka, text se zkrátí */
+select.ctx-select:not([multiple]) {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2364748b' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 1rem 1rem;
+}
+html[data-mode="dark"] select.ctx-select:not([multiple]) {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2394a3b8' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+}
+
+/* ---------- barva horní lišty (v1.45, ADR-142) – pevné odstíny, v tmavém režimu o stupeň tmavší ---------- */
+.topbar-c-slate { background-color: #1f2633; }
+.topbar-c-brand { background-color: color-mix(in oklab, var(--color-brand-600) 92%, black); }
+.topbar-c-teal { background-color: #0f6b63; }
+.topbar-c-green { background-color: #1d7a45; }
+.topbar-c-amber { background-color: #b45309; }
+.topbar-c-red { background-color: #b42323; }
+.topbar-c-violet { background-color: #6b3fc4; }
+:root[data-mode="dark"] [class*="topbar-c-"] { filter: brightness(0.82); }
+.app-topbar.topbar-colored, .app-topbar.topbar-colored .tb-fg { color: #fff; }
+.app-topbar.topbar-colored .tb-muted { color: rgb(255 255 255 / 0.75); }
+.app-topbar.topbar-colored .tb-btn:hover { background-color: rgb(255 255 255 / 0.12); }
+.app-topbar.topbar-colored .tb-field { background-color: rgb(255 255 255 / 0.12); border-color: rgb(255 255 255 / 0.25); color: rgb(255 255 255 / 0.85); }
+.app-topbar.topbar-colored .tb-field:hover { background-color: rgb(255 255 255 / 0.18); }
+.app-topbar.topbar-colored .tb-field kbd { background-color: transparent; border-color: rgb(255 255 255 / 0.3); color: rgb(255 255 255 / 0.8); }
+
+/* přihlášení v duchu loga (v1.77, ADR-170): zaměření polí inkoustem značky místo barvy motivu */
+.auth-ink input:focus,
+.auth-ink select:focus {
+  border-color: var(--color-slate-900);
+  --tw-ring-color: color-mix(in srgb, var(--color-slate-900) 14%, transparent);
+}
+.auth-ink input {
+  border-radius: 0.75rem;
+}
+
+/*
+ * Přístupnost (v1.82, ADR-175): tlumený text „slate-400“ na bílé měl kontrast 2,6 : 1 (WCAG AA žádá 4,5 : 1).
+ * Text se vykreslí o stupeň výraznější (slate-500: ve světlém režimu ≥ 4,6 : 1 na bílé i slate-50, v tmavém ≥ 6 : 1);
+ * ohraničení, pozadí a zástupný text polí zůstávají. Odkazy brand-600 v tmavém režimu světlejším odstínem.
+ */
+.text-slate-400 {
+  color: var(--color-slate-500);
+}
+:root[data-mode="dark"] .text-brand-600 {
+  color: var(--color-brand-700);
+}
+/* aktivní podsekce (!text-white) a tlačítko „nebezpečné“ v tmavém režimu */
+/* !important ve vrstvě utilities má přednost před nevrstveným – pravidlo proto musí být ve stejné vrstvě */
+@layer utilities {
+  :root[data-mode="dark"] .\!text-white {
+    color: #fff !important;
+  }
+}
+:root[data-mode="dark"] .text-red-600 {
+  color: oklch(0.72 0.17 25);
+}

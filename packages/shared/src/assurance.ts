@@ -9,7 +9,8 @@ import { FrameworkIdSchema } from "./frameworks";
  * – testy návrhu (design / Type I) a provozní účinnosti (operating / Type II) se vzorky a výjimkami
  * ============================================================ */
 
-export const EVIDENCE_KINDS = ["document", "record", "screenshot", "export", "config", "report", "link", "other"] as const;
+/** v1.50 (ADR-147): doklady – certifikát, zpráva z penetračního testu, program bug bounty / zveřejnění zranitelností. */
+export const EVIDENCE_KINDS = ["document", "record", "screenshot", "export", "config", "report", "link", "other", "certificate", "pentest", "bug_bounty"] as const;
 export type EvidenceKind = (typeof EVIDENCE_KINDS)[number];
 
 export const TEST_KINDS = ["design", "operating"] as const;
@@ -41,6 +42,9 @@ export const ASSURANCE_LABELS = {
     report: "Zpráva / report",
     link: "Odkaz",
     other: "Jiné",
+    certificate: "Certifikát (ISO 27001, ISO 9001, TISAX…)",
+    pentest: "Zpráva z penetračního testu",
+    bug_bounty: "Bug bounty / zveřejňování zranitelností",
   } satisfies Record<EvidenceKind, string>,
   testKind: {
     design: "Test návrhu (existence, Type I)",

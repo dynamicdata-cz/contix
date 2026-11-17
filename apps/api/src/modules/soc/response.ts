@@ -19,6 +19,7 @@ import {
   type SocActionStatus,
   type SocAiTriage,
   type SocResponseSettings,
+  connectionCovers,
 } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, desc, eq, gte, inArray, sql, type SQL } from "drizzle-orm";
@@ -33,7 +34,7 @@ import { audit, type AppEnv } from "../../auth/service";
 import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
 import { alertSuggestions, appSettings, incidents, socActions, socCases, socIocs, users } from "../../db/schema";
-import { getWazuhConfig } from "../connectors/config";
+import { listWazuh } from "../connections/wazuh";
 import type { FetchLike } from "../discovery/connectors/wazuh";
 import { sendSocNotices, type Mailer, type SocNotice, type TeamsPoster } from "../notifications/service";
 import { effLevelSql } from "./exposure";
@@ -99,13 +100,24 @@ export async function notifyNewAlerts(d: Deps, now = new Date()) {
 /* ---------- Wazuh Active Response ---------- */
 
 /** Blokace IP na agentech přes Wazuh Server API (PUT /active-response). Vrací text výsledku; chyba = výjimka. */
-export async function wazuhBlockIp(db: Db, config: Config, ip: string, agentIds: string[], fetchImpl: FetchLike = fetch as FetchLike): Promise<string> {
+export async function wazuhBlockIp(
+  db: Db,
+  config: Config,
+  ip: string,
+  agentIds: string[],
+  fetchImpl: FetchLike = fetch as FetchLike,
+  /** Wazuh agentů: připojení alertu, jinak první připojení pokrývající společnost (ADR-146). */
+  where: { connectionId?: string | null; companyId?: string | null } = {},
+): Promise<string> {
   const st = await loadStored(db);
   if (!st.activeResponseEnabled) throw new Error("Blokace přes Wazuh Active Response je vypnutá (SOC → Reakce).");
-  const password = st.wazuhPasswordEnc ? decrypt(st.wazuhPasswordEnc, appSecret(config)) : null;
-  if (!st.wazuhUser || !password) throw new Error("Chybí účet Wazuh API pro Active Response (SOC → Reakce).");
-  const w = await getWazuhConfig(db, config);
-  if (!w.url) throw new Error("Není nastavena adresa Wazuh Server API (Administrace → Konektory).");
+  const all = await listWazuh(db, config, { enabledOnly: true });
+  const w = (where.connectionId && all.find((x) => x.id === where.connectionId)) || all.find((x) => !where.companyId || connectionCovers(x, where.companyId)) || null;
+  if (!w?.url) throw new Error("Není nastavena adresa Wazuh Server API (Administrace → Konektory).");
+  // účet pro Active Response: u připojení, jinak společný ze SOC → Reakce
+  const arUser = w.arUser || st.wazuhUser;
+  const password = w.arUser ? w.arPassword : st.wazuhPasswordEnc ? decrypt(st.wazuhPasswordEnc, appSecret(config)) : null;
+  if (!arUser || !password) throw new Error("Chybí účet Wazuh API pro Active Response (SOC → Reakce).");
   const base = w.url.replace(/\/+$/, "");
   const tls = w.verifyTls === false ? { rejectUnauthorized: false } : undefined;
   const call = async (url: string, init: RequestInit) => {
@@ -115,7 +127,7 @@ export async function wazuhBlockIp(db: Db, config: Config, ip: string, agentIds:
       throw new Error(`Wazuh API nedostupné: ${(e as Error).message}`);
     }
   };
-  const auth = await call(`${base}/security/user/authenticate`, { method: "POST", headers: { Authorization: `Basic ${btoa(`${st.wazuhUser}:${password}`)}` } });
+  const auth = await call(`${base}/security/user/authenticate`, { method: "POST", headers: { Authorization: `Basic ${btoa(`${arUser}:${password}`)}` } });
   if (auth.status === 401) throw new Error("Wazuh odmítl přihlášení účtu pro Active Response.");
   if (!auth.ok) throw new Error(`Wazuh autentizace: HTTP ${auth.status}`);
   const token = ((await auth.json()) as any)?.data?.token as string;
@@ -213,7 +225,8 @@ export function socResponseRoutes(deps: Deps) {
     let status: SocActionStatus = "done";
     let result: string;
     try {
-      result = await wazuhBlockIp(db, config, r.target, r.agentIds, deps.fetchImpl);
+      const [al] = r.alertId ? await db.select({ connectionId: alertSuggestions.connectionId }).from(alertSuggestions).where(eq(alertSuggestions.id, r.alertId)) : [];
+      result = await wazuhBlockIp(db, config, r.target, r.agentIds, deps.fetchImpl, { connectionId: al?.connectionId ?? null, companyId: r.companyId });
       // zablokovaná IP do seznamu IOC (feed pro firewall)
       const [ex] = await db.select({ id: socIocs.id }).from(socIocs).where(and(eq(socIocs.companyId, r.companyId), eq(socIocs.type, "ip"), eq(socIocs.value, r.target)));
       if (ex) await db.update(socIocs).set({ action: "block", revokedAt: null, updatedAt: new Date() }).where(eq(socIocs.id, ex.id));

@@ -75,7 +75,7 @@ function SettingsForm({ s }: { s: AiSettingsDto }) {
               <button
                 key={p.key}
                 title={p.hint}
-                onClick={() => setF((x) => ({ ...x, provider: p.provider, baseUrl: p.baseUrl }))}
+                onClick={() => setF((x) => ({ ...x, provider: p.provider, baseUrl: p.baseUrl, ...(p.model ? { model: p.model } : {}), ...(p.embeddingModel ? { embeddingModel: p.embeddingModel } : {}) }))}
                 className={`rounded-md border px-2.5 py-1.5 text-xs ${f.baseUrl === p.baseUrl && f.provider === p.provider ? "border-brand-400 bg-brand-50 text-brand-800" : "border-slate-300 text-slate-700 hover:bg-slate-50"}`}
               >
                 {p.label}

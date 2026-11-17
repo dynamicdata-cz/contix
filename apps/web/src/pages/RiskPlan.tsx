@@ -1,3 +1,4 @@
+import { useRiskNav } from "@/components/riskNav";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { useT, lbl } from "@/lib/i18n";
 import { DocumentVersions } from "@/components/documents";
@@ -43,6 +44,7 @@ function exportCsv(rows: TreatmentActionDto[]) {
 }
 
 export function RiskPlanPage() {
+  const riskNav = useRiskNav();
   const t = useT();
   const can = useCan();
   const [status, setStatus] = useState("");
@@ -59,7 +61,7 @@ export function RiskPlanPage() {
           {t("rsk.rizika")}
         </Link>
       </div>
-      <PageHeader badge={<FrameworkBadge />}
+      <PageHeader nav={riskNav} badge={<FrameworkBadge />}
         title={t("rsk.planZvladaniRizik")}
         subtitle={t("rsk.8Odst1PismG2")}
         actions={
@@ -76,7 +78,7 @@ export function RiskPlanPage() {
       </div>
       <Card className="overflow-hidden">
         <div className="flex gap-3 border-b border-slate-100 p-4">
-          <Select className="w-48" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <Select className="w-48" value={status} onChange={(e) => setStatus(e.target.value)} aria-label={t("rsk.vsechnyStavy")}>
             <option value="">{t("rsk.vsechnyStavy")}</option>
             {ACTION_STATUSES.map((s) => (
               <option key={s} value={s}>

@@ -1,27 +1,31 @@
 import { legislationStatus } from "../legislation/service";
 import { converterHealth } from "../policies/convert";
-import { BACKUP_MAX_AGE_HOURS, CONTIX_VERSION, backupLevel, type BackupRunDto, type OpsCheck, type SystemStatusDto, type Translate } from "@contix/shared";
+import { BACKUP_MAX_AGE_HOURS, CONTIX_VERSION, RESTORE_TEST_MAX_DAYS, backupLevel, restoreTestLevel, type BackupRunDto, type OpsCheck, type SystemStatusDto, type Translate } from "@contix/shared";
 import { timingSafeEqual } from "node:crypto";
-import { count, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { requirePerm } from "../../auth/middleware";
-import { getSettings, type AppEnv } from "../../auth/service";
+import { currentUser, requirePerm } from "../../auth/middleware";
+import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
 import { aiSuggestions, assets, backupRuns, companies, incidents, policyFiles, docIndexState, identitySources, risks, users } from "../../db/schema";
 import { getAiSettings } from "../ai/service";
-import { getAlertSettings } from "../alerts/routes";
+import { listWazuh } from "../connections/wazuh";
 import { getNotificationSettings } from "../notifications/service";
 import { getCompanies } from "../../auth/scope";
 import { recordIndexStatus } from "../search/records";
 import { socSlaItems } from "../soc/service";
 import { intelStatus } from "../vulnerabilities/intel";
 import { CS_T, tFor } from "../i18n/service";
+import { findBunLock, sbomFromDisk } from "../../lib/sbom";
+import { ApiError } from "../../lib/apiError";
 import { INSTANCE_ID, STARTED_AT, leaseHolder, schedulerState } from "./lease";
 
 /* ============================================================
  * Provoz: stav systému (administrace), evidence záloh, metriky pro Prometheus.
  * ============================================================ */
+
+let sbomCache: string | null = null;
 
 const backupDto = (b: typeof backupRuns.$inferSelect): BackupRunDto => ({
   id: b.id,
@@ -33,6 +37,7 @@ const backupDto = (b: typeof backupRuns.$inferSelect): BackupRunDto => ({
   encrypted: b.encrypted,
   host: b.host,
   message: b.message,
+  kind: b.kind === "restore_test" ? "restore_test" : "backup",
 });
 
 async function dbInfo(db: Db) {
@@ -60,10 +65,10 @@ export async function systemStatus(db: Db, config: Config, t: Translate = CS_T):
     schedulerState(db),
     leaseHolder(db, "scheduler"),
     getNotificationSettings(db),
-    getAlertSettings(db),
+    listWazuh(db, config, { enabledOnly: true }),
     getAiSettings(db),
-    db.select().from(backupRuns).orderBy(desc(backupRuns.startedAt)).limit(1),
-    db.select().from(backupRuns).where(eq(backupRuns.status, "ok")).orderBy(desc(backupRuns.startedAt)).limit(1),
+    db.select().from(backupRuns).where(eq(backupRuns.kind, "backup")).orderBy(desc(backupRuns.startedAt)).limit(1),
+    db.select().from(backupRuns).where(and(eq(backupRuns.kind, "backup"), eq(backupRuns.status, "ok"))).orderBy(desc(backupRuns.startedAt)).limit(1),
     Promise.all([
       db.select({ n: count() }).from(users).where(eq(users.isActive, true)),
       db.select({ n: count() }).from(companies),
@@ -89,6 +94,19 @@ export async function systemStatus(db: Db, config: Config, t: Translate = CS_T):
         : t("srv.ops.backup.last", { at: new Date(lastSuccessfulBackupAt).toLocaleString(t.locale) })
       : t("srv.ops.backup.none", { hours: BACKUP_MAX_AGE_HOURS }),
   });
+  {
+    // test obnovy (restore.sh --test) – v1.48, ADR-145
+    const [rt] = await db.select().from(backupRuns).where(eq(backupRuns.kind, "restore_test")).orderBy(desc(backupRuns.startedAt)).limit(1);
+    const last = rt ? { at: (rt.finishedAt ?? rt.startedAt).toISOString(), ok: rt.status === "ok" } : null;
+    checks.push({
+      key: "restore_test",
+      label: t("srv.ops.restore.label"),
+      level: restoreTestLevel(last, now),
+      detail: !last
+        ? t("srv.ops.restore.none", { days: RESTORE_TEST_MAX_DAYS })
+        : t(last.ok ? "srv.ops.restore.last" : "srv.ops.restore.failed", { at: new Date(last.at).toLocaleString(t.locale), message: rt?.message ?? "", days: RESTORE_TEST_MAX_DAYS }),
+    });
+  }
   const schedAge = sched.lastRunAt ? (now.getTime() - new Date(sched.lastRunAt).getTime()) / 60_000 : null;
   checks.push({
     key: "scheduler",
@@ -104,7 +122,17 @@ export async function systemStatus(db: Db, config: Config, t: Translate = CS_T):
     level: !notif.emailEnabled && !notif.teamsEnabled ? "off" : notif.lastResult?.includes("chyb") ? "warning" : "ok",
     detail: !notif.emailEnabled && !notif.teamsEnabled ? t("srv.ops.off") : (notif.lastResult ?? t("srv.ops.notif.notSent")),
   });
-  checks.push({ key: "alerts", label: t("srv.ops.alerts.label"), level: alerts.alertsEnabled ? "ok" : "off", detail: alerts.alertsEnabled ? (alerts.lastResult ?? t("srv.ops.alerts.notLoaded")) : t("srv.ops.off") });
+  {
+    // alerty z každého Wazuhu se zapnutými alerty (ADR-146)
+    const on = alerts.filter((w) => w.alertsEnabled);
+    const res = (w: (typeof on)[number]) => w.state.alertsLastResult ?? t("srv.ops.alerts.notLoaded");
+    checks.push({
+      key: "alerts",
+      label: t("srv.ops.alerts.label"),
+      level: !on.length ? "off" : on.some((w) => w.state.alertsLastResult?.startsWith("Chyba")) ? "warning" : "ok",
+      detail: !on.length ? t("srv.ops.off") : on.length === 1 ? res(on[0]!) : on.map((w) => `${w.name}: ${res(w)}`).join(" · "),
+    });
+  }
   checks.push({
     key: "ai",
     label: t("srv.ops.ai.label"),
@@ -245,6 +273,14 @@ export function opsRoutes(deps: { db: Db; config: Config }) {
   const { db, config } = deps;
   return new Hono<AppEnv>()
     .get("/status", requirePerm("admin:settings"), async (c) => c.json(await systemStatus(db, config, await tFor(db, c))))
+    // SBOM CONTIXu (CycloneDX 1.6) – podklad pro CRA a dodavatelské dotazníky zákazníků (v1.48, ADR-145)
+    .get("/sbom", requirePerm("admin:settings"), async (c) => {
+      const lock = findBunLock();
+      if (!lock) throw new ApiError(404, "err.ops.noSbom");
+      sbomCache ??= JSON.stringify(sbomFromDisk(lock), null, 2);
+      await audit(db, { c, user: currentUser(c), action: "ops.sbom_downloaded", entityType: "system" });
+      return c.body(sbomCache, 200, { "content-type": "application/vnd.cyclonedx+json", "content-disposition": `attachment; filename="contix-${CONTIX_VERSION}.cdx.json"` });
+    })
     .get("/backups", requirePerm("admin:settings"), async (c) => {
       const rows = await db.select().from(backupRuns).orderBy(desc(backupRuns.startedAt)).limit(60);
       return c.json(rows.map(backupDto));

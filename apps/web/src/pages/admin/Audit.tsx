@@ -72,7 +72,7 @@ export function AdminAuditPage() {
         />
       </div>
       <ErrorBox error={log.error} />
-      <Card className="overflow-x-auto">
+      <Card className="overflow-x-auto" tabIndex={0}>
         <table className="w-full text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>

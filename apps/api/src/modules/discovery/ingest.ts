@@ -1,4 +1,4 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { defaultAssetClass } from "@contix/shared";
 import type { Db } from "../../db/client";
 import { assetSoftware, assetSources, assets } from "../../db/schema";
@@ -20,7 +20,8 @@ export async function ingestDiscovered(db: Db, item: DiscoveredAsset, companyId?
     const [bySource] = await tx
       .select({ assetId: assetSources.assetId })
       .from(assetSources)
-      .where(and(eq(assetSources.sourceType, item.sourceType), eq(assetSources.sourceRef, item.sourceRef)));
+      .where(and(eq(assetSources.sourceType, item.sourceType), eq(assetSources.sourceRef, item.sourceRef), item.connectionId ? eq(assetSources.connectionId, item.connectionId) : isNull(assetSources.connectionId)));
+    const targetCompany = item.companyId ?? companyId;
 
     let assetId = bySource?.assetId;
     let reason = "source";
@@ -44,7 +45,7 @@ export async function ingestDiscovered(db: Db, item: DiscoveredAsset, companyId?
             hostname: assets.hostname,
           })
           .from(assets)
-          .where(or(...conds))
+          .where(item.matchInCompany && targetCompany ? and(eq(assets.companyId, targetCompany), or(...conds)) : or(...conds))
           .limit(20);
         const match = pickMatch(item, candidates);
         if (match && "ambiguous" in match) return { action: "conflict", candidates: match.ambiguous };
@@ -63,7 +64,7 @@ export async function ingestDiscovered(db: Db, item: DiscoveredAsset, companyId?
       const [created] = await tx
         .insert(assets)
         .values({
-          ...(companyId ? { companyId } : {}),
+          ...(targetCompany ? { companyId: targetCompany } : {}),
           name: item.name,
           assetType: item.assetType,
           assetClass: defaultAssetClass(item.assetType),
@@ -87,9 +88,9 @@ export async function ingestDiscovered(db: Db, item: DiscoveredAsset, companyId?
 
     await tx
       .insert(assetSources)
-      .values({ assetId, sourceType: item.sourceType, sourceRef: item.sourceRef, raw: item.raw, lastSyncedAt: now })
+      .values({ assetId, sourceType: item.sourceType, sourceRef: item.sourceRef, connectionId: item.connectionId ?? null, raw: item.raw, lastSyncedAt: now })
       .onConflictDoUpdate({
-        target: [assetSources.sourceType, assetSources.sourceRef],
+        target: [assetSources.sourceType, assetSources.sourceRef, assetSources.connectionId],
         set: { assetId, raw: item.raw, lastSyncedAt: now },
       });
 

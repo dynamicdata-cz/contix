@@ -1,0 +1,1 @@
+ALTER TABLE "cra_products" ADD COLUMN "doc_info" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -1,8 +1,9 @@
 import { TASK_LABELS, actionOverdue, sortActions, taskSourceLink, type ActionItem, type ActionKind, type TaskSource, type TaskStatus, type Translate } from "@contix/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../../db/client";
-import { aiSystems, craProducts, soc2Engagements, alertSuggestions, exercises, infoFeedItems, infoItemReviews, assets, auditFindings, audits, changes, controls, incidents, legalTasks, policies, positions, processes, processingActivities, risks, riskTreatmentActions, suppliers, tasks } from "../../db/schema";
+import { hostFindings, hostInventories, secTestFindings, aiSystems, craProducts, projects, soc2Engagements, alertSuggestions, exercises, infoFeedItems, infoItemReviews, assets, auditFindings, audits, changes, controls, incidents, legalTasks, policies, positions, processes, processingActivities, risks, riskTreatmentActions, suppliers, tasks, users } from "../../db/schema";
 import { CS_T } from "../i18n/service";
+import { hostFindingTitle } from "../collector/findings";
 
 /* Akce a úkoly (ADR-043): sběr z modulů při čtení, persistují se jen samostatné úkoly (`tasks`). */
 
@@ -39,6 +40,10 @@ export async function sourceLabels(db: Db, pairs: { kind: string | null; id: str
   q("ai_system", (ids) => db.select({ id: aiSystems.id, companyId: aiSystems.companyId, c: aiSystems.code, n: aiSystems.name }).from(aiSystems).where(inArray(aiSystems.id, ids)), (r) => code(r.c, r.n));
   q("cra_product", (ids) => db.select({ id: craProducts.id, companyId: craProducts.companyId, c: craProducts.code, n: craProducts.name, v: craProducts.version }).from(craProducts).where(inArray(craProducts.id, ids)), (r) => code(r.c, r.v ? `${r.n} ${r.v}` : r.n));
   q("soc2", (ids) => db.select({ id: soc2Engagements.id, companyId: soc2Engagements.companyId, n: audits.title }).from(soc2Engagements).innerJoin(audits, eq(audits.id, soc2Engagements.auditId)).where(inArray(soc2Engagements.id, ids)), (r) => r.n);
+  q("project", (ids) => db.select({ id: projects.id, companyId: projects.companyId, c: projects.code, n: projects.name }).from(projects).where(inArray(projects.id, ids)), (r) => code(r.c, r.n));
+  // nálezy bezpečnostních testů (v1.60)
+  q("sectest_finding", (ids) => db.select({ id: secTestFindings.id, companyId: secTestFindings.companyId, n: secTestFindings.title, h: secTestFindings.host, p: secTestFindings.port }).from(secTestFindings).where(inArray(secTestFindings.id, ids)), (r) => `${r.n} (${r.h}${r.p ? `:${r.p}` : ""})`.slice(0, 200));
+  q("host_finding", (ids) => db.select({ id: hostFindings.id, companyId: hostFindings.companyId, code: hostFindings.code, s: hostFindings.subject, h: hostInventories.hostname }).from(hostFindings).innerJoin(hostInventories, eq(hostInventories.id, hostFindings.inventoryId)).where(inArray(hostFindings.id, ids)), (r) => `${hostFindingTitle(r.code, r.s)} (${r.h})`.slice(0, 200));
   await Promise.all(jobs);
   return out;
 }
@@ -72,6 +77,7 @@ export async function loadActionItems(db: Db, scope: ActionScope, t: Translate =
             source: kind ? `${t.lbl(TASK_LABELS.source[kind])}${src ? `: ${src.label}` : ""}` : null,
             link: `/actions?task=${r.id}`,
             ownerPositionId: r.ownerPositionId,
+            assigneeUserId: r.assigneeUserId,
             dueDate: r.dueDate,
             status: r.status as TaskStatus,
             priority: r.priority as ActionItem["priority"],
@@ -155,6 +161,12 @@ export async function loadActionItems(db: Db, scope: ActionScope, t: Translate =
   if (posIds.size) {
     const names = new Map((await db.select({ id: positions.id, name: positions.name }).from(positions).where(inArray(positions.id, [...posIds]))).map((p) => [p.id, p.name]));
     for (const a of out) a.ownerName = a.ownerPositionId ? (names.get(a.ownerPositionId) ?? null) : null;
+  }
+  // úkol bez funkčního místa, přidělený přímo osobě (v1.62) – jméno osoby
+  const asg = [...new Set(out.filter((a) => !a.ownerName && a.assigneeUserId).map((a) => a.assigneeUserId!))];
+  if (asg.length) {
+    const names = new Map((await db.select({ id: users.id, name: users.displayName }).from(users).where(inArray(users.id, asg))).map((u) => [u.id, u.name]));
+    for (const a of out) if (!a.ownerName && a.assigneeUserId) a.ownerName = names.get(a.assigneeUserId) ?? null;
   }
   return sortActions(out);
 }

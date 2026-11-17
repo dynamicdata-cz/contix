@@ -2,7 +2,7 @@
  * Výkonnostní test s realistickým objemem dat (před předáním zákazníkovi).
  *   LOAD_DATABASE_URL=postgres://contix:contix@localhost:5432/contix_load bun src/scripts/load-test.ts
  * Databáze (název musí končit na _load) se vytvoří znovu, naplní a změří se odezva hlavních přehledů API.
- * Volitelně LOAD_SCALE=2 (násobek objemu).
+ * Volitelně LOAD_SCALE=2 (násobek objemu). Spojení jako v provozu (JIT vypnutý, `db/client.ts`).
  */
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -27,7 +27,7 @@ await root.unsafe(`drop database if exists "${name}" with (force)`);
 await root.unsafe(`create database "${name}"`);
 await root.end();
 
-const client = postgres(url, { max: 10, onnotice: () => {} });
+const client = postgres(url, { max: 10, onnotice: () => {}, connection: { jit: "off" } });
 const db = drizzle(client, { schema });
 await migrate(db, { migrationsFolder: new URL("../../drizzle", import.meta.url).pathname });
 await ensureSystemRoles(db);
@@ -98,6 +98,23 @@ await chunk(
   (part) => db.insert(schema.policyAcknowledgements).values(part),
   5000,
 );
+// nálezy testů a sběrače (v1.70): třetina serverů s nálezy testů, pětina s inventářem a nálezy konfigurace, úkoly k vysokým
+const [scope] = await db.insert(schema.secTestScopes).values({ name: "Load", targets: ["10.0.0.0/8"], validFrom: "2026-01-01", validTo: "2099-12-31", authorization: "Load test", approvedAt: new Date() }).returning();
+const [run] = await db.insert(schema.secTestRuns).values({ scopeId: scope!.id, testId: "net.ports", status: "done", source: "import", targets: [] }).returning();
+const fsev = ["critical", "high", "medium", "low"] as const;
+const stRows = assetIds.flatMap((a, i) => (i % 3 ? [] : Array.from({ length: 3 }, (_, k) => ({ key: `ld-${i}-${k}`, runId: run!.id, testId: "net.ports", code: `port.${k}`, severity: pick(fsev, i + k), title: `Otevřený port ${k}`, host: `10.${(i >> 16) & 255}.${(i >> 8) & 255}.${i & 255}`, port: 20 + k, assetId: a, status: k === 2 ? "fixed" : "open", fixedAt: k === 2 ? new Date() : null }))));
+await chunk(stRows, (part) => db.insert(schema.secTestFindings).values(part), 2000);
+const [conn] = await db.insert(schema.connections).values({ kind: "collector", name: "Load" }).returning();
+const invIds: { id: string; assetId: string }[] = [];
+await chunk(
+  assetIds.filter((_, i) => i % 5 === 0).map((a, i) => ({ connectionId: conn!.id, assetId: a, hostKey: `ld-${i}`, hostname: `host-ld-${i}`, collectedAt: new Date(), data: {}, findings: [] })),
+  async (part) => invIds.push(...(await db.insert(schema.hostInventories).values(part).returning({ id: schema.hostInventories.id, assetId: schema.hostInventories.assetId })).map((x) => ({ id: x.id, assetId: x.assetId! }))),
+);
+await chunk(
+  invIds.flatMap((v, i) => [{ inventoryId: v.id, assetId: v.assetId, key: `k1-${i}`, code: "uid0_user", severity: "high", subject: "svc" }, { inventoryId: v.id, assetId: v.assetId, key: `k2-${i}`, code: "fw_not_persistent", severity: "medium", subject: null }]),
+  (part) => db.insert(schema.hostFindings).values(part),
+  2000,
+);
 console.log(`Data: ${N.users} uživatelů, ${N.assets} aktiv, ${N.assets * N.vulnsPerAsset} zranitelností, ${N.risks} rizik, ${N.policies} dokumentů – ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 
 // měření
@@ -142,6 +159,21 @@ const endpoints = [
   "/api/exceptions",
   "/api/actions",
   "/api/soc/hosts",
+  "/api/guides",
+  "/api/guides/risks",
+  "/api/guides/policies",
+  "/api/guides/audit",
+  "/api/findings",
+  "/api/findings?who=mine",
+  "/api/findings/remediation",
+  "/api/reports/management",
+  "/api/quality",
+  "/api/findings?limit=300",
+  "/api/findings?status=all",
+  "/api/findings?source=vulnerability",
+  "/api/findings/escalations",
+  "/api/findings/plan",
+  "/api/trends",
 ];
 console.log("\nEndpoint                          stav   1. dotaz   2. dotaz   velikost");
 for (const e of endpoints) {

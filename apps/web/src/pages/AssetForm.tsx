@@ -1,6 +1,9 @@
+import { SuggestInput } from "@/components/combobox";
+import { UnitSelect, UserSelect } from "@/components/pickers";
+import { TagInput } from "@/components/tags";
 import { useFormGuard } from "@/lib/unsaved";
 import { useT } from "@/lib/i18n";
-import { Button, Card, CardHeader, Checkbox, ErrorBox, Field, Input, PageHeader, Select, Textarea } from "@/components/ui";
+import { Button, Card, FormSection, CardHeader, Checkbox, ErrorBox, Field, Input, PageHeader, Select, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
 import {
   ASSET_CLASSES,
@@ -23,9 +26,9 @@ type FormState = Record<string, string>;
 
 const EMPTY: FormState = {
   name: "", assetType: "server", description: "", hostname: "", fqdn: "", ipAddresses: "", macAddresses: "",
-  osName: "", osVersion: "", manufacturer: "", model: "", serialNumber: "", location: "", ownerName: "",
+  osName: "", osVersion: "", manufacturer: "", model: "", serialNumber: "", location: "", ownerName: "", ownerUnitId: "",
   criticality: "medium", confidentiality: "", integrity: "", availability: "", lifecycleStatus: "active",
-  environment: "", tags: "", assetClass: "", ownerUserId: "", redundant: "false", internetFacing: "false",
+  environment: "", tags: "", assetClass: "", ownerUserId: "", technicalOwnerUserId: "", technicalDeputyUserId: "", redundant: "false", internetFacing: "false",
 };
 
 const toForm = (a: AssetDto): FormState => ({
@@ -54,7 +57,10 @@ function toPayload(f: FormState) {
     serialNumber: strOrNull(f.serialNumber!),
     location: strOrNull(f.location!),
     ownerName: strOrNull(f.ownerName!),
+    ownerUnitId: f.ownerUnitId || null,
     ownerUserId: f.ownerUserId || null,
+    technicalOwnerUserId: f.technicalOwnerUserId || null,
+    technicalDeputyUserId: f.technicalDeputyUserId || null,
     assetClass: f.assetClass || undefined,
     criticality: f.criticality,
     confidentiality: numOrNull(f.confidentiality!),
@@ -77,7 +83,6 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
   const [f, setF] = useState<FormState>(EMPTY);
   const [validation, setValidation] = useState<string | null>(null);
   const can = useCan();
-  const directory = useQuery({ queryKey: ["directory"], queryFn: api.directory.users });
 
   const existing = useQuery({
     queryKey: ["asset", params.assetId],
@@ -88,12 +93,15 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
     if (existing.data) setF(toForm(existing.data));
   }, [existing.data]);
 
+  const locations = useQuery({ queryKey: ["assets", "locations"], queryFn: api.assets.locations, staleTime: 60_000 });
   const save = useMutation({
     mutationFn: (payload: ReturnType<typeof toPayload>) =>
       mode === "create" ? api.assets.create(payload) : api.assets.update(params.assetId!, payload),
     onSuccess: (a) => {
       qc.invalidateQueries({ queryKey: ["assets"] });
       qc.invalidateQueries({ queryKey: ["asset", a.id] });
+      // nové štítky z formuláře jsou v katalogu (v1.74)
+      qc.invalidateQueries({ queryKey: ["tags"] });
       navigate({ to: "/assets/$assetId", params: { assetId: a.id } });
     },
   });
@@ -194,55 +202,66 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
 
         <Card>
           <CardHeader title={t("ast.rizeniGrc")} />
-          <div className="grid gap-4 p-5 sm:grid-cols-3">
-            <Field label={t("ast.garantVlastnikAktiva")} className="sm:col-span-2" hint={can("assets:write") ? undefined : t("ast.vlastnikaMeniSpravceAktiv")}>
-              <Select {...bind("ownerUserId")} disabled={!can("assets:write")}>
-                <option value="">{t("ast.neprirazen")}</option>
-                {directory.data?.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.displayName}
-                    {u.jobTitle ? ` (${u.jobTitle})` : ""}
-                  </option>
+          <div className="divide-y divide-slate-100">
+            <FormSection title={t("ast.sec.responsibility")}>
+              <div className="grid gap-4 sm:grid-cols-3">
+                {(
+                  [
+                    ["ownerUserId", "ast.garantVlastnikAktiva", "ast.own.businessHint"],
+                    ["technicalOwnerUserId", "ast.own.tech", "ast.own.techHint"],
+                    ["technicalDeputyUserId", "ast.own.deputy", "ast.own.deputyHint"],
+                  ] as const
+                ).map(([k, label, hint]) => (
+                  <Field key={k} label={t(label)} hint={can("assets:write") ? t(hint) : t("ast.vlastnikaMeniSpravceAktiv")}>
+                    <UserSelect value={f[k] || null} onChange={(v) => setF((x) => ({ ...x, [k]: v ?? "" }))} disabled={!can("assets:write")} ariaLabel={t(label)} emptyLabel={t("ast.neprirazen")} />
+                  </Field>
                 ))}
-              </Select>
-            </Field>
-            <Field label={t("ast.kriticnost")}>
-              <Select {...bind("criticality")}>
-                {CRITICALITIES.map((tx) => (
-                  <option key={tx} value={tx}>
-                    {t.lbl(LABELS.criticality[tx])}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label={t("ast.duvernost")}>{ciaSelect("confidentiality")}</Field>
-            <Field label={t("ast.integrita")}>{ciaSelect("integrity")}</Field>
-            <Field label={t("ast.dostupnost")}>{ciaSelect("availability")}</Field>
-            <Field label={t("ast.odpovednyUtvarSpravceText")} className="sm:col-span-3" hint={t("ast.naprItProvozPokudOdpovedna")}>
-              <Input {...bind("ownerName")} />
-            </Field>
-            <Field label={t("ast.umisteni")} className="sm:col-span-2">
-              <Input {...bind("location")} />
-            </Field>
-            <Field label={t("ast.prostredi")}>
-              <Select {...bind("environment")}>
-                <option value="">—</option>
-                {ENVIRONMENTS.map((tx) => (
-                  <option key={tx} value={tx}>
-                    {t.lbl(LABELS.environment[tx])}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <div className="sm:col-span-3">
-              <Checkbox checked={f.redundant === "true"} onChange={(v) => setF({ ...f, redundant: v ? "true" : "false" })} label={t("res.redundant")} hint={t("res.redundantHint")} />
-            </div>
-            <div className="sm:col-span-3">
-              <Checkbox checked={f.internetFacing === "true"} onChange={(v) => setF({ ...f, internetFacing: v ? "true" : "false" })} label={t("vs.internetFacing")} hint={t("vs.internetFacingHint")} />
-            </div>
-            <Field label={t("ast.stitky")} hint={t("ast.oddelteCarkou")} className="sm:col-span-3">
-              <Input {...bind("tags")} placeholder={t("ast.nis2Gdpr")} />
-            </Field>
+                <Field label={t("ast.ownerUnit")} className="sm:col-span-3" hint={f.ownerName && !f.ownerUnitId ? t("ast.ownerUnitLegacy", { text: f.ownerName }) : t("ast.ownerUnitHint")}>
+                  <UnitSelect value={f.ownerUnitId || null} onChange={(v) => setF((x) => ({ ...x, ownerUnitId: v ?? "" }))} companyId={existing.data?.companyId} ariaLabel={t("ast.ownerUnit")} emptyLabel={t("ast.ownerUnitNone")} />
+                </Field>
+              </div>
+            </FormSection>
+            <FormSection title={t("ast.sec.classification")}>
+              <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
+                <Field label={t("ast.kriticnost")}>
+                  <Select {...bind("criticality")}>
+                    {CRITICALITIES.map((tx) => (
+                      <option key={tx} value={tx}>
+                        {t.lbl(LABELS.criticality[tx])}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label={t("ast.duvernost")}>{ciaSelect("confidentiality")}</Field>
+                <Field label={t("ast.integrita")}>{ciaSelect("integrity")}</Field>
+                <Field label={t("ast.dostupnost")}>{ciaSelect("availability")}</Field>
+              </div>
+            </FormSection>
+            <FormSection title={t("ast.sec.operation")}>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <Field label={t("ast.umisteni")} className="sm:col-span-2">
+                  {/* v1.76: nabídka dosavadních umístění a míst z map a půdorysů – jednotné názvy lokalit */}
+                  <SuggestInput value={f.location ?? ""} onChange={(v) => setF((x) => ({ ...x, location: v }))} suggestions={(locations.data ?? []).map((l) => ({ id: l, label: l }))} ariaLabel={t("ast.umisteni")} />
+                </Field>
+                <Field label={t("ast.prostredi")}>
+                  <Select {...bind("environment")}>
+                    <option value="">—</option>
+                    {ENVIRONMENTS.map((tx) => (
+                      <option key={tx} value={tx}>
+                        {t.lbl(LABELS.environment[tx])}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <div className="space-y-3 sm:col-span-3">
+                  <Checkbox checked={f.redundant === "true"} onChange={(v) => setF({ ...f, redundant: v ? "true" : "false" })} label={t("res.redundant")} hint={t("res.redundantHint")} />
+                  <Checkbox checked={f.internetFacing === "true"} onChange={(v) => setF({ ...f, internetFacing: v ? "true" : "false" })} label={t("vs.internetFacing")} hint={t("vs.internetFacingHint")} />
+                </div>
+                <Field label={t("ast.stitky")} hint={t("ast.tagsHint")} className="sm:col-span-3">
+                  <TagInput value={list(f.tags!)} onChange={(v) => setF((x) => ({ ...x, tags: v.join(", ") }))} ariaLabel={t("ast.stitky")} />
+                </Field>
+              </div>
+            </FormSection>
           </div>
         </Card>
 

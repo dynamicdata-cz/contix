@@ -1,4 +1,4 @@
-import { recordPath, type Permission, type QuickHit, type QuickKind } from "@contix/shared";
+import { recordPath, type Permission, type QuickHit, type QuickKind, type RecordPathKind } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
@@ -13,7 +13,7 @@ import type { Db } from "../../db/client";
  * Jen evidence, které uživatel smí číst (oprávnění ve společnosti, zapnutý modul); LIKE vždy escapovaný.
  * ============================================================ */
 
-type Def = { kind: Exclude<QuickKind, "cve">; table: string; label: string; match: string[]; sub?: string; perm: Permission; module: string };
+type Def = { kind: Exclude<QuickKind, "cve">; table: string; label: string; match: string[]; sub?: string; perm: Permission; module: string; link?: (id: string) => string };
 const DEFS: Def[] = [
   { kind: "asset", table: "assets", label: "name", match: ["name", "hostname", "fqdn", "array_to_string(ip_addresses, ' ')"], sub: "coalesce(hostname, fqdn)", perm: "assets:read", module: "assets" },
   { kind: "process", table: "processes", label: "coalesce(code || ' ', '') || name", match: ["name", "code"], perm: "processes:read", module: "processes" },
@@ -28,6 +28,9 @@ const DEFS: Def[] = [
   { kind: "ai_system", table: "ai_systems", label: "coalesce(code || ' ', '') || name", match: ["name", "code"], perm: "aiact:read", module: "aiact" },
   { kind: "activity", table: "processing_activities", label: "coalesce(code || ' ', '') || name", match: ["name", "code"], perm: "gdpr:read", module: "gdpr" },
   { kind: "plan", table: "continuity_plans", label: "coalesce(code || ' ', '') || name", match: ["name", "code"], perm: "bia:read", module: "continuity" },
+  // v1.66: nálezy testů a servery ze sběrače
+  { kind: "sectest_finding", table: "sec_test_findings", label: "title", match: ["title", "host"], sub: "host || coalesce(':' || port, '')", perm: "sectests:read", module: "sectests", link: (id) => `/security-tests?finding=${id}` },
+  { kind: "server", table: "host_inventories", label: "hostname", match: ["hostname", "host_key"], perm: "assets:read", module: "assets", link: (id) => `/discovery/hosts/${id}` },
 ];
 const PERMS = [...new Set(DEFS.map((d) => d.perm))];
 const CVE_RE = /^CVE-\d{4}-\d{4,}$/i;
@@ -54,7 +57,10 @@ export async function quickSearch(db: Db, c: Parameters<typeof scopeOf>[0], q: s
   if (!parts.length) return out;
   const rows = (await db.execute<{ kind: Exclude<QuickKind, "cve">; id: string; label: string; sub: string | null; rank: number }>(sql.join(parts, sql` union all `))) as unknown as { kind: Exclude<QuickKind, "cve">; id: string; label: string; sub: string | null; rank: number }[];
   rows.sort((a, b) => a.rank - b.rank || DEFS.findIndex((d) => d.kind === a.kind) - DEFS.findIndex((d) => d.kind === b.kind));
-  for (const r of rows) out.push({ kind: r.kind, id: r.id, label: r.label, sub: r.sub, link: recordPath(r.kind, r.id) });
+  for (const r of rows) {
+    const d = DEFS.find((x) => x.kind === r.kind)!;
+    out.push({ kind: r.kind, id: r.id, label: r.label, sub: r.sub, link: d.link ? d.link(r.id) : recordPath(r.kind as RecordPathKind, r.id) });
+  }
   return out;
 }
 

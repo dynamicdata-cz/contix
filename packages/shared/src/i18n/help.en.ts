@@ -2,6 +2,36 @@ import type { HelpTranslation } from "./index";
 
 /** Anglická nápověda (pilot ADR-036): témata podle ID z HELP_TOPICS. Chybějící téma se zobrazí česky. */
 export const HELP_EN: Record<string, HelpTranslation> = {
+  "owner-guide": {
+    title: "Guide for unit heads and owners",
+    summary: "What you are responsible for as a unit head, owner or technical guarantor, what CONTIX sends you and how to handle it quickly.",
+    body: `
+## What you are responsible for
+CONTIX assigns responsibility to **positions** (unit head, process owner, risk owner) and, for assets, also to **people**: the **business owner** is responsible for the asset as a whole (assessment, risk acceptance, audit findings), the **technical guarantor** and their **deputy** for technical findings – vulnerabilities and security test results. You see what belongs to you in **My work** and at your unit in **Organization**.
+
+## My work
+The **My work** page (also the bell in the top bar) summarises everything you need to do: tasks with a due date for your positions and for you personally, documents to acknowledge and training. Open a task, resolve it and mark it done – for a task from a finding it is enough to fix the issue, the next test or scan closes it by itself. If a task does not belong to your position, add a note and hand it to the administrator (they change the responsible position or person).
+
+## What you receive by e-mail
+- A **daily overview** of tasks approaching or past their due date (if the administrator turned it on).
+- A **weekly summary** every Monday: open findings on assets where you are the guarantor or owner, with the fix deadline; overdue findings from your unit (**escalation**) and data missing on your records. The summary is only sent when there is something in it.
+
+## Deadlines and escalation
+A finding without a task has a fix deadline by severity: critical 7 days, high 14, medium 30, low 90 days from discovery. A week after the deadline the finding appears in the summary of the **guarantor's head** and each further week one level higher in the structure. Overdue tasks are visible to the task owner's superiors. The fastest way to stop an escalation: fix it, or in the finding detail accept the risk with a justification or mark it as a false positive.
+
+## Unit overview
+In **Organization** select your unit: it shows the number of assets, processes, open risks, controls, tasks (with the number overdue), active suppliers and valid documents – **including subordinate units**. Click to open the list filtered by the unit. The same *Unit* filter is available directly in the lists of assets, processes, risks, controls, suppliers and documents.
+
+## Missing data
+**Data quality** (Management menu) shows records without an owner, guarantor, assessment or link. If it concerns your records, fill them in – in the detail, or in bulk: in the list of assets, risks, controls, processes or suppliers tick the records and in the bar at the bottom set the unit, owner, guarantor, criticality, tags and other fields at once. Records you are not permitted to change are skipped with a reason.
+
+## When people change
+If someone leaves a position, simply change the **holder** of the position in Organization – tasks, approvals and notifications pass to the successor. Change the asset guarantor or owner in the asset card (or in bulk); open tasks from findings move automatically.
+
+## On a phone
+CONTIX also works on a phone: open the menu with the ☰ button, tables scroll sideways inside the card. Open a task from an e-mail via the link, resolve it and mark it done without a computer.
+`,
+  },
   start: {
     title: "Getting started with CONTIX",
     summary: "Signing in, the menu, choosing a company and where to find your tasks.",
@@ -16,17 +46,21 @@ Sign in with your company account (the SSO button, if your organization uses it)
 - **Report an event** – when you notice something suspicious (a lost laptop, unusual system behaviour).
 - **Report phishing** – hand a suspicious e-mail over to the security team, ideally as an .eml file (in Outlook, drag the message to the desktop). Do not click links or open attachments.
 - The **Help** button (the question mark at the bottom right) shows procedures for the screen you are on.
-- **Quick search** – press **Ctrl+K** (**⌘K** on a Mac) or use the **Search…** field at the top of the menu: type the name or code of a risk, asset, supplier, control, incident or document, a CVE number or a page name and press Enter to open it. With nothing typed it shows recently opened records; with the AI assistant enabled it also offers to ask a question.
+- **Quick search** – press **Ctrl+K** (**⌘K** on a Mac) or use the **Search…** field in the top bar: type the name or code of a risk, asset, supplier, control, incident or document, a CVE number or a page name and press Enter to open it. With nothing typed it shows recently opened records; with the AI assistant enabled it also offers to ask a question.
 - **List filters** (risks, assets, controls, suppliers) and the selected tab are kept in the page address – they survive returning from a detail and the link can be shared with a colleague. For risks, controls and suppliers you sort by clicking a column header and can save a combination of filters and sorting as a **view** (also shared with colleagues).
 - Before deleting or approving, CONTIX asks in a confirmation window (Esc = cancel). If a form has unsaved changes, it warns you when you leave the page.
 - On a phone, open the menu with the ☰ button at the top left.
+- **Top bar**: company selection on the left, search in the middle, a bell with your task count (opens My work) and the user menu (profile, sign out) on the right.
+- **Favourites**: hover over a menu item and click the star – it is pinned to the Favourites section at the top of the menu (remembered by your browser).
+- **Record detail** (risk, asset, incident, project) shows a row of key facts below the title – owner, status, deadlines, criticality.
+- **Page header** has one main action; less frequent actions are under **More**. Module sections (e.g. for Risks the register, annual assessment, scenarios, risk appetite) are a row of links below the title.
 - **Appearance**: in **My profile → Appearance** choose a colour theme and **light, dark** or **system** mode. The risk, asset and control detail has a fixed header with status and actions, and the content is split into tabs (Overview, Treatment / Tests, Links, Tasks); the selected tab is kept in the page address.
 
 ## Links between records
 Linked records (processes, risks, controls, suppliers, assets) are clickable in a detail and lead straight to their detail. The **Where this record is used** card on an asset, process, risk, control and supplier shows the other direction: which incidents, changes, continuity plans, BIAs, AI systems, processing activities, audits and their findings, supplier reports and questionnaires, treatment actions or CRA products link to the record. You only see records you are permitted to read.
 
 ## Group of companies
-If CONTIX manages several companies, choose the company you are working with at the top of the menu. The "whole group" option shows consolidated overviews; new records are always created in one specific company.
+If CONTIX manages several companies, choose the company you are working with on the left of the top bar. The "whole group" option shows consolidated overviews; new records are always created in one specific company.
 
 ## Notifications
 CONTIX can send you e-mails or Teams messages about approaching deadlines. The summary is in **My obligations**; the number next to the menu item shows how many tasks are waiting.
@@ -37,7 +71,7 @@ CONTIX can send you e-mails or Teams messages about approaching deadlines. The s
     summary: "Changing your password, turning on two-factor authentication (MFA) and account details.",
     body: `
 ## My profile
-The link with your name at the bottom left opens **My profile** – sign-in method, last sign-in and account security settings.
+The menu with your name at the top right opens **My profile** – sign-in method, last sign-in and account security settings. Under Appearance you choose the theme, light / dark mode and the **top bar colour**; if the company has set one (administrator in Administration → Companies), its colour applies to everyone.
 
 ## Two-factor authentication (MFA)
 1. Click **Set up MFA**.
@@ -54,13 +88,16 @@ For a local account, enter your current and new password. After the change you a
     summary: "What the tiles on the home screen show and how to get from them to the fix.",
     body: `
 ## Area tiles
-The home **Overview** summarises the status of all enabled areas: assets and vulnerabilities (critical, unsupported OS, red status), risks (above the threshold without treatment, due for reassessment, overdue plan actions), controls and compliance (compliance level, ineffective tests, expired evidence), incidents (open events, overdue reports), audits, documentation, training, continuity, suppliers and GDPR. Click a tile to go to the relevant records.
+The home **Overview** summarises the status of all enabled areas: assets and vulnerabilities (critical, unsupported OS, red status), risks (above the threshold without treatment, due for reassessment, overdue plan actions), controls and compliance (compliance level, ineffective tests, expired evidence), incidents (open events, overdue reports), audits, documentation, training, continuity, suppliers and GDPR. Click a tile to go to the relevant records. Areas are split into **Technical security** (assets, vulnerabilities, incidents, identities, **security tests**, **collector servers**) and **Governance and compliance**; a coloured strip and label show the status (*OK*, *Attention*, *Needs action*) and the section heading shows how many areas need attention. Areas without any data yet are grouped in the **Areas not started yet** card – click to start. The compliance level is shown as a ring with a breakdown of compliant / partially / non-compliant / not assessed.
 
 ## Deadlines and tasks
 The **Deadlines and tasks from all areas** card shows what is overdue or approaching – for the whole organization, not just for you. Your own tasks are in **My obligations**.
 
 ## Indicator trends
-The **Indicator trends** card shows the monthly history of the main figures – compliance level, unacceptable risks, critical vulnerabilities, overdue obligations and exceptions, audit findings. CONTIX stores one snapshot per month and company (the current month is updated continuously, closed months do not change); each indicator shows the change against the previous month with the word improvement / deterioration. The **Table** switch shows the figures by month. The history starts on the day this version was deployed. A more detailed 12-month trend is in the **Management report** (also in print and Word).
+The **Indicator trends** card shows the monthly history of the main figures – compliance level, unacceptable risks, critical vulnerabilities, overdue obligations and exceptions, audit findings. CONTIX stores one snapshot per month and company (the current month is updated continuously, closed months do not change); each indicator shows the change against the previous month with the word improvement / deterioration. The history starts on the day this version was deployed. A more detailed trend is in the **Management report** (also in print and Word).
+
+## Chart format
+Above the charts choose the **type** (line, area, columns, table), the **period** (6, 12 or 24 months) and the **scale** – values, or change since the start of the period (in % for counts, in percentage points for percentage indicators). The **Indicators** button selects which indicators are shown and in which order. **Export** downloads the chart as an image (PNG), a vector (SVG – for presentations) or data (CSV for Excel). Your browser remembers the settings for each card. In the **Management report** the settings of the Indicator trends card are also used in print (chart) and in Word (a chart image per indicator with the min–max range).
 
 ## Suggestions and the group
 **Draft records** counts AI and Wazuh suggestions awaiting review (you find them at the relevant records). With "whole group" selected, the overview shows totals for all companies and the compliance level of each according to its regime.
@@ -74,10 +111,14 @@ The **Indicator trends** card shows the monthly history of the main figures – 
 The **My work** page has tabs: **My obligations** (below), **Tasks and actions** (the actions and tasks overview filtered to Mine by default) and **Team** (deadlines within your permissions).
 - **Documents to acknowledge** – new or changed documents that concern your role. Open the document, read it and confirm that you have read it.
 - **My training** – courses you need to complete, with a due date.
-- **Tasks of my positions** – deadlines your position is responsible for (document review, risk treatment plan action, corrective action from an audit, document approval…).
+- **Queue** – everything you need to do, ordered by urgency (overdue, today, soon; later on request): deadlines of your positions, access requests and project changes to approve, project tasks. Filters at the top (To approve, Overdue, This week, Documents and training) show counts. Access requests and project changes can be **approved** or **rejected** (with a reason) right in the row; mark a task with **Done**. When an action cannot be done from the queue (e.g. an SoD conflict needs a justification), the detail opens. Keys: **J / K** move, **Enter** open, **A** the row's main action.
+- The **Overview** has a **For you today** card with the five most urgent queue items.
 
 ## How to complete a task
 Click an item – it opens exactly where the task is done. A task disappears from the overview by itself once it is done (acknowledgement confirmed, document approved, action closed). The colour shows urgency: red is overdue, orange means the deadline is approaching. On the **Tasks and actions** tab, tick several tasks and mark them done or in progress at once.
+
+## Escalation after the deadline
+When a task or other obligation of a subordinate position stays **7 days overdue**, the **unit manager** (a position marked as manager) sees it in the queue and in the e-mail notification; each further week it moves one level up the unit structure to management. The item carries the label **Escalation level n · x days overdue** and the manager only follows it – the original responsible position is expected to complete it. Escalation is derived from the structure in **Organisation**; there is nothing to configure.
 `,
   },
   "docs-read": {
@@ -201,6 +242,9 @@ From **11 September 2026** manufacturers must report **actively exploited vulner
 
 ## Dates
 Reporting from 11 Sep 2026, notified body provisions from 11 Jun 2026, all other obligations from 11 Dec 2027. An approaching end of the support period is tracked by the obligation "End of product support period".
+
+## Manufacturer documents
+A manufacturer's product has a **Manufacturer documents** card: EU declaration of conformity (Annex V), simplified declaration (Annex VI), information and instructions to the user (Annex II – product security information) and a technical documentation overview (Annex VII with fulfilment of the essential requirements). They are generated from the product data and the **document details** (manufacturer address, product identification, signatory, instructions for installation, updates and decommissioning…), in Czech or English, for printing to PDF or as Word. Missing required details are highlighted in the document as a draft. Importers and distributors do not issue declarations – they verify the manufacturer's documents.
 `,
   },
   soc2: {
@@ -259,7 +303,7 @@ Dates follow Regulation (EU) 2026/1744 (Digital Omnibus): prohibitions and AI li
     summary: "News, warnings and vulnerability alerts from the NÚKIB RSS feed, statistics of reported incidents and the National MISP status.",
     body: `
 ## What the page shows
-**NÚKIB information service** (top of the menu, next to Overview) gathers the regulator's information in one place: **news from the RSS** of the main NÚKIB website (and other feeds – the NÚKIB Portal RSS, SK-CERT, BSI), **statistics of reported incidents** from NÚKIB open data and the **National MISP connection status**. CONTIX only downloads the sources (GET) – nothing is sent.
+**NÚKIB information service** (Regulation menu) gathers the regulator's information in one place: **news from the RSS** of the main NÚKIB website (and other feeds – the NÚKIB Portal RSS, SK-CERT, BSI), **statistics of reported incidents** from NÚKIB open data and the **National MISP connection status**. CONTIX only downloads the sources (GET) – nothing is sent.
 
 ## News and warnings
 Items are sorted by title into **warnings**, **vulnerability alerts**, **overviews and reports**, **guidance and recommendations** and other **news**. For an item you record a **review** for the active company – that you have acknowledged the information and what follows from it (e.g. “not applicable”, “updated”, “risk R-12 reassessed”). The obliged entity must consider a **NÚKIB warning** in its risk assessment – unreviewed warnings are shown by the first indicator. Reviews are written to the audit log.
@@ -374,6 +418,9 @@ A document has a retention code (A archival records, S disposal, V selection) an
     title: "Organization: units and positions",
     summary: "Organizational structure, positions, who holds them and security roles.",
     body: `
+## The unit as a hub
+The selected unit links to what belongs to it – **including sub-units**: assets (responsible unit), processes (process unit or owner from the unit), open risks and controls owned by the unit's positions, and open tasks of the unit's positions and their holders (with the overdue count). A link opens the list filtered by the unit; the same *Unit* filter is in the asset, process, risk and control lists. A unit can also be created directly from the unit picker in a form (type the name → *Create*) – place it in the structure afterwards.
+
 ## Why positions
 Responsibility in CONTIX (process and risk owner, document owner and approver, RACI, responsibility for actions) is assigned to a **position**, not to a specific person. When staff change, it is enough to change who holds the position – tasks, notifications and roles in the document workflow pass to the new holder.
 
@@ -418,6 +465,15 @@ Click a CVE identifier (in the vulnerability list, on an asset or in the fix pla
 
 ## Primary and supporting assets
 Primary assets are information and services (what we protect); supporting assets are the servers, applications, networks and devices they run on. Links between them determine how confidentiality, integrity and availability ratings are inherited.
+
+## Responsible unit, tags and pickers
+The **responsible unit** is picked from the organisational structure (earlier free text stays visible until you pick a unit; on import the text is matched to a unit with the same name). The asset list can be filtered by unit – including sub-units – and Organisation links each unit to its assets. **Tags** come from the shared catalogue (the same as for risks, processes and suppliers): in the form pick an existing one or type a new one, on the detail add or remove them directly, in the list they are shown next to the name and clicking one filters by it. All relation pickers (units, positions, people, assets, controls…) open on click and filter as you type – ignoring diacritics, with groups and a secondary detail (unit path, position holder, hostname). The asset Governance tab now also shows certificates (TLS), entitlements from access requests and open risk proposals from scenarios.
+
+## Bulk edits
+In the asset list (as well as risks and controls) tick records – or *Select all on page* – and in the bar at the bottom choose what to change: responsible unit, owner, technical owner and deputy, criticality, lifecycle, environment, or add / remove tags. For risks the owner (position) and tags, for controls the owner, implementation status and tags (the *not applicable* status only on the detail with a justification). For processes (*List* view) the owner, unit, criticality, type and tags; for suppliers the responsible unit, significance, data outside the Czech Republic, relationship status, review interval and date, and tags. In **Tasks** the status, due date, owner, priority and responsible person in bulk. Records from another company, without permission or with a unit / position of another company are skipped and the bar shows why; every change is written to the audit log.
+
+## Business owner and technical guarantor
+An asset has two levels of responsibility. The **business owner** is accountable for the asset as a whole – ratings, acceptance of risks and exceptions, audit findings. The **technical guarantor** (and their **deputy**) handles technical findings: vulnerability fixes and security test tasks. Without a guarantor, technical tasks go to the business owner. Finding tasks go directly to the **person** (the guarantor; the deputy sees them too) plus their position if they have one in **Organisation** – managers see overdue tasks through it (escalation). When the guarantor or owner changes on the asset, open tasks move automatically. The asset administrator sets the owner and guarantor; the guarantor and deputy may edit the asset just like the owner (*edit own assets* permission). When importing assets, use the **Technical guarantor (user e-mail)** column. When a user leaves, hand over their assets and open tasks in **Administration → Users** (user card, *User's responsibilities* section) – finding tasks are reassigned to the new responsible persons. Asset findings from all sources are on the **Findings and tasks** tab.
 
 ## Shared group assets
 In a holding an asset (e.g. a common ERP, data centre or network) may serve several companies. In the asset detail, **Sharing** selects the group companies the asset is shared with: they see it in their asset list (label “shared from …”) and can use it in risks, BIA, processes and controls. The asset still belongs to its owning company – only that company can edit, move or delete it; the others see it read-only.
@@ -497,6 +553,156 @@ A risk assessment should reflect what has happened since it was made. The risk d
 For the Decree methodology, CONTIX suggests raising the threat level (incidents, SOC) or the vulnerability level (vulnerabilities, findings, tests, exceptions). **Apply suggestion** only fills the values into the form – nothing changes by itself. The risk owner then either adjusts the assessment and saves it, or **confirms it without changes** with a justification. Both are saved in the history together with the triggers that led to the decision, and a confirmation also counts as a periodic assessment.
 
 The decision is due within 30 days of the first trigger – the obligation appears in the risk owner's **My obligations**. The risk list can be filtered to risks with triggers, and the ISMS review report lists pending decisions and the number of reassessments in the period.
+`,
+  },
+  "access-requests": {
+    title: "Access requests",
+    summary: "Requesting an entitlement (AD group, application, role), approval by the manager and the entitlement owner, fulfilment by an administrator and a record of granted access.",
+    body: `
+## Submitting a request
+Use **New request** to ask for an entitlement to be granted or removed. You can request access for yourself and your direct reports (based on the manager in the people records); an access administrator for anyone. Fill in a justification and, for time-limited entitlements, an end date. Only one open request is allowed per person and entitlement.
+
+## Approval
+Depending on the entitlement settings, the **manager** approves first (the person's manager who has a CONTIX account with the same e-mail), then the **entitlement owner** (e.g. the application owner). When the manager submits the request, their step is approved automatically. Neither the requester nor the person concerned can approve; if an approver is missing, an access administrator decides and can also hand the step over to another user. Rejection requires a reason. Requests waiting for you appear in **My work** and in the summary e-mail.
+
+## Fulfilment and records
+An access administrator fulfils an approved request (sets up the access in the system – for an AD group its DN is shown) and confirms it, which creates a record in **Granted access**. Nobody can fulfil a request for themselves. Removals need no approval and go straight to fulfilment.
+
+## Leavers and expiry
+Once a day (or with the Check leavers and expiry button) a removal request is created for each grant past its end date and for all access of people past their end date; their unapproved requests are cancelled.
+
+## People and HR import
+The access administrator keeps the people records (employees, contractors) manually or by importing CSV / XLSX from the HR system (e.g. a PERM export): personal number, first and last name, e-mail, department, job title, manager (personal number or e-mail), start and end date, employment type (agreements such as DPP and DPČ are marked as contractors). The preview shows new people, changes, errors and leavers; people are matched by personal number, otherwise e-mail, and the import never deletes anyone.
+
+## Entitlement catalogue
+For each entitlement you set the type, owner, whether the manager and the owner approve, maximum validity, a privileged flag and the AD group. An entitlement with a grant history cannot be deleted – deactivate it instead.
+
+## Automatic import (PERM and other HR systems)
+A people export saved on the server in the import directory (installation guide, section 8b) is loaded whenever the file changes. The import also recognises a header below a report title, the full name in one column ("Last and first name", titles are skipped), the cost centre and its name. Columns with sensitive data (birth number, date of birth, address, salary, bank account…) are never loaded and the preview warns about them. **Mark missing people as leavers** is for exports containing active employees only; if the file contains fewer than half of the current people, leavers are not marked for safety.
+
+## Recertification
+The access administrator starts a **recertification** (all or privileged entitlements only, or a single entitlement) with a due date. Each active grant is reviewed by the entitlement owner or the person's manager – **Keep** or **Remove** (with a reason; a removal request is created). Nobody reviews their own access. Reviewers see their items in My work; progress and a CSV report for the auditor are on the recertification.
+
+## AD reconciliation
+The **AD reconciliation** tab compares group membership from the last identity source sync (Identity & access → Sources, read-only) with recorded grants of entitlements that have an AD group set. People and accounts are matched by login (without domain), otherwise e-mail. It reports: group members without approval, leavers still in the group, accounts without a person record, grants missing from the group (not yet set up by the administrator) and people without an account. When first filling the records, current membership can be **adopted as granted**; unapproved membership or a leaver's membership is resolved with a **removal request**. These comparisons do not write to AD.
+
+## AD provisioning
+On the **AD provisioning** tab a system administrator chooses the mode: **off** (manual), **script only** (CONTIX generates a PowerShell script for the selected approved requests; after the administrator runs it and the identity source syncs again, the requests are fulfilled automatically – Verify against AD does it immediately), or **directly in AD** with a separate write account delegated only membership of groups in the allowed OU (installation guide, section 8c). The preview shows the group and account (DN) for each request and a check: the group must be inside the allowed OU, must not be privileged (by name, SID or adminCount) and the person must have an account. Writes happen only for selected requests after confirmation and within the daily limit; a successful change fulfils the request and every write is logged. Nobody provisions access for themselves.
+
+## Groups from AD and new groups
+In the **Entitlement catalogue**, **Load groups from AD** shows the groups from the last identity source sync grouped by OU – tick a whole OU or individual groups, set approvals and the owner and optionally **record current members as granted access** straight away. Privileged groups are not selected with a whole OU. For a new AD group entitlement you can choose **The group does not exist in AD yet** – enter the name and pick the OU; CONTIX creates the group (New-ADGroup in the script, or a direct write) before adding members and marks it as created after the sync. The allowed OU for writing is picked from the list of OUs; an incomplete DN or the built-in administrator as the write account is rejected.
+
+## IDM overview
+The **Overview** tab shows what is waiting for you (approvals, recertifications), the request flow (pending → to fulfil → AD write → done) and risks: AD membership without approval, leavers still in AD, SoD violations, overdue recertifications, missing role grants and expiries. Each tile opens the relevant tab; upcoming joiners and leavers have a button to prepare them.
+
+## Business roles
+A role is a bundle of permissions (e.g. Accountant = GG_FIN_Invoices + the accounting system). Who it applies to is set by **department** and/or **job title** from HR (case-insensitive). Each role shows its member count and **missing grants** – one button creates requests (origin Business role) that go through normal approval. Time-limited permissions are skipped and must be requested with a date.
+
+## Matrix and person detail
+The **Matrix** shows people × permissions (filter by department, role, search): green granted (and in AD), yellow approved but missing in AD, red in AD without approval, blue request in progress, dashed what a role expects. Clicking a cell offers a grant request, legalisation or revocation. Clicking a name anywhere opens the **person detail**: roles and what is missing, permissions with the reason and AD state, the directory account with groups (green = approved, red = unapproved, grey = outside the catalogue), requests, reports and history, with quick revoke and extend actions.
+
+## Joiner, mover, leaver
+The **Joiner / mover / leaver** wizard builds a proposal from roles: for a joiner add the role permissions, for a mover add the new ones and remove what came only from old roles (permissions outside roles are offered unticked), for a leaver remove everything. A leaver with a future date only saves the date – the daily check revokes on the end date. Additions go through approval, removals straight to fulfilment.
+
+## Toxic combinations at request time
+SoD rules from Identities (Toxic combinations) are checked when a request is made – against the AD account groups, granted permissions, open requests and positions. Permissions without an AD group are matched by name. The conflict is shown to the requester and approvers; such a request always waits for an access administrator (not even a manager can self-approve it) and approval requires a justification.
+`,
+  },
+  projects: {
+    title: "Projects",
+    summary: "Projects with phases and gates, required documents including security requirements, and gate approval by the sponsor.",
+    body: `
+## Creating a project
+Create a project from a template – **IT project**, **security project** or **procurement of a service or product**. The template defines the phases and, in each phase, the documents that must be produced; security requirements (impact assessment, security requirements for the solution and supplier, security test, update of asset and risk records…) are marked with a shield. Set the **manager** (runs the project) and the **sponsor** (approves gates) – they must be different people.
+
+## Documents
+For a document, upload a file or add a link (e.g. to SharePoint) – this submits it for approval. It must be approved or returned (with a reason) by a user other than the one who submitted it. A required document that does not apply is marked **Not applicable** with a reason; optional documents can be added and removed.
+
+## Gates
+Each phase ends with a **gate**. It can be approved once all required documents are approved or not applicable; the sponsor approves it (read access to projects is enough), without a sponsor anyone allowed to run projects except the manager. Approval starts the next phase. The sponsor sees gates ready for approval and the manager the phase deadline in **My work**.
+
+## Closing
+A project can be closed only after all gates are approved; otherwise it can be put on hold or cancelled. Closed and cancelled projects are read-only. Tasks can be linked to a project; every step is recorded in the audit log.
+
+## Timeline and budget
+Each phase has a planned start and end; the **timeline** shows them as bars with a mark for the actual gate approval and a line for today, and the project overview has a combined timeline of all projects. The **budget** in CZK is optional; costs (date, description, amount, phase, supplier; credit notes as a negative amount) are summed – a warning appears from 90 % spent, an overrun above 100 %.
+
+## Links and custom templates
+Link a project to **assets, risks, suppliers and processes** – it then appears on them under “Where the record is used”. Besides the built-in templates, the organisation can create **custom templates** (phases and required documents, including security ones); a built-in template can be copied and adjusted. A template used by a project cannot be deleted – only deactivated.
+
+## Portfolio
+The default **Portfolio** view shows project cards coloured by health (the reported traffic light, or a proposal from data when nothing was reported), gate progress, end date, open and late tasks, high risks, the next milestone and budget usage. At the top are counts of projects in critical health, overdue, over budget, and with a gate or change to approve; filter by status, health and manager.
+
+## Project detail
+The detail has tabs **Overview** (health, indicators, team, what needs attention), **Phases and gates**, **Tasks**, **Schedule** (phase Gantt with milestones), **Risks and issues**, **Budget**, **Changes**, **Reports and outputs** and **Links**.
+
+## Team and tasks
+Add users to the **team** with a role and a RACI letter (responsible, accountable, consulted, informed). **Tasks** sit on a board with columns To do / In progress / Blocked / Done – drag cards or use the buttons. A task has an assignee, due date, priority and phase; the assignee sees it in **My work** and may change its status even without permission to edit the project.
+
+## Risks, milestones and health
+Project **risks and issues** have an owner, a response and a level of probability × impact (an issue has already happened); the risk map shows the distribution. **Milestones** are key dated points on the schedule. The **status report** with a traffic light (overall, schedule, budget, scope) is pre-filled from data – late phases, milestones and tasks, budget usage, high risks and pending changes – and the manager confirms or changes it and adds a summary.
+
+## Changes and outputs
+A **change request** for the end date, budget or scope is approved by the sponsor (without a sponsor, by a user other than the manager and the requester); an approved change updates the project end date and budget. Print or download to Word the **status report** and the **closure report** (with team, all risks, changes and lessons), in Czech or English. Record **lessons learned** (what went well, what to improve) as you go.
+`,
+  },
+  "site-maps": {
+    title: "Maps and floor plans",
+    summary: "Building floor plans and site maps with placed assets – green, orange and red depending on what is happening on the asset.",
+    body: `
+## Uploading a plan
+Upload a map with **Upload map** as PDF, DWG, DXF or an image (PNG, JPG, SVG, WEBP) up to 30 MB. Fill in the site, building and floor – maps are grouped by them in the list. PDF, DXF and DWG are converted to an image by the **converter service** (converter container); without it, upload the plan as an image or export the PDF from CAD to PNG. For DWG it depends on the file version – if conversion fails, export the drawing to PDF or DXF. The original file stays stored for download.
+
+## Placing assets
+A user allowed to edit assets switches on **Place assets**, picks an asset (server, switch, camera, network socket, rack…) and clicks on the map. A placed marker can be dragged; click it to open it and remove it from the map. For sockets and cabinets, use the asset types **Network socket** and **Rack / cabinet**. One asset can be on several maps.
+
+## Colours
+- **Red** – open incident, high-severity SOC alert (level ≥ 10), a vulnerability from the KEV catalogue or critical asset health.
+- **Orange** – another open alert, critical or high vulnerabilities, an unacceptable risk or asset health needing attention.
+- **Green** – asset health is OK and none of the above applies.
+- **Grey** – no data about the asset.
+
+The status is computed on every view and refreshed every minute. Click a marker to see the reasons and a link to the asset; the legend filters colours. The asset detail has an **On maps** card linking straight to the placement.
+
+## Transfer and deletion
+When an asset is transferred to another company it is removed from the original company's maps. Deleting a map deletes only the placements; the assets are kept.
+`,
+  },
+  "compliance-path": {
+    title: "Compliance path and step-by-step guidance",
+    summary: "The status of all areas (ISMS, risks, controls, audits, continuity, incidents, suppliers, GDPR, AI Act, CRA, legislation) and the next recommended step – all from data.",
+    body: `
+## Compliance path
+For every area you may read, the page shows the percentage of steps done, the row of steps and the **next step** with a link to where it is handled. Areas with the least progress come first. The overall percentage is the average of the areas. If you can access several companies, the **Group of companies** table shows each one's progress per area; click a name to switch to that company.
+
+## How to proceed panel in modules
+The main page of each module (ISMS management, Significant changes, Risks, Controls, Audits, Continuity, Incidents, Suppliers, DORA, GDPR, AI Act, CRA, Legislation, Assets, Vulnerabilities, Policies and documentation, Training, Identities and access, SOC 2 reports, Customer questionnaires and Trust Center) has a panel with steps in the recommended order. Each step shows its status – done, number of items to handle, or waiting for a previous step – and links to the relevant page. The panel can be collapsed; the browser remembers it. The panel header lets you set a **guide owner** (a position); its holders get the next step in **My work** and the summary e-mail. SOC and Access requests have guides too.
+
+## How the status is computed
+The status is computed on every view from the company data (e.g. a risk above the acceptable level without treatment, an implemented control without a test in 12 months, a significant supplier without a valid contract, a missed incident reporting deadline). Regular reviews follow the interval set on the record (risks per policy, documents, suppliers, processing records, plan tests). Each step shows a reference to the section of the company's main regulation (e.g. § 8 of the decree, Art. 21 NIS2, A.5.9 ISO 27001). The **Recommended rollout order** block groups areas into phases (foundations → analysis → measures → operations → verification). The **Audit readiness** button shows, per section of the chosen regulation, readiness (requirement compliance from Regulatory coverage), the number of controls and documents, gaps and steps left; the output can be downloaded to Word, printed or downloaded as an **Auditor package** (ZIP with the readiness report, statement of applicability, tests, evidence, valid documents per section and checksums). Requirements without a control and without a manual assessment count as unassessed. The **Starter kit** (in the **More** menu at the top right, and in the Foundations phase also in the rollout order block) offers documentation folders, a control catalogue per decree, a security policy draft with a chapter outline per the main regulation (version 0.1) and sample ISMS objectives (creates only what is missing). The next guide step comes in the summary e-mail only when the step or count changes, otherwise at most once a week. Nothing is stored and nothing changes by itself – the steps only show what to do next. The monthly snapshot stores only the overall percentage (the **Compliance path (%)** indicator in the Management report) to show progress over time.
+
+## Transferring settings to another installation
+The **More** menu at the top right has **Export guide settings** (a JSON file with owners by position name and unit and the threat profile) and **Import guide settings**. On import, an owner is assigned only where the target company has a position with the same name (and unit, or a single position with that name); the result shows "assigned" or "position not found" for each guide. The threat profile is taken over with the permission to write risks. Nothing is deleted. Useful for pilots at several customers or for moving from a test installation to production.
+`,
+  },
+  "threat-modeling": {
+    title: "Threat modelling",
+    summary: "Attack paths from the asset graph, data-driven calibration of risk ratings, threat actors for your sector and guided STRIDE threat modelling – all as proposals for approval.",
+    body: `
+## How to proceed
+The **How to proceed** panel at the top guides you through five steps: 1. sector and actors, 2. data readiness, 3. attack paths, 4. risk calibration, 5. threat models. Each step shows its status and the number of items to handle; **Next step** opens the recommended one. **Data readiness** shows what is missing in the records for accurate results (crown jewels, internet-facing assets, asset links, segments, vulnerabilities, identities, EDR, BIA, controls with evidenced effectiveness) and links to where to add it. Each tab has a short **How to**; paths and calibration are sorted by priority (“Start here”).
+
+## Attack paths
+From recorded asset links (runs on, uses, network, backups, primary and supporting asset links), network segments, vulnerabilities (KEV, critical), EDR status and identities (MFA, privileged accounts, Kerberos weaknesses) CONTIX finds the most feasible path from the internet or from phishing to each **crown jewel** (critical and important primary asset). Each step has an ATT&CK technique and an ease estimated from evidenced weaknesses; the product of the eases gives the path likelihood. **Chokepoints** are assets on most paths – fixing them breaks several scenarios. A path can be **created as a risk** (with the path assets and a proposed rating) or **accepted** with a justification.
+
+## Data calibration
+For open risks CONTIX proposes impact and likelihood from data: impact from BIA (MTPD and impacts of processes supported by the risk assets), personal data and significant incidents; threat from incidents in 12 months, SOC alerts, exposure and sector actors; vulnerability from evidenced control effectiveness (tests, monitors) and open vulnerabilities. Risks with drift are highlighted; **Apply** saves the rating to the review history with a justification.
+
+## Sector threats
+Set the company sector. The actor catalogue (ransomware, access brokers, state groups, hacktivists) is evaluated by sector, mentions in the NÚKIB and CERT information service, MISP indicators and techniques in SOC alerts. You can confirm or exclude relevance manually with a justification. With a sector set, relevant actors shift the threat level of data-driven risk scenarios and calibration (+1, or −1 when no relevant actor uses the scenario techniques). The catalogue is indicative – verify it against current warnings.
+
+## Threat model (STRIDE)
+Create a threat model for an application, asset, process or project; for an application it can be pre-filled from the asset graph. In **Elements and flows** you enter external entities, processes, data stores and data flows with trust zone, data sensitivity, authentication, encryption and logging. CONTIX generates STRIDE threats per element type with severity and ATT&CK techniques; for each you decide: **mitigate** (security requirement), accept, not applicable, or **create a risk**. The output is a list of security requirements and a report in Word or for print.
 `,
   },
   "risk-appetite": {
@@ -600,6 +806,68 @@ The responsible positions see their items in **My obligations**. The overview sh
 Once all items are decided, submit and approve the assessment – the result is **frozen as a snapshot**. **Comparison with previous** approved assessment shows deteriorations, improvements and removed items; it serves as evidence of the periodic assessment required by the Decree.
 `,
   },
+  quality: {
+    title: "Data quality",
+    summary: "Gaps in your records in one place and bulk assignment of responsibility.",
+    body: `
+## What the page checks
+The **Data quality** page (Management menu) goes through your records and shows where data is missing that tasks, escalation and reports depend on: assets without an owner, **assets with findings without a technical owner**, primary assets without a CIA rating, risks without an owner or assessment, controls without a responsible position or without a test in 12 months, processes without an owner, test findings and collector servers without an asset, open tasks without an assignee and significant suppliers without a valid contract. You only see records you have permissions for; **Checks passed** = share of checks without gaps.
+
+## Bulk fix
+Open a check, tick items (or *Select all*) and set a **person** (owner, asset technical owner) or a **position** (owner of a risk, control, process, task assignee) at once. The position must belong to the record's company; it is set only where responsibility is missing and the change is written to the audit log. After a technical owner is set, finding tasks are assigned to them. Fix the other gaps in the record – each item is a link.
+
+## Ongoing monitoring
+The quality score and the number of gaps are stored in **Trends** every month (indicators *Data quality* and *Gaps in records*); the page shows the monthly trend. In the Monday digest everyone receives their **missing details**: owners of primary assets without a CIA rating, owners of assets with findings but no technical owner, and authors of open tasks without an assignee.
+
+## Data check after an update
+The checks *Assets with the unit only as text* and *Assets with tags outside the catalogue* show what was not matched automatically when moving to units and the tag catalogue: pick the unit in bulk, and add the tags to the catalogue and unify them with one button. The server check after an update (verify.sh) prints the summary too.
+`,
+  },
+  findings: {
+    title: "Findings – unified overview",
+    summary: "Test, collector, vulnerability and audit findings on one scale with the responsible person, task and accepted risk.",
+    body: `
+## What the overview contains
+The **Findings** page (Risks and findings menu) combines four sources: **security tests** (Kali), **server configuration** from the collector, **vulnerabilities** (medium and above unless you filter by severity) and **audit findings**. Each finding has a unified **severity** (critical – info; for audits major = high, minor = medium, observation = low, recommendation = info) and **status** (open, in progress, accepted risk, fixed, dismissed). You only see sources you have permissions for. The tiles at the top show open findings per source; click one to filter. The list loads the first 300 findings by priority, more with *Show more*.
+
+## Responsibility and tasks
+For test and server findings the responsible person is the **asset's technical owner** (otherwise the deputy, otherwise the business owner); for audits it is the finding's position. The **Task** column shows the remediation task and its due date (by severity: critical 7, high 14, medium 30 days). Findings without an asset or a responsible person are highlighted – add a technical owner to the asset.
+
+## Server configuration findings
+After each report the collector compares findings: a new finding opens, **a high one gets a task automatically** (if the asset has a responsible person), and a finding missing from the next report is marked **fixed** and its task closes. Use *Change status…* on a finding to create a task, **accept the risk** with a justification and expiry (it then appears in Exceptions and reopens after the date), mark it a **false positive** or fixed. Turn several findings into tasks at once with the button above the table.
+
+## Links
+Open critical and high test findings and high server findings affect the **asset health indicator**. New medium and higher findings on a risk's assets are **risk reassessment triggers**. The asset detail shows the same overview on the **Findings and tasks** tab.
+
+## Where else findings show up
+- **Quick search** (Ctrl+K) finds a test finding by name or IP and a collector server by hostname.
+- **Natural-language queries** and **MCP** have the tools *Security test findings* and *Server configuration findings* (read-only, with your permissions).
+- **Trends** track critical and high test findings, high server findings and overdue finding tasks.
+- **Step by step** has a *Security tests* guide (scope, tests in 90 days, scheduled tests, asset owners, tasks, deadlines) and a *Server configuration findings* step for assets.
+- The **auditor package** contains the security test report for the package period (if you have permission for tests).
+- Test findings are in **semantic search** (similar records, AI answers with links).
+
+## Priority and fix plan
+The list is sorted by **fix priority** (the P number on a finding): severity, asset internet exposure, asset criticality and overdue task – higher = sooner. The **Fix plan** card lets the local AI group open findings by a shared fix (same cause, server or configuration) and propose an order of steps with effort. The model receives at most 60 findings by priority, without server names, assets or IP addresses (pseudonyms); the proposal changes nothing – tasks and deadlines stay.
+
+Create a **task** from a plan step (button on the step, or *Tasks for all steps*): one task per step listing its findings, assignee = owner of the asset with most findings in the step, deadline by effort (low 14, medium 30, high 60 days), priority by the most severe finding. The card shows **progress**: a step is done when its task is done or none of its findings is open any more.
+
+## Deadlines and escalation
+A test or server finding **without a task** has a deadline = the severity-based deadline from discovery (critical 7, high 14, medium 30, low 90 days; shown as *deadline*), a vulnerability its fix deadline by priority. A finding **overdue for more than a week escalates** to the manager of the asset owner's unit and one level up each further week: the manager sees it in the **Escalated to you** card and in the Monday digest. The number of escalated findings is in the *Escalated* remediation column, the Management report and Trends.
+
+## My findings, team and remediation
+- The **Responsibility** filter: *My findings* = findings on assets where you are the technical owner, deputy or owner, findings with your task and audit findings of your position; *My team* = the same for subordinate units you manage.
+- The **Finding remediation** card (and the same table in the **Management report**) shows, by source and severity, open findings, overdue findings, findings fixed in the last 12 months, **average time to fix** and **share fixed on time** (deadline = task deadline by severity, vulnerability fix deadline or audit finding due date). The same indicators are in **Trends**.
+- Asset owners receive on Mondays, with the daily digest, the e-mail **Findings on your assets** (counts per asset and overdue tasks).
+- A security test scope can be **moved to another company** in the group (with its scheduled tests); it must be approved again in the target company.
+
+## Controls, vulnerabilities and certificates
+- A test finding or audit finding linked to a **control** is evidence of its effectiveness: an open **critical test finding or major audit finding** = the control does not count towards residual risk and regulation coverage shows the gap *Serious finding for a control*; a **high finding or minor audit finding** = at most partially effective. The number of findings is shown in the control list and next to the Effectiveness field.
+- A test finding with a **CVE** identifier on an asset also appears in **Vulnerabilities** (source *sectest*) – with the same status as the finding (fixed, accepted, false positive). If another source (Wazuh, a scanner) reports the same CVE, the test record is a **duplicate** so the vulnerability is not counted twice.
+- A **TLS test** target is added to the **certificate inventory** automatically – validity and cryptography are then monitored continuously.
+- The collector server detail shows the **status** of its findings (task, accepted risk, verified fix).
+`,
+  },
   exceptions: {
     title: "Exceptions and accepted risks",
     summary: "A single overview of all granted exceptions with justification, author and validity; reminders before expiry.",
@@ -609,7 +877,9 @@ The **Exceptions & accepted risks** page (Security management menu) gathers in o
 - **account findings** (Identity and access) and **segregation of duties (SoD) violations** with an exception,
 - **vulnerabilities** with an exception (risk acceptance on an asset),
 - **accepted risks** (status "accepted" or treatment option "acceptance") – the risk owner is responsible for the exception,
-- **non-applicable provisions** from the Statement of Applicability with a justification and compensating control.
+- **non-applicable provisions** from the Statement of Applicability with a justification and compensating control,
+- **accepted security test findings** (the *Accept risk* button on a finding – justification, who and until when; after the deadline the next test reopens them),
+- **accepted server configuration findings** from the collector (**Findings** page → *Change status…* → Accepted risk; the finding reopens after the deadline).
 
 For each item you see the justification, who granted the exception (for a risk, its owner) and until when it is valid. An exception without a justification is highlighted in red.
 
@@ -702,6 +972,8 @@ Documents and reports follow the **company's main framework** (regulatory profil
 - a **CSV / XLSX table** with columns ID, Section, Section title, Text, Guidance, Level, Mapping (download the template in the import dialog; framework details – key, name, jurisdiction, type – are filled in the form),
 - a **CONTIX YAML / JSON / XML package** – the same shape that **Export** produces (to move a framework between installations),
 - an **OSCAL catalog** (JSON / YAML) – e.g. NIST SP 800-53.
+
+The **Customer contract requirements** type is for security annexes of contracts, DPAs and requirements from customer questionnaires: fill in the customer, service, contract number and validity (shown in the library, red after expiry). Then map the requirements to controls in the Statement of Applicability and see coverage as for any regulation. Record company documents (ISO 27001 certificate, penetration test reports, a bug bounty programme) as **evidence** of type *Certificate*, *Penetration test report* or *Bug bounty* with a validity date – a reminder comes before it expires.
 
 **Preview** shows the number of requirements, sections and mappings, errors and warnings. The **Mapping** column holds requirement IDs of other frameworks (e.g. nis2:21/2/a; iso27001:A.5.1) – mappings apply both ways and **Complete control mapping** uses them to add the custom framework to controls that already have a related requirement mapped. Importing the same key again updates the framework: assessments of requirements with the same reference are kept. Then choose the custom framework among the company's **tracked frameworks** and assess it in the statement of applicability like built-in frameworks. A custom framework can be deleted; if it has assessments or links, they are deleted only after confirmation.
 
@@ -834,6 +1106,7 @@ The model receives data about the alert, techniques, asset and its vulnerabiliti
 
 ## Management report
 A traffic light of the main indicators (risks, incidents, compliance, training, documentation) for the selected period – for printing or in Word.
+At the top is a **dashboard**: overall health 0–100 (indicator in order = 100, attention = 50, needs decision = 0), a sentence on how many areas need a decision, **To decide** cards linking to the detail, and what is **awaiting your approval** (access requests, project changes) with buttons right in the row.
 `,
   },
   audits: {
@@ -917,15 +1190,44 @@ On the **Trust Center** tab set up the public trust page at /t/<address>: introd
 A visitor requests access to confidential documents and must accept the non-disclosure terms. You approve the request in **Access requests**: a time-limited link is created (you set the validity) and e-mailed to the requester; without configured e-mail you pass it on yourself. The downloaded PDF carries the recipient's name, organization and e-mail. Access can be revoked at any time.
 `,
   },
+  sectests: {
+    title: "Security tests",
+    summary: "Tests from Kali Linux (ports, TLS, SSH, web, Windows and AD) within an approved scope, manual import of tool outputs, findings and AI analysis.",
+    body: `
+## Scope – authorisation to test
+First create a **scope**: targets (IP, CIDR, servers, *.domain, URL), exclusions, validity and the **authorisation** (order, system owner's consent). The scope must be **approved** by a user with the *Approve security test scopes* permission; every edit cancels the approval. Tests and imports are allowed only for targets inside an approved, valid scope.
+
+## Probe on Kali Linux
+In **Administration → Connectors → Security test probes** create a probe and download the **installer**; run it on Kali with \`sudo sh install-contix-probe.sh\`. The probe runs as a service under a non-root user, asks for a job every 30 seconds and sends the result back. It runs **only tests from its own catalog** – CONTIX sends it only the test ID, targets and ports, never a command. The **Probes** tab shows whether it is online and which tools it has.
+
+## Tests and import
+**Run test with probe** – choose a scope, one or **several tests at once** (or a preset such as Linux server, Services and databases, Complete server) and targets; targets can also be added **from assets**. **Follow-up tests** run the matching tests on the services found by the port scan (SSH, TLS, web and sensitive files, SMB, LDAP, RDP, FTP, mail, databases, NFS, VNC, SNMP); **Automatic AI** analyses serious findings, summarises the tests and the whole set and suggests further tests (**Run suggested tests** button). Catalog: open TCP ports and service versions, **UDP services** (SNMP, TFTP, IPMI…), TLS (testssl.sh), SSH (ssh-audit), web security headers, **sensitive files on the web** (/.git, /.env, backups, phpinfo, Spring Actuator – read only), web server (nikto), SMB signing and SMBv1, anonymous shares, LDAP signing, **RDP and NLA**, **anonymous FTP**, **mail server** (open relay, STARTTLS), **databases without a password** (MySQL, MS SQL, MongoDB, Redis, Elasticsearch), **SNMP with the public community**, **NFS exports**, **VNC without a password** and **DNS zone transfer**. Probe 1.1 uses only the raw-socket capability for UDP scans (not root); after updating CONTIX, download and run the new probe installer. **Import tool output** – output of a tool run manually (nmap XML, testssl / ssh-audit / nikto JSON, netexec text); each test shows a sample command.
+
+## Findings and AI
+There is one finding per test, server, port and rule; a repeated test updates it and marks what disappeared as **fixed**. A finding can be accepted as a risk or marked as a false positive. **Explain with AI** (local model) describes the impact, remediation and verification, recommends follow-up tests and picks related organisation **controls**; the server name and IP are not sent to the model. On a run, **Report summary** prepares text for management and technicians. Findings of a matched server are also shown on the asset detail; an unmatched finding can be **assigned to an asset** manually and CONTIX remembers the address.
+
+## Remediation tasks for findings
+On a finding use **Create remediation task**, or for all displayed open findings at once **Create tasks (n)**. A finding matched to an asset shows the **technical guarantor, deputy and business owner**. The task goes to the asset's **technical guarantor** (otherwise the business owner) – directly as a person, even without a position; the deputy sees it too – with a due date by severity – critical 7 days, high 14, medium 30, low 90. The batch option **Create remediation tasks for findings** does it automatically after each test (for medium severity and above). A finding has at most one open task. When a repeated test no longer finds it, the task **closes itself** as done; accepting the finding or marking it a false positive cancels the task. Overdue tasks are seen by managers (escalation). Audit findings, in contrast, belong to the **business owner** – select the asset in the audit and a finding without a responsible position goes to them.
+
+## Fix verification and scheduled tests
+When the responsible person marks a finding task as **done**, CONTIX queues a **retest** on the probe against the finding's target and port and the task waits as *in progress / being verified*. A retest that no longer finds it closes the task and marks the finding fixed; if the finding persists, the task returns to the responsible person with a note. Without an active probe or outside a valid scope the task stays done with a note. The **Scheduled tests** tab runs sets on schedule (daily, weekly, monthly…) and shows **new and fixed** findings compared with the previous state for each set; tasks for new findings are created automatically.
+
+## Test report, controls and risks
+The **Report (PDF)** / **Word** button on a set or in findings prepares a report with a summary, the scope and authorisation of the tests, an overview and description of findings with recommendations, remediation status (tasks, responsible persons) and verified fixes – with the company logo. A finding can be linked to a **control** (the AI analysis suggests one); the control detail then shows findings as input for assessing effectiveness. New serious findings on a risk's assets or controls are a **trigger to reassess the risk** (vulnerability).
+`,
+  },
   suppliers: {
     title: "Suppliers and contracts",
     summary: "Supplier register, identification of significant suppliers, security questionnaires and contract requirements under the Decree.",
     body: `
 ## Register
-**New supplier** – company ID, name, services provided, linked assets and processes. The **Look up in ARES** button finds the company by company ID or name and fills in the name, company ID and registered address (the query is sent by the CONTIX server; only the company ID or name goes to ARES). Suppliers can be loaded in bulk via **Data import**.
+**New supplier** – company ID, name, services provided, linked assets and processes. The **Look up in ARES** button finds the company by company ID or name and fills in the name, company ID and registered address (the query is sent by the CONTIX server; only the company ID or name goes to ARES). Suppliers can be loaded in bulk via **Data import**. The **Responsible unit** says which unit manages the relationship (contracts, review) – the list can be filtered by it and the supplier counts in the unit overview in Organization.
 
 ## Significant supplier
 Based on the criteria of the Decree (impact on regulated services, access to assets) you determine whether a supplier is **significant**. For a significant supplier, CONTIX checks the **contract requirements** under the Annex to the Decree (409 / 410 according to the company's regime) and shows the gaps.
+
+## Is the supplier regulated?
+The **Regulation scope (Decree 408/2025)** card on a supplier shows whether the supplier itself provides a regulated service (e.g. data centre, cloud, managed services): RES data by company ID, enterprise size and the conditions of the decree's annex. The result is stored with the supplier together with the assessment history.
 
 ## Security questionnaire
 On the supplier card, **Send questionnaire** creates a unique link through which the supplier fills in a security questionnaire **without signing in** (in Czech or English). The **full** scope (30 questions) is for the higher-obligations regime, the **short** one for Decree No. 410/2025 Coll. The link can be sent by e-mail (SMTP from Administration → Notifications) or copied – it is shown only once; **New link** issues a different one and the old one stops working. The supplier can save answers as they go and **attach files** to questions or in general (PDF, Office, image, text; max. 10 MB, 20 files); after submission they can no longer change them (you can **return it for completion**).
@@ -946,6 +1248,12 @@ On the supplier detail, in the **Assurance reports** card, record SOC 2 / SOC 1 
 - **CUEC → control**: map each CUEC to an own control. CONTIX warns when a CUEC has no control or the control is planned, not implemented or ineffective.
 - **Exceptions → risks**: **Create supplier risk** on an exception creates an unscored risk linked to the supplier with the exception description.
 - **Report gaps**: expiry (also reminded in obligations), qualified opinion, period older than 3 months without a bridge letter, unresolved exceptions, carved-out subservice organizations.
+
+## Data locations
+The **Data locations** button on the Suppliers page opens the register of where data is processed (hosting, cloud, SaaS): service, supplier, country (ISO code) and region, data types, transfer safeguard and processing agreement. CONTIX shows the rules for each location: EU/EEA, a country with an adequacy decision (European Commission list), the USA only with Data Privacy Framework certification or SCC, a third country without safeguards, a missing Art. 28 GDPR agreement, an elevated-risk supply-chain country and DORA for financial entities. The rules are indicative and do not replace a legal assessment.
+
+## Shared tags
+Suppliers, risks, processes, controls, assets and data locations can be tagged from a shared catalog (e.g. "internet-facing"). Add a tag above the record detail; the **Tags** page in the menu shows all tagged records across registers. The administrator manages the catalog (colours, renaming, deletion).
 `,
   },
   gdpr: {
@@ -1059,29 +1367,41 @@ If you do not recognise an account or your unit should not decide on it, write a
 **Administration → Companies** – creating a company, the parent company and the **regime under the Act** (higher obligations – Decree No. 409/2025 Coll., lower obligations – Decree No. 410/2025 Coll., unregulated) with regulated services. A company can have its own risk assessment methodology, acceptable level of harm, significant change criteria or SOC 2 report scope; otherwise the organization's settings apply. Only a company without data can be deleted; otherwise deactivate it.
 
 ## Working in the group
-Choose the company you are working with at the top of the menu. Data, permissions and tasks follow the selected company; roles can be assigned for the whole group or for a single company.
+Choose the company you are working with on the left of the top bar. Data, permissions and tasks follow the selected company; roles can be assigned for the whole group or for a single company.
 
 ## Group overview
-The **Group overview** compares companies side by side: compliance level, critical and unacceptable risks, overdue actions, incidents and overdue reports, suppliers with gaps, the status of risk assessment, BIA and ISMS review. Click a company to switch to it. A record (asset, process, document…) can be moved to another company in its detail.
+The **Group overview** (the **Download to Excel** button adds the compliance path by area) compares companies side by side: compliance level, critical and unacceptable risks, overdue actions, incidents and overdue reports, suppliers with gaps, the status of risk assessment, BIA and ISMS review. Click a company to switch to it. A record (asset, process, document…) can be moved to another company in its detail.
+
+## Determining regulation under Decree 408/2025
+The **Regulation scope (Decree 408/2025)** card in **Administration → Companies** guides you through self-identification. **Load from RES** fetches CZ-NACE activities, the institutional sector and the employee class from the CZSO Register of Economic Entities (via ARES) by company ID and suggests services from the decree's annex – the suggestion is only a pointer, tick the services you actually provide (the full list of 102 services is under **All services in the annex**). **Enterprise size** is calculated under Recommendation 2003/361/EC from staff, turnover and balance sheet total including linked and partner enterprises (amounts in CZK, CNB rate per § 2(2)); without your own figures the RES estimate is used. For each service you confirm the significance conditions (licence, capacity, 5 % of turnover…) and see the regime immediately; with several services the higher obligations prevail. The assessment is saved with the date, author and a snapshot of the RES data; **Apply the resulting regime** sets the regime and the list of regulated services in the company profile. It is input only – the obliged entity remains responsible and NÚKIB may also designate a service by decision.
+
+## Regulated service notification to NÚKIB
+The **Regulated service notification to NÚKIB** card (Administration → Companies, Czech companies) takes the regime and services from the last assessment applied to the profile; you add the statutory body, contacts, the cyber security officer and, where relevant, IP ranges, domains and other EU states. **Notification data (PDF / Word)** helps fill in the form on the NÚKIB Portal (each service separately); CONTIX sends nothing. After filing, **record the notification** (date, submission number) – CONTIX remembers the data and on the next change (data, services, regime) shows **changes to notify** with a 30-day deadline. The selected position gets an obligation with a deadline (notification within 60 days of the assessment, changes within 30 days). Verify the data scope and deadlines against the current Act and portal form.
+
+## Logo and output appearance
+The **Output appearance (logo)** card in **Administration → Companies** sets the company **logo** (PNG or JPEG up to 400 kB), the **colour** of headings and lines and the **footer text** (e.g. document classification). It applies to all printed outputs and PDFs as well as Word – the management report, statement of applicability, risk reports, incident notices and more. A subsidiary without its own settings inherits the appearance of its parent; a page preview is shown right next to it.
 `,
   },
   import: {
     title: "Data import from Excel",
-    summary: "Bulk loading of assets, risks, processes, controls and suppliers from an .xlsx or .csv file.",
+    summary: "Bulk loading of assets, risks, processes, controls, suppliers and organization from an .xlsx or .csv file.",
     body: `
 ## Procedure
-1. **File** – choose the register (assets, risks, processes, controls, suppliers), upload an .xlsx or .csv file and select the sheet. For existing records, choose whether they are **updated with the filled-in columns** or **left unchanged**.
+1. **File** – choose the register (assets, risks, processes, controls, suppliers, units and positions), upload an .xlsx or .csv file and select the sheet. For existing records, choose whether they are **updated with the filled-in columns** or **left unchanged**.
 2. **Column mapping** – CONTIX maps columns by their names (even without diacritics and with synonyms); check the mapping and fill in the mandatory fields.
 3. **Preview and validation** – for each row you see whether it will be created, updated or contains an error (invalid value, non-existent user). Only then click **Import**.
 
 ## Good to know
-Records are matched with existing ones (assets by serial number, hostname or name; suppliers by company ID; others by code or name), so a repeated import does not create duplicates. An import is recorded in the same way as manual entry – with permission checks and in the audit log. Load assets from Wazuh and network scans in **Discovery & import**.
+Records are matched with existing ones (assets by serial number, hostname or name; suppliers by company ID; positions by code or unit and name – a missing unit is created, holders are entered as comma-separated e-mails; others by code or name), so a repeated import does not create duplicates. The **Unit** column for assets and suppliers assigns a unit from the structure (by name or code; an unknown one is created and the preview says so) – so you can fill in asset units by re-importing your existing inventory. The **Tags** column (comma-separated) works for assets, risks, processes, controls and suppliers and writes the tags to the shared catalogue. An import is recorded in the same way as manual entry – with permission checks and in the audit log. Load assets from Wazuh and network scans in **Discovery & import**.
 `,
   },
   "admin-setup": {
     title: "Administrator: initial setup and wizard",
     summary: "Step-by-step initial setup of a new organization.",
     body: `
+## First setup wizard for a new installation
+On a new installation the Dashboard offers administrators the **First setup wizard** (also linked from Organisation setup). Five steps with a progress indicator: **organisation** (name, company ID and address from ARES), **users** (key people with a role; with SSO / AD without a password, otherwise with a temporary password shown only once), **organisational structure** (root unit, units and manager positions), **network ranges** (segments for device monitoring and tests, scanning does not start by itself) and **asset import** from the template. Each step can be skipped; status is computed from the data. After *Finish the wizard* it is no longer offered on the Dashboard.
+
 ## Setup wizard
 **Administration → Setup wizard** shows the steps and their status (done / in progress / missing) with a link to where each step is configured. Recommended order:
 1. Organization – name, company ID, regulated services and regime under the Act.
@@ -1098,7 +1418,7 @@ Records are matched with existing ones (assets by serial number, hostname or nam
 When finished, download the **Handover report** (Word) – it summarises the state of the setup, operations and security as of the handover date.
 
 ## Sample data
-To try CONTIX without your own data, the command \`bun run demo:seed\` (on the server \`docker compose --profile full exec api bun src/scripts/demo-seed.ts\`) creates a fictitious company **Vzorová strojírna a.s. (ukázka)** with an organization, assets, processes, risks, controls, suppliers and tasks. It is a separate group company – your data is not affected. Running it again adds nothing.
+To try CONTIX without your own data, the **Create demo** button in Administration → Companies (or the command \`bun run demo:seed\`, on the server \`docker compose --profile full exec api bun src/scripts/demo-seed.ts\`) creates a fictitious company **Vzorová strojírna a.s. (ukázka)** with an organization, assets, processes, risks, controls, suppliers and tasks. It is a separate group company – your data is not affected. Running it again adds nothing; the **Remove demo** button deletes it with all its records.
 
 ## Licence and source code
 CONTIX is free software under the AGPL-3.0 licence. The version, licence and a link to the source code are at the bottom of the menu. Set the link with the **CONTIX_SOURCE_URL** variable in the server configuration; if you run a modified version, it must point to the modified code.
@@ -1161,6 +1481,19 @@ Choose the methodology on a risk or as the default for a company (Administration
 - Automatic synchronization of assets and vulnerabilities and TLS certificate verification (turn off only for testing).
 Verify each connection with the **Test** button.
 
+## Several Wazuh managers
+The **Add Wazuh** button connects another Wazuh manager (e.g. production and OT, or each company's own Wazuh). Each connection has a **name**, a **scope** and its own alert settings:
+- **Scope = a company** – all assets and alerts from this Wazuh belong to it and are matched with existing assets only within it.
+- **Scope = whole group** – optionally **agent groups → companies** (first match from the top); an agent without a match goes to the company the synchronization was started from.
+An agent ID (e.g. 001) is unique only within one Wazuh, so CONTIX also remembers the connection for each asset. Vulnerabilities, configuration assessment (SCA), alerts, threat hunting and IOCs are loaded from all connections; IP blocking goes to the Wazuh the alert came from (a separate Active Response account can be set on the connection). In **Discovery & import** you can synchronize one connection or all of them. Deleting a connection removes only the agent links – assets, vulnerabilities and alerts remain.
+
+## Server collector
+**Administration → Connectors → Server collector** creates a connection with a token (shown only once). The **Installer** button on the connection downloads one file **install-contix-collect.sh** for all servers: copy it to the server and run **sudo sh install-contix-collect.sh** – it installs the **contix-collect.py** script (Python 3, read-only), the address, token, CA certificate, optionally an /etc/hosts entry and the schedule, sends the first inventory right away and deletes itself. The collector then every 6 hours from cron sends: login accounts (UID, sudo, locked), **SSH key fingerprints** from authorized_keys (type, length, comment, restrictions – never the whole key), Docker containers and images, services, listening ports and the firewall state (iptables, nftables, ufw, firewalld). CONTIX matches the server with an asset (e.g. from Wazuh) and shows the inventory and findings on the asset: another UID 0 account, a weak key (DSA, RSA under 3072 bits), a key for root, a key without a comment, a privileged container or a container running as root, a missing firewall, a default ACCEPT policy and **rules that are lost after a reboot**. The server overview is in **Discovery & import**; click a server to open its **detail** – every finding can be expanded (why it matters and how to fix it), accounts with their SSH keys and last login, containers and images, ports (including those on all interfaces), services, SSH server settings, pending updates and the **change history** (new account, key, port, firewall change).
+
+## NetBox and JIRA
+**NetBox**: a connection with an API token (view permission only) loads devices and virtual machines as assets – name, manufacturer, model, serial number, site, IP address, platform and tags; a NetBox tenant can be assigned to a company. Synchronization runs on its interval or via the button in Discovery & import.
+**JIRA**: on a task (Actions and tasks) the **Create in JIRA** button creates an issue in the given project (title, description, due date). The scheduler reads the issue status once an hour; a status from the "done" list closes the task in CONTIX. Cloud signs in with an e-mail and API token, Data Center with a personal access token.
+
 ## Network scan (nmap)
 Active discovery of devices without an agent (network devices, printers, IoT). Scanning is allowed only in the **allowed ranges (allow-list)**; it is started in **Discovery & import**.
 
@@ -1176,10 +1509,13 @@ Active discovery of devices without an agent (network devices, printers, IoT). S
 **Administration → Operations** shows the status of the database, backups, scheduler, notifications, Wazuh, AI, the document conversion service and the encryption key. The same is available for monitoring (Prometheus) via metrics with a token.
 
 ## Backup and restore
-The backup service backs up the database daily (optionally encrypted and off the server). Test a restore right after installation and then regularly (the restore.sh script, procedure in the operations documentation).
+The backup service backs up the database daily (optionally encrypted and off the server). Test a restore right after installation and then regularly (the restore.sh --test script, procedure in the operations documentation). In addition, once a week (on Sunday) the backup service restores the fresh backup into a temporary database and verifies its content – key records are not empty and migrations match; the restore time and record counts are in the detail as evidence. The restore test result is recorded with the backups and the **Restore test** check warns when the last successful test is older than 92 days or the last test failed.
 
 ## Updates
 On the server, in the installation folder: **sudo ./infra/scripts/update.sh** – a backup is created automatically before the update. For a customer without internet access, the update is delivered as a package.
+
+## CONTIX as a product (CRA)
+On the Operations page you can download the **SBOM** – the bill of software components of CONTIX in CycloneDX 1.6 (name, version, licence, checksum), e.g. for supplier questionnaires. The address \`/.well-known/security.txt\` gives the vulnerability reporting contact: the operator's contact from the SECURITY_CONTACT variable, otherwise private reporting to the vendor.
 
 ## Connectors and notifications
 Wazuh, network scan, e-mail and Teams – see the topic **Administrator: Wazuh, network scan, e-mail and Teams**.

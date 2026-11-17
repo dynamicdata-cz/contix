@@ -22,8 +22,10 @@ import { assertScope, hasPermIn, inScope, scopeOf, targetCompany, visibleIds } f
 import { findDuplicates, mergeAssets } from "./duplicates";
 import { dependenciesOf } from "./graph";
 import { recomputeHealth } from "../vulnerabilities/service";
+import { reassignFindingTasks } from "../sectests/tasks";
 import type { Db } from "../../db/client";
-import { assetCompanies, assetDuplicateDismissals, assetLinks, assetSoftware, assetSources, assets, users, type AssetRow } from "../../db/schema";
+import { assetCompanies, assetDuplicateDismissals, assetLinks, assetSoftware, assetSources, assets, orgUnits, users, type AssetRow } from "../../db/schema";
+import { canonicalTags } from "../tags/routes";
 import { ApiError } from "../../lib/apiError";
 
 /** Aktivum sdílené do některé ze společností (ADR-085) – podmínka pro dotazy nad `assets`. */
@@ -60,11 +62,28 @@ export function assetRoutes(db: Db) {
     return a;
   }
 
-  /** assets:write = vše; assets:write_own = jen aktiva, kde je uživatel vlastníkem. */
-  function assertCanEdit(c: Context<AppEnv>, a: Pick<AssetRow, "ownerUserId">) {
+  /** Uživatel je vlastníkem, technickým garantem nebo zástupcem aktiva (v1.60). */
+  const isResponsible = (a: Pick<AssetRow, "ownerUserId" | "technicalOwnerUserId" | "technicalDeputyUserId">, userId: string) =>
+    a.ownerUserId === userId || a.technicalOwnerUserId === userId || a.technicalDeputyUserId === userId;
+
+  /** assets:write = vše; assets:write_own = jen aktiva, kde je uživatel vlastníkem nebo technickým garantem. */
+  function assertCanEdit(c: Context<AppEnv>, a: Pick<AssetRow, "ownerUserId" | "technicalOwnerUserId" | "technicalDeputyUserId">) {
     if (hasPerm(c, "assets:write")) return;
-    if (hasPerm(c, "assets:write_own") && a.ownerUserId === currentUser(c).id) return;
+    if (hasPerm(c, "assets:write_own") && isResponsible(a, currentUser(c).id)) return;
     throw new HTTPException(403, { message: "Nemáte oprávnění upravovat toto aktivum" });
+  }
+
+  /** Útvar musí patřit společnosti aktiva (v1.74). */
+  async function assertUnitOf(unitId: string | null | undefined, companyId: string) {
+    if (!unitId) return;
+    const [u] = await db.select({ companyId: orgUnits.companyId }).from(orgUnits).where(eq(orgUnits.id, unitId));
+    if (!u || u.companyId !== companyId) throw new HTTPException(400, { message: "Útvar nepatří do společnosti aktiva" });
+  }
+
+  /** Útvar podle textu (import, starší formuláře): jen jednoznačná shoda názvu ve společnosti, jinak nic. */
+  async function unitByName(name: string, companyId: string): Promise<string | undefined> {
+    const rows = await db.select({ id: orgUnits.id }).from(orgUnits).where(and(eq(orgUnits.companyId, companyId), sql`lower(trim(${orgUnits.name})) = ${name.trim().toLowerCase()}`)).limit(2);
+    return rows.length === 1 ? rows[0]!.id : undefined;
   }
 
   const linkedCols = {
@@ -94,7 +113,15 @@ export function assetRoutes(db: Db) {
         if (q.assetClass) where.push(eq(assets.assetClass, q.assetClass));
         if (q.criticality) where.push(eq(assets.criticality, q.criticality));
         if (q.ownerUserId) where.push(eq(assets.ownerUserId, q.ownerUserId));
+        if (q.responsibleUserId)
+          where.push(or(eq(assets.ownerUserId, q.responsibleUserId), eq(assets.technicalOwnerUserId, q.responsibleUserId), eq(assets.technicalDeputyUserId, q.responsibleUserId))!);
         if (q.health) where.push(eq(assets.healthStatus, q.health));
+        // útvar včetně podřízených (v1.74, ADR-167)
+        if (q.ownerUnitId)
+          where.push(
+            sql`${assets.ownerUnitId} in (with recursive sub(id) as (select ${q.ownerUnitId}::uuid union select u.id from org_units u join sub on u.parent_id = sub.id) select id from sub)`,
+          );
+        if (q.tag) where.push(sql`exists (select 1 from unnest(${assets.tags}) t where lower(t) = ${q.tag.toLowerCase()})`);
         if (q.source)
           where.push(
             exists(
@@ -118,9 +145,10 @@ export function assetRoutes(db: Db) {
         const cond = where.length ? and(...where) : undefined;
         const [items, [total]] = await Promise.all([
           db
-            .select({ ...getTableColumns(assets), ownerDisplayName: users.displayName, sharedWith: sharedWithSql })
+            .select({ ...getTableColumns(assets), ownerDisplayName: users.displayName, ownerUnitName: orgUnits.name, sharedWith: sharedWithSql })
             .from(assets)
             .leftJoin(users, eq(users.id, assets.ownerUserId))
+            .leftJoin(orgUnits, eq(orgUnits.id, assets.ownerUnitId))
             .where(cond)
             .orderBy(
               ...(q.sort === "risk"
@@ -222,6 +250,16 @@ export function assetRoutes(db: Db) {
         },
       )
 
+      /** Lokality pro nabídku umístění (v1.76): dosavadní umístění aktiv a místa z map a půdorysů. */
+      .get("/locations", requirePerm("assets:read"), async (c) => {
+        const [used, maps] = await Promise.all([
+          db.selectDistinct({ l: assets.location }).from(assets).where(and(inScope(c, assets.companyId), sql`coalesce(${assets.location}, '') <> ''`)).limit(500),
+          db.execute(sql`select distinct concat_ws(' › ', nullif(site, ''), nullif(building, ''), nullif(floor, '')) as l from site_maps where company_id in ${sql`(${sql.join(scopeOf(c).ids.map((i) => sql`${i}::uuid`), sql`, `)})`}`).catch(() => []),
+        ]);
+        const all = new Set<string>([...used.map((x) => x.l!), ...(maps as unknown as { l: string }[]).map((x) => x.l).filter(Boolean)]);
+        return c.json([...all].sort((a, b) => a.localeCompare(b, "cs")));
+      })
+
       .get("/:id", requirePerm("assets:read"), async (c) => {
         const id = c.req.param("id");
         const asset = await loadAsset(id);
@@ -263,9 +301,16 @@ export function assetRoutes(db: Db) {
                 .where(eq(owner.id, asset.ownerUserId))
             : Promise.resolve([]),
         ]);
+        const techIds = [asset.technicalOwnerUserId, asset.technicalDeputyUserId].filter((x): x is string => !!x);
+        const techRows = techIds.length ? await db.select({ id: users.id, displayName: users.displayName, email: users.email }).from(users).where(inArray(users.id, techIds)) : [];
+        const techUser = (id: string | null) => techRows.find((u) => u.id === id) ?? null;
+        const [unit] = asset.ownerUnitId ? await db.select({ id: orgUnits.id, name: orgUnits.name }).from(orgUnits).where(eq(orgUnits.id, asset.ownerUnitId)) : [];
         return c.json({
           ...asset,
+          ownerUnitName: unit?.name ?? null,
           owner: ownerRow ?? null,
+          technicalOwner: techUser(asset.technicalOwnerUserId),
+          technicalDeputy: techUser(asset.technicalDeputyUserId),
           sources,
           software,
           supports: supports as LinkedAssetDto[],
@@ -274,7 +319,7 @@ export function assetRoutes(db: Db) {
           effectiveCia: effectiveCia(asset, supports),
           sharedWith,
           ownedHere: ownerInScope,
-          canEdit: ownerInScope && (hasPerm(c, "assets:write") || (hasPerm(c, "assets:write_own") && asset.ownerUserId === currentUser(c).id)),
+          canEdit: ownerInScope && (hasPerm(c, "assets:write") || (hasPerm(c, "assets:write_own") && isResponsible(asset, currentUser(c).id))),
           canShare: ownerInScope && hasPermIn(c, "assets:write", asset.companyId),
         });
       })
@@ -301,6 +346,9 @@ export function assetRoutes(db: Db) {
         const companyId = targetCompany(c, requested);
         // vlastník aktiva smí zakládat jen aktiva, kde je sám vlastníkem
         const ownerUserId = hasPerm(c, "assets:write") ? input.ownerUserId : me.id;
+        await assertUnitOf(input.ownerUnitId, companyId);
+        if (input.ownerUnitId === undefined && input.ownerName) input.ownerUnitId = await unitByName(input.ownerName, companyId);
+        input.tags = await canonicalTags(db, input.tags ?? []);
         const created = await db.transaction(async (tx) => {
           const [row] = await tx
             .insert(assets)
@@ -318,7 +366,12 @@ export function assetRoutes(db: Db) {
         const existing = await scopedAsset(c, c.req.param("id"));
         assertCanEdit(c, existing);
         const patch = c.req.valid("json");
-        if (!hasPerm(c, "assets:write") && patch.ownerUserId !== undefined && patch.ownerUserId !== existing.ownerUserId)
+        if (
+          !hasPerm(c, "assets:write") &&
+          ((patch.ownerUserId !== undefined && patch.ownerUserId !== existing.ownerUserId) ||
+            (patch.technicalOwnerUserId !== undefined && patch.technicalOwnerUserId !== existing.technicalOwnerUserId) ||
+            (patch.technicalDeputyUserId !== undefined && patch.technicalDeputyUserId !== existing.technicalDeputyUserId))
+        )
           throw new HTTPException(403, { message: "Vlastníka může měnit jen správce aktiv" });
         if (patch.assetClass && patch.assetClass !== existing.assetClass) {
           const [n] = await db
@@ -328,7 +381,12 @@ export function assetRoutes(db: Db) {
           if (n!.n > 0) throw new HTTPException(409, { message: "Třídu nelze změnit, dokud má aktivum vazby. Nejdřív je odeberte." });
         }
         if (!Object.keys(patch).length) return c.json(existing);
+        await assertUnitOf(patch.ownerUnitId, existing.companyId);
+        if (patch.ownerUnitId === undefined && patch.ownerName && !existing.ownerUnitId) patch.ownerUnitId = await unitByName(patch.ownerName, existing.companyId);
+        if (patch.tags) patch.tags = await canonicalTags(db, patch.tags);
         const [row] = await db.update(assets).set(patch).where(eq(assets.id, existing.id)).returning();
+        // úkoly z nálezů bezpečnostních testů se přesunou na nového garanta / vlastníka (v1.62)
+        if (patch.ownerUserId !== undefined || patch.technicalOwnerUserId !== undefined || patch.technicalDeputyUserId !== undefined) await reassignFindingTasks(db, { assetId: existing.id });
         await recomputeHealth(db);
         const [fresh] = await db.select().from(assets).where(eq(assets.id, existing.id));
         await audit(db, { c, user: currentUser(c), action: "asset.updated", entityType: "asset", entityId: existing.id, details: patch });

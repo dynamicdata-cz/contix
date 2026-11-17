@@ -49,7 +49,7 @@ TLS="$(env_get CONTIX_TLS_MODE)"; DOMAIN="$(env_get CONTIX_DOMAIN)"; HTTPS="$(en
 if [ "$TLS" = files ] && { [ ! -f certs/cert.pem ] || [ ! -f certs/key.pem ]; }; then
   die "Režim files: nahrajte certifikát do certs/cert.pem (vč. mezilehlých) a klíč do certs/key.pem."
 fi
-BK="$(env_get BACKUP_HOST_DIR)"; mkdir -p certs fonts "${BK:-./backups}"
+BK="$(env_get BACKUP_HOST_DIR)"; mkdir -p certs fonts import "${BK:-./backups}"
 
 if bundle_mode; then
   load_images

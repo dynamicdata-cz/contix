@@ -86,7 +86,7 @@ export function authRoutes(deps: { db: Db; config: Config; adAuth?: AdAuthentica
       mustChangePassword: st.mustChangePassword,
       organizationName: name,
       enabledModules: settings.enabledModules,
-      companies: tree.map((x) => ({ id: x.id, parentId: x.parentId, name: x.name, shortName: x.shortName, kind: x.kind, depth: x.depth, regime: x.regime as "higher" | "lower" | "none", pack: (x.pack ?? "cz") as "cz" | "sk" | "pl" | "de" | "at" | "generic", primaryFramework: x.primaryFramework ?? null, doraEntity: x.doraEntity ?? false })),
+      companies: tree.map((x) => ({ id: x.id, parentId: x.parentId, name: x.name, shortName: x.shortName, kind: x.kind, depth: x.depth, regime: x.regime as "higher" | "lower" | "none", pack: (x.pack ?? "cz") as "cz" | "sk" | "pl" | "de" | "at" | "generic", primaryFramework: x.primaryFramework ?? null, doraEntity: x.doraEntity ?? false, topbarColor: x.overrides?.topbarColor ?? null })),
       activeCompanyId: auth.scope.active,
       homeCompanyId: auth.scope.home,
       canGroupView: auth.scope.canGroupView,

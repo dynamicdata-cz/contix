@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { PDFDocument } from "pdf-lib";
 import { config as globalConfig } from "../src/config";
@@ -29,6 +29,8 @@ import { processLegislationSync } from "../src/modules/legislation/service";
 const url = process.env.TEST_DATABASE_URL;
 const APP = "http://localhost:5173";
 const PW = "Spravne-Heslo-2026!";
+/** Nejmenší platné PNG (1×1) – podklad mapy v testech (v1.25). */
+const PNG_1PX = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
 
 /* ---------- mock OIDC poskytovatel (jako Entra ID / AD FS) ---------- */
 const idp = await (async () => {
@@ -339,6 +341,19 @@ const aiServer = Bun.serve({
       if (sys.includes("měsíčního přehledu kybernetických incidentů NÚKIB")) {
         return reply('<think>x</think>{"month":"2026-03","total":20,"classes":[{"name":"Průnik","count":11},{"name":"Podvod/phishing","count":3},{"name":"Dostupnost","count":3},{"name":"*","count":9},{"name":"Škodlivý kód","count":2},{"name":"Ostatní","count":-1}],"severities":[{"name":"Významný incident","count":4},{"name":"Méně významný incident","count":16}]}');
       }
+      // bezpečnostní testy – rozbor nálezu a shrnutí běhu (ADR-153)
+      if (sys.includes("penetrační testování")) {
+        const ctl = prompt.match(/Opatření organizace \(id \| kód \| název\):\n([0-9a-f-]{36})/)?.[1];
+        return reply(`<think>x</think>{"summary":"Telnet posílá hesla nešifrovaně.","impact":"Odposlech hesel.","remediation":["Vypněte telnetd.","Používejte SSH."],"verify":"nmap -p23","nextTests":["ssh.audit","neznamy.test"],"controlIds":[${ctl ? `"${ctl}",` : ""}"00000000-0000-4000-8000-000000000999"]}`);
+      }
+      // plán oprav nálezů (v1.70, ADR-163): seskupit první dva nálezy, neznámá reference se zahodí
+      if (sys.includes("plán oprav nálezů")) {
+        const leak = /\b(?:\d{1,3}\.){3}\d{1,3}\b/.test(prompt) ? "IP" : "";
+        return reply(`<think>x</think>{"summary":"Nejdřív opravte závažné nálezy na serveru H1.${leak}","steps":[{"title":"Zakázat zbytečné služby","refs":["F1","F2","F999"],"why":"Jedna změna konfigurace odstraní dva nálezy.","effort":"low"},{"title":"Prázdný krok","refs":["F999"],"why":"x","effort":"high"}]}`);
+      }
+      if (sys.includes("vedoucí penetračních testů")) {
+        return reply('{"management":"Ve sítí je dostupný Telnet.","technical":"H1 má otevřený port 23.","priorities":["Vypnout Telnet na H1"],"nextTests":["net.services"]}');
+      }
       // detail zranitelnosti – AI rozbor (ADR-076)
       if (sys.includes("expert na správu zranitelností")) {
         return reply('<think>x</think>```json\n{"summary":"Chyba v knihovně umožňuje vzdálené spuštění kódu.","impact":"Převzetí serveru.","exploitation":"Vzdáleně bez autentizace.","remediation":["1. Aktualizujte balíček openssl.","2. Restartujte služby."],"workaround":"Omezte přístup k portu 443",' + '"verification":["openssl version"],"references":["https://nvd.nist.gov/vuln/detail/CVE-2026-77001","nehttp"],"caveats":"Ověřte opravenou verzi u výrobce."}\n```');
@@ -501,6 +516,8 @@ const aresFetch = async (input: string, init?: RequestInit) => {
   aresCalls.push(`${init?.method ?? "GET"} ${u.pathname}${init?.body ? ` ${init.body}` : ""}`);
   const subj = { ico: "27074358", obchodniJmeno: "Asseco Central Europe, a.s.", dic: "CZ27074358", pravniForma: "121", sidlo: { kodStatu: "CZ", nazevStatu: "Česká republika", textovaAdresa: "Budějovická 778/3a, Michle, 14000 Praha 4" } };
   if (u.pathname.endsWith("/ekonomicke-subjekty/27074358")) return Response.json(subj);
+  if (u.pathname.endsWith("/ekonomicke-subjekty-res/27074358"))
+    return Response.json({ icoId: "27074358", zaznamy: [{ ico: "27074358", obchodniJmeno: "Asseco Central Europe, a.s.", pravniForma: "121", datumVzniku: "2003-08-06", czNace: ["26300", "62", "63"], czNace2008: ["620", "63"], czNacePrevazujici: "62", statistickeUdaje: { institucionalniSektor2010: "11003", kategoriePoctuPracovniku: "340" }, primarniZaznam: true, sidlo: { textovaAdresa: "Budějovická 778/3a, Michle, 14000 Praha 4" } }] });
   if (u.pathname.endsWith("/ekonomicke-subjekty/vyhledat")) {
     const b = JSON.parse(String(init?.body ?? "{}"));
     if (b.obchodniJmeno === "Asseco") return Response.json({ pocetCelkem: 2, ekonomickeSubjekty: [subj, { ico: "25672541", obchodniJmeno: "Asseco Solutions, a.s.", datumZaniku: "2020-01-01", sidlo: { kodStatu: "CZ" } }] });
@@ -576,6 +593,9 @@ const esbirkaFetch = async (input: string, init?: RequestInit) => {
   return new Response("nf", { status: 404 });
 };
 
+/** Adresář automatického importu osob (v1.27). */
+const IMPORT_DIR = (await import("node:fs")).mkdtempSync(`${(await import("node:os")).tmpdir()}/contix-import-`);
+
 describe.skipIf(!url)("API (integrace)", () => {
   const client = postgres(url ?? "postgres://invalid", { max: 5, onnotice: () => {} });
   const db = drizzle(client, { schema });
@@ -596,6 +616,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     OIDC_LABEL: "AD FS",
     OIDC_SCOPES: "openid profile email allatclaims",
     ESBIRKA_API_URL: "https://esbirka.test",
+    ACCESS_IMPORT_DIR: IMPORT_DIR,
     ESBIRKA_API_KEY: "esb-test-key",
   };
   const sentMails: { to: string; subject: string; html: string }[] = [];
@@ -615,7 +636,18 @@ describe.skipIf(!url)("API (integrace)", () => {
     tls: { legacy: async (host: string) => (host === "127.0.0.1" ? ["TLSv1.1"] : []) },
     netscan: { scanner: async () => netHosts },
     adAuth: fakeAdAuth,
+    adWriter: async () => ({
+      checkGroup: async (dn: string) => (dn.includes("Chranena") ? { ok: false, reason: "Skupina je chráněná (adminCount=1)" } : { ok: true }),
+      addMember: async (g: string, m: string) => void adWrites.push(`add ${g} ${m}`),
+      removeMember: async (g: string, m: string) => void adWrites.push(`remove ${g} ${m}`),
+      createGroup: async (g: string) => void adWrites.push(`create ${g}`),
+      close: async () => {},
+    }),
+    toImage: async (buf: Uint8Array, name: string) => (new TextDecoder().decode(buf.slice(0, 4)) === "%PDF" ? { data: PNG_1PX, mime: "image/png" } : Promise.reject(new Error(`nelze převést ${name}`))),
   });
+
+  /** Zápisy do AD přes náhradní AdWriter (v1.29). */
+  const adWrites: string[] = [];
 
   /** Revize v0.73: žádná odpověď API nesmí obsahovat hash hesla, šifrované tajemství ani hash tokenu. */
   const SECRET_KEYS_RE = /"(passwordHash|password_hash|tokenHash|token_hash|[a-zA-Z]+Enc|[a-z_]+_enc)"\s*:\s*"/;
@@ -808,7 +840,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     await b.login("audit@test.cz");
     await b.json("/api/auth/password", { method: "POST", json: { currentPassword: PW, newPassword: "Auditor-Heslo-2026!" } });
     const me = await b.json("/api/auth/me");
-    expect(me.body.permissions.sort()).toEqual(["actions:read", "aiact:read", "assets:read", "audit_log:read", "audits:read", "audits:write", "awareness:read", "bia:read", "controls:read", "controls:test", "cra:read", "gdpr:read", "identity:read", "incidents:read", "incidents:report", "isms:read", "knowledge:read", "legislation:read", "obligations:self", "org:read", "policies:read", "processes:read", "risks:read", "soc:read", "suppliers:read", "trust:read"]);
+    expect(me.body.permissions.sort()).toEqual(["actions:read", "aiact:read", "assets:read", "audit_log:read", "audits:read", "audits:write", "awareness:read", "bia:read", "controls:read", "controls:test", "cra:read", "gdpr:read", "identity:read", "incidents:read", "incidents:report", "isms:read", "knowledge:read", "legislation:read", "obligations:self", "org:read", "policies:read", "processes:read", "projects:read", "risks:read", "sectests:read", "soc:read", "suppliers:read", "trust:read"]);
     // auditor jen čte
     expect((await b.json("/api/assets", { method: "POST", json: { name: "X", assetType: "server" } })).status).toBe(403);
     expect((await b.req("/api/admin/users")).status).toBe(403);
@@ -1095,7 +1127,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(saved.body.wazuh).toMatchObject({ source: "db", hasPassword: true });
     expect(JSON.stringify(saved.body)).not.toContain("wazuh-pw");
     // heslo se neukládá v čitelné podobě
-    const raw = await db.execute(sql`select value::text as v from app_settings where key = 'connector.wazuh'`);
+    const raw = await db.execute(sql`select (config::text || secrets::text) as v from connections where kind = 'wazuh'`);
     expect(String((raw[0] as any).v)).not.toContain("wazuh-pw");
     // uložení bez hesla ponechá původní
     await admin.json("/api/admin/connectors/wazuh", { method: "PUT", json: { ...wazuhForm, password: "" } });
@@ -1198,7 +1230,7 @@ describe.skipIf(!url)("API (integrace)", () => {
   test("Wazuh: automatická synchronizace podle intervalu (plánovač)", async () => {
     const { autoWazuhSync } = await import("../src/modules/discovery/wazuhSync");
     // uložená konfigurace (vč. indexeru z předchozích testů) – na konci se vrátí
-    const saved = (await db.execute(sql`select value from app_settings where key = 'connector.wazuh'`))[0] as any;
+    const saved = (await db.execute(sql`select config from connections where kind = 'wazuh' order by created_at limit 1`))[0] as any;
     const conn = (await admin.json("/api/admin/connectors")).body.wazuh;
     expect(conn).toMatchObject({ autoSyncHours: 24, lastSyncStatus: expect.any(String) });
     expect(conn.lastSyncAt).not.toBeNull();
@@ -1215,7 +1247,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     await admin.json("/api/admin/connectors/wazuh", { method: "PUT", json: { ...wazuhForm, password: "", autoSyncHours: 0 } });
     expect((await admin.json("/api/admin/connectors")).body.wazuh.autoSyncHours).toBe(0);
     expect(await autoWazuhSync(db, config, new Date(Date.now() + 100 * 3600_000))).toBeNull();
-    await db.execute(sql`update app_settings set value = ${JSON.stringify(saved.value)}::jsonb where key = 'connector.wazuh'`);
+    await db.execute(sql`update connections set config = ${JSON.stringify(saved.config)}::jsonb where kind = 'wazuh'`);
   });
 
   test("semafor: pravidla v nastavení a konec podpory OS", async () => {
@@ -1694,6 +1726,19 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect((await admin.json("/api/admin/settings", { method: "PATCH", json: { frameworks: null } })).status).toBe(200);
     const log = (await admin.json("/api/admin/audit-log?limit=30")).body as any[];
     expect(log.map((l) => l.action)).toEqual(expect.arrayContaining(["framework.imported", "framework.replaced", "framework.deleted"]));
+
+    // smluvní požadavky zákazníka (v1.50): zákazník, služba, smlouva a platnost se drží v rámci i v exportu
+    const ctMeta = { key: "zak-alfa", name: "Bezpečnostní příloha – Alfa a.s.", shortName: "Alfa SLA", jurisdiction: "cz", kind: "contract", uses: ["gap", "audit"], contract: { customer: "Alfa a.s.", service: "Správa SIEM", reference: "SML-2026/14", validUntil: "2027-12-31" } };
+    const ctCsv = "ID;Oddíl;Požadavek\nA.1;A;Dodavatel hlásí incident do 4 hodin.\nA.2;A;Logy se uchovávají 12 měsíců.\n";
+    expect((await upload("alfa.csv", ctCsv, ctMeta, "commit")).status).toBe(201);
+    const alfa = ((await admin.json("/api/frameworks")).body as any[]).find((f) => f.id === "x-zak-alfa");
+    expect(alfa).toMatchObject({ kind: "contract", contract: { customer: "Alfa a.s.", service: "Správa SIEM", reference: "SML-2026/14", validUntil: "2027-12-31" }, requirements: 2 });
+    expect(await (await admin.req("/api/frameworks/x-zak-alfa/export?format=yaml")).text()).toContain("Alfa a.s.");
+    expect((await admin.req("/api/frameworks/x-zak-alfa?force=true", { method: "DELETE" })).status).toBe(204);
+    // doklady (v1.50): certifikát jako důkaz s platností
+    const cert = await admin.json("/api/assurance/evidence", { method: "POST", json: { title: "Certifikát ISO/IEC 27001 – DynamicData", kind: "certificate", validUntil: "2027-06-30" } });
+    expect(cert.status).toBe(201);
+    expect(cert.body.kind).toBe("certificate");
   });
 
   test("BIA: dopady v čase, RTO/RPO, požadovaná dostupnost aktiv", async () => {
@@ -2870,6 +2915,16 @@ describe.skipIf(!url)("API (integrace)", () => {
     const rep = await admin.req(`/api/reports/management.html?companyId=${ROOT_COMPANY_ID}`);
     expect(rep.status).toBe(200);
     expect(await rep.text()).toContain("Vývoj ukazatelů (měsíční snímky)");
+    // grafy ve zprávě podle volby uživatele (v1.39, ADR-136): SVG v tisku, PNG ve Wordu, neplatné období odmítnuto
+    const svgRep = await (await admin.req(`/api/reports/management.html?companyId=${ROOT_COMPANY_ID}&charts=risks_total,nesmysl,obligations_overdue&chart=columns&months=12`)).text();
+    expect(svgRep).toContain("<svg");
+    expect(svgRep).toContain("<rect");
+    expect(svgRep).not.toContain("nesmysl");
+    const tab = await (await admin.req(`/api/reports/management.html?companyId=${ROOT_COMPANY_ID}&charts=risks_total&chart=table&months=24`)).text();
+    expect(tab).not.toContain("<svg");
+    expect((await admin.req(`/api/reports/management.html?companyId=${ROOT_COMPANY_ID}&months=7`)).status).toBe(400);
+    const docx = Buffer.from(await (await admin.req(`/api/reports/management.docx?companyId=${ROOT_COMPANY_ID}&charts=risks_total&chart=area&months=6`)).arrayBuffer());
+    expect(docx.includes(Buffer.from("word/media/"))).toBe(true);
   });
 
   test("ARES: dodavatel podle IČO nebo názvu, kontrolní číslice, oprávnění", async () => {
@@ -4209,7 +4264,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(cg.map((g) => g.kind)).toEqual(["incident", "audit_finding"]);
     expect(cg[1].items[0]).toMatchObject({ label: "Chybí test obnovy", sub: "Audit vazeb", link: `/audits/${au.id}` });
     const rg = (await admin.json(`/api/links/risk/${rk.body.riskId}`, { headers: H })).body.groups as any[];
-    expect(rg.map((g) => g.kind)).toEqual(["audit_finding", "cra_product"]);
+    expect(rg.map((g) => g.kind)).toEqual(["audit_finding", "cra_product", "cra_finding"]);
     // opatření z cizí společnosti u zjištění odmítnuto
     expect((await admin.json(`/api/audits/${au.id}/findings`, { method: "POST", headers: H, json: { title: "X", severity: "minor", controlId: "00000000-0000-0000-0000-000000000000" } })).status).toBe(400);
     // uživatel jen s assets:read + isms:read vidí jen změny (ne incidenty, opatření, dodavatele, CRA)
@@ -4255,9 +4310,29 @@ describe.skipIf(!url)("API (integrace)", () => {
     st = (await admin.json("/api/ops/status")).body;
     expect(st.checks.find((c: any) => c.key === "backup").level).toBe("ok");
     expect((await admin.json("/api/ops/backups")).body[0].file).toBe("contix-20261002-0230.dump");
+    // test obnovy (v1.48): žádný = varování, neúspěšný = chyba, nedávný úspěšný = ok, starý = varování
+    expect(st.checks.find((c: any) => c.key === "restore_test").level).toBe("warning");
+    await db.insert(schema.backupRuns).values({ status: "error", kind: "restore_test", file: "x.dump", finishedAt: new Date(Date.now() - 60_000), message: "pg_restore selhal" });
+    expect((await admin.json("/api/ops/status")).body.checks.find((c: any) => c.key === "restore_test")).toMatchObject({ level: "error" });
+    await db.insert(schema.backupRuns).values({ status: "ok", kind: "restore_test", file: "x.dump", finishedAt: new Date(), message: "tabulek 200" });
+    st = (await admin.json("/api/ops/status")).body;
+    expect(st.checks.find((c: any) => c.key === "restore_test").level).toBe("ok");
+    expect(st.lastBackup.kind).toBe("backup");
+    expect((await admin.json("/api/ops/backups")).body[0].kind).toBe("restore_test");
+    // SBOM CONTIXu a security.txt (v1.48, CRA)
+    const sb = await admin.req("/api/ops/sbom");
+    expect(sb.headers.get("content-type")).toContain("cyclonedx");
+    const bom = (await sb.json()) as any;
+    expect(bom).toMatchObject({ bomFormat: "CycloneDX", specVersion: "1.6", metadata: { component: { name: "CONTIX", version: CONTIX_VERSION } } });
+    expect(bom.components.some((x: any) => x.name === "hono" && x.purl.startsWith("pkg:npm/hono@"))).toBe(true);
+    expect(bom.components.some((x: any) => x.name === "typescript" || x.name === "drizzle-kit")).toBe(false);
+    const sec = await (await admin.req("/.well-known/security.txt")).text();
+    expect(sec).toMatch(/^Contact: \S+/m);
+    expect(sec).toMatch(/^Expires: \d{4}-/m);
     const auditor = browser();
     await auditor.login("audit@test.cz", "Auditor-Heslo-2026!");
     expect((await auditor.json("/api/ops/status")).status).toBe(403);
+    expect((await auditor.req("/api/ops/sbom")).status).toBe(403);
 
     expect((await admin.req("/api/metrics")).status).toBe(404);
     config.METRICS_TOKEN = "metrics-token-0123456789";
@@ -4557,6 +4632,54 @@ describe.skipIf(!url)("API (integrace)", () => {
     const rc = await admin.json("/api/import/commit", { method: "POST", body: form("risks", {}, new Blob([cp1250]), "rizika.csv") });
     expect(rc.body).toMatchObject({ created: 1 });
     expect(((await admin.json("/api/risks")).body.items ?? (await admin.json("/api/risks")).body).some((r: any) => r.code === "R-IMP-1")).toBe(true);
+
+    // útvary a funkční místa (v1.48): chybějící útvar se založí jednou, držitelé podle e-mailu, podruhé aktualizace
+    const meEmail = (await admin.json("/api/auth/me")).body.user.email;
+    const orgCsv = `Útvar;Funkční místo;Kód;Vedoucí;Držitelé\r\nImport IT;Správce sítě;FM-IMP-1;ne;${meEmail}, nikdo@neexistuje.cz\r\nImport IT;Vedoucí IT;;ano;\r\n`;
+    const op = await admin.json("/api/import/preview", { method: "POST", body: form("positions", {}, new Blob([orgCsv]), "org.csv") });
+    expect(op.body.mapping).toEqual(["orgUnitId", "name", "code", "isManager", "holderIds"]);
+    expect(op.body.counts).toMatchObject({ create: 2, errors: 0 });
+    expect(op.body.rows[0].warnings.join()).toContain("Import IT");
+    expect(op.body.rows[0].warnings.join()).toContain("nikdo@neexistuje.cz");
+    const oc = await admin.json("/api/import/commit", { method: "POST", body: form("positions", {}, new Blob([orgCsv]), "org.csv") });
+    expect(oc.body).toMatchObject({ created: 2, failed: [] });
+    const imUnits = await db.select().from(schema.orgUnits).where(eq(schema.orgUnits.name, "Import IT"));
+    expect(imUnits).toHaveLength(1);
+    const imPos = await db.select().from(schema.positions).where(eq(schema.positions.orgUnitId, imUnits[0]!.id));
+    expect(imPos.map((x) => x.name).sort()).toEqual(["Správce sítě", "Vedoucí IT"]);
+    expect(imPos.find((x) => x.name === "Vedoucí IT")!.isManager).toBe(true);
+    const holders = await db.select().from(schema.positionHolders).where(eq(schema.positionHolders.positionId, imPos.find((x) => x.code === "FM-IMP-1")!.id));
+    expect(holders).toHaveLength(1);
+    const op2 = await admin.json("/api/import/preview", { method: "POST", body: form("positions", {}, new Blob([orgCsv]), "org.csv") });
+    expect(op2.body.counts).toMatchObject({ create: 0, update: 2 });
+    expect((await admin.req("/api/import/template/positions.xlsx")).status).toBe(200);
+
+    // v1.78: aktiva s útvarem ze struktury (název nebo kód, neznámý se založí jednou) a štítky do katalogu;
+    // rizika se štítky v katalogu (object_tags), při opakovaném importu se nahradí vyplněnými
+    const astCsv = "Název;Typ aktiva;Útvar;Štítky\r\nImport NAS;server;import it;nis2, Záloha\r\nImport Wiki;application;Import Provoz;wiki\r\nImport DMS;application;Import Provoz;\r\n";
+    const ap = await admin.json("/api/import/preview", { method: "POST", body: form("assets", {}, new Blob([astCsv]), "a.csv") });
+    expect(ap.body.mapping).toEqual(["name", "assetType", "ownerUnitId", "tags"]);
+    expect(ap.body.rows[0].warnings).toEqual([]);
+    expect(ap.body.rows[1].warnings.join()).toContain("Import Provoz");
+    const ac = await admin.json("/api/import/commit", { method: "POST", body: form("assets", {}, new Blob([astCsv]), "a.csv") });
+    expect(ac.body).toMatchObject({ created: 3, failed: [] });
+    const provoz = await db.select().from(schema.orgUnits).where(eq(schema.orgUnits.name, "Import Provoz"));
+    expect(provoz).toHaveLength(1);
+    const nas = (await admin.json("/api/assets?q=Import NAS")).body.items[0];
+    const nasD = (await admin.json(`/api/assets/${nas.id}`)).body;
+    expect(nasD.ownerUnitId).toBe(imUnits[0]!.id);
+    expect(nasD.tags.map((x: string) => x.toLowerCase())).toEqual(["nis2", "záloha"]);
+    const wiki = (await admin.json(`/api/assets/${(await admin.json("/api/assets?q=Import Wiki")).body.items[0].id}`)).body;
+    expect(wiki.ownerUnitId).toBe(provoz[0]!.id);
+    const rTagCsv = "Kód;Název rizika;Štítky\r\nR-IMP-T;Ztráta notebooku;Mobilní, nis2\r\n";
+    const rt = await admin.json("/api/import/commit", { method: "POST", body: form("risks", {}, new Blob([rTagCsv]), "rt.csv") });
+    expect(rt.body).toMatchObject({ created: 1, failed: [] });
+    const rtId = (await db.select().from(schema.risks).where(eq(schema.risks.code, "R-IMP-T")))[0]!.id;
+    const tagNames = async () => ((await admin.json(`/api/tags/of/risk/${rtId}`)).body as string[]).map((x) => x.toLowerCase()).sort();
+    expect(await tagNames()).toEqual(["mobilní", "nis2"]);
+    const rt2 = await admin.json("/api/import/commit", { method: "POST", body: form("risks", {}, new Blob([rTagCsv.replace("Mobilní, nis2", "BYOD")]), "rt.csv") });
+    expect(rt2.body).toMatchObject({ updated: 1, failed: [] });
+    expect(await tagNames()).toEqual(["byod"]);
 
     // bez oprávnění k zápisu nelze; neplatný soubor = srozumitelná chyba
     const auditor = browser();
@@ -8193,6 +8316,2350 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(grp.length).toBeGreaterThanOrEqual(2);
   });
 
+  test("mapy a půdorysy: nahrání, převod PDF, umístění aktiv, semafor, přesun aktiva (v1.25, ADR-122)", async () => {
+    const co = (await admin.json("/api/companies", { method: "POST", json: { name: "Mapy s.r.o.", regime: "lower" } })).body;
+    const H = { "x-contix-company": co.id };
+    const up = (name: string, body: string | Uint8Array, fields: Record<string, string> = {}) => {
+      const fd = new FormData();
+      fd.append("file", new File([body], name));
+      fd.append("name", fields.name ?? "1. NP");
+      for (const [k, v] of Object.entries(fields)) if (k !== "name") fd.append(k, v);
+      return admin.req("/api/assets/maps", { method: "POST", headers: H, body: fd });
+    };
+    expect((await up("plan.exe", "MZ")).status).toBe(400);
+    expect((await up("plan.png", PNG_1PX, { name: "" })).status).toBe(400);
+    expect((await up("plan.dwg", "AC1032")).status).toBe(422);
+    const png = await up("plan.png", PNG_1PX, { building: "Radnice", floor: "1. NP" });
+    expect(png.status).toBe(201);
+    const map = (await png.json()) as any;
+    expect(map.imageMime).toBe("image/png");
+    const pdf = await up("Půdorys 2NP.pdf", "%PDF-1.4 fake", { name: "2. NP", building: "Radnice", floor: "2. NP" });
+    expect(pdf.status).toBe(201);
+    const map2 = (await pdf.json()) as any;
+    expect(map2.imageMime).toBe("image/png");
+    const img = await admin.req(`/api/assets/maps/${map2.id}/image`, { headers: H });
+    expect(img.headers.get("content-type")).toBe("image/png");
+    expect(img.headers.get("content-security-policy")).toContain("sandbox");
+    const orig = await admin.req(`/api/assets/maps/${map2.id}/original`, { headers: H });
+    expect(orig.headers.get("content-disposition")).toContain("attachment");
+    expect(await orig.text()).toBe("%PDF-1.4 fake");
+    // aktiva na mapě
+    const mk = async (name: string, assetType = "server") => (await admin.json("/api/assets", { method: "POST", headers: H, json: { name, assetType, confidentiality: 2, integrity: 2, availability: 2 } })).body.id as string;
+    const srv = await mk("Server rack A");
+    const sock = await mk("Zásuvka 1.12", "network_socket");
+    const ok = await mk("Tiskárna");
+    const quiet = await mk("Neznámý");
+    await db.update(schema.assets).set({ healthStatus: "green" } as any).where(eq(schema.assets.id, ok));
+    expect((await admin.json(`/api/assets/maps/${map.id}/placements/${srv}`, { method: "PUT", headers: H, json: { x: 1.5, y: 0.2 } })).status).toBe(400);
+    for (const [id, x] of [[srv, 0.1], [sock, 0.3], [ok, 0.5], [quiet, 0.7]] as const) expect((await admin.json(`/api/assets/maps/${map.id}/placements/${id}`, { method: "PUT", headers: H, json: { x, y: 0.4 } })).status).toBe(200);
+    // posun = přepsání
+    await admin.json(`/api/assets/maps/${map.id}/placements/${quiet}`, { method: "PUT", headers: H, json: { x: 0.9, y: 0.9 } });
+    // semafor: KEV na serveru → červená, kritická zranitelnost zásuvky → oranžová
+    await db.insert(schema.vulnIntel).values({ cveId: "CVE-2026-7701", kev: true }).onConflictDoNothing();
+    await db.insert(schema.assetVulnerabilities).values({ assetId: srv, cveId: "CVE-2026-7701", severity: "high", status: "open" } as any);
+    await db.insert(schema.assetVulnerabilities).values({ assetId: sock, cveId: "CVE-2026-7702", severity: "critical", status: "open" } as any);
+    let d = (await admin.json(`/api/assets/maps/${map.id}`, { headers: H })).body;
+    const st = (id: string) => d.placements.find((p: any) => p.assetId === id);
+    expect(d.placements.length).toBe(4);
+    expect(st(srv).status).toBe("red");
+    expect(st(srv).reasons.map((r: any) => r.key)).toContain("kev");
+    expect(st(sock).status).toBe("orange");
+    expect(st(ok).status).toBe("green");
+    expect(st(quiet).status).toBe("unknown");
+    expect(st(quiet).x).toBeCloseTo(0.9);
+    expect(d.counts.red).toBe(1);
+    expect(d.counts.orange).toBe(1);
+    // závažný alert SOC na tiskárně → červená
+    await db.insert(schema.alertSuggestions).values({ companyId: co.id, assetId: ok, source: "manual", groupKey: "map-1", ruleId: "m", ruleLevel: 12, description: "Brute force", firstSeen: new Date(), lastSeen: new Date() } as any);
+    d = (await admin.json(`/api/assets/maps/${map.id}`, { headers: H })).body;
+    expect(st(ok).status).toBe("red");
+    expect(st(ok).reasons.map((r: any) => r.key)).toContain("alert_high");
+    // seznam s počty a mapy aktiva
+    const list = (await admin.json("/api/assets/maps", { headers: H })).body as any[];
+    expect(list.length).toBe(2);
+    expect(list.find((m) => m.id === map.id).counts.red).toBe(2);
+    expect(((await admin.json(`/api/assets/maps/by-asset/${srv}`, { headers: H })).body as any[]).map((m) => m.id)).toEqual([map.id]);
+    // aktivum jiné společnosti nelze umístit
+    const other = (await admin.json("/api/companies", { method: "POST", json: { name: "Mapy cizí s.r.o.", regime: "lower" } })).body;
+    const foreign = (await admin.json("/api/assets", { method: "POST", headers: { "x-contix-company": other.id }, json: { name: "Cizí", assetType: "server", confidentiality: 1, integrity: 1, availability: 1 } })).body.id;
+    expect((await admin.json(`/api/assets/maps/${map.id}/placements/${foreign}`, { method: "PUT", headers: H, json: { x: 0.2, y: 0.2 } })).status).toBe(400);
+    // odebrání, přejmenování
+    expect(((await admin.json(`/api/assets/maps/${map.id}/placements/${quiet}`, { method: "DELETE", headers: H })).body.placements as any[]).length).toBe(3);
+    expect((await admin.json(`/api/assets/maps/${map.id}`, { method: "PATCH", headers: H, json: { name: "Přízemí" } })).body.name).toBe("Přízemí");
+    // přesun aktiva do jiné společnosti ho z mapy odebere
+    const tr = await admin.json("/api/companies/transfer", { method: "POST", json: { entity: "assets", ids: [sock], targetCompanyId: other.id, force: true } });
+    expect(tr.status).toBe(200);
+    expect(((await admin.json(`/api/assets/maps/${map.id}`, { headers: H })).body.placements as any[]).some((p: any) => p.assetId === sock)).toBe(false);
+    // smazání mapy smaže i umístění
+    expect((await admin.json(`/api/assets/maps/${map2.id}`, { method: "DELETE", headers: H })).status).toBe(200);
+    expect((await admin.json(`/api/assets/maps/${map2.id}`, { headers: H })).status).toBe(404);
+    const audits = (await db.select().from(schema.auditLog).where(eq(schema.auditLog.entityId, map.id))).map((a: any) => a.action);
+    expect(audits).toEqual(expect.arrayContaining(["map.created", "map.asset_placed", "map.asset_removed", "map.updated"]));
+  });
+
+  test("žádosti o přístup: import osob, katalog, žádost, schválení vedoucím a vlastníkem, vyřízení, odchod (v1.26, ADR-123)", async () => {
+    const NEW_PW = "Pristupy-Heslo-2026!";
+    const mkUser = async (email: string, name: string) => {
+      await admin.json("/api/admin/users", { method: "POST", json: { email, displayName: name, password: PW, roleIds: [await roleId("employee")] } });
+      const u = browser();
+      await u.login(email);
+      await u.json("/api/auth/password", { method: "POST", json: { currentPassword: PW, newPassword: NEW_PW } });
+      const me = (await u.json("/api/auth/me")).body;
+      return { b: u, id: me.user?.id ?? me.id };
+    };
+    const boss = await mkUser("vedouci@pristupy.cz", "Vedoucí Účtárny");
+    const owner = await mkUser("vlastnik@pristupy.cz", "Vlastník Mezd");
+    const emp = await mkUser("zamestnanec@pristupy.cz", "Zaměstnanec Účtárny");
+    expect((await emp.b.json("/api/auth/me")).body.permissions).toContain("access:request");
+    // osoby: vedoucí ručně, ostatní importem z personalistiky
+    const bossP = (await admin.json("/api/access/people", { method: "POST", json: { firstName: "Věra", lastName: "Vedoucí", email: "vedouci@pristupy.cz", department: "Účtárna" } })).body;
+    expect(bossP.status).toBe("active");
+    const csv = [
+      "Osobní číslo;Příjmení;Jméno;E-mail;Útvar;Nadřízený;Datum nástupu;Datum ukončení;Druh PPV",
+      "100;Vedoucí;Věra;vedouci@pristupy.cz;Účtárna;;1.1.2020;;HPP",
+      "101;Účetní;Zdeněk;zamestnanec@pristupy.cz;Účtárna;100;1. 3. 2024;;HPP",
+      "102;Brigádník;Bořek;;Účtárna;100;2024-06-01;31.12.2025;DPP",
+      "103;;Bezejmenný;;;;;;",
+      "104;Nový;Nastupující;novy@pristupy.cz;Účtárna;vedouci@pristupy.cz;1.1.2099;;HPP",
+      "105;Cizí;Nadřízený;;;999;;;",
+    ].join("\n");
+    const imp = (commit: boolean) => {
+      const fd = new FormData();
+      fd.append("file", new File([csv], "perm-export.csv"));
+      if (commit) fd.append("commit", "1");
+      return admin.req("/api/access/people/import", { method: "POST", body: fd });
+    };
+    const prev = (await (await imp(false)).json()) as any;
+    expect(prev.mapping).toEqual(["personalNumber", "lastName", "firstName", "email", "department", "manager", "startDate", "endDate", "kind"]);
+    expect(prev.counts).toMatchObject({ create: 4, update: 1, errors: 1, leavers: 1 });
+    expect(prev.rows.find((r: any) => r.row === 5).errors[0]).toContain("Příjmení");
+    expect(prev.rows.find((r: any) => r.row === 7).warnings[0]).toContain("999");
+    expect(prev.rows.find((r: any) => r.row === 2).changes).toEqual(expect.arrayContaining(["personalNumber", "startDate"]));
+    expect(((await admin.json("/api/access/people")).body as any[]).length).toBe(1);
+    expect(((await (await imp(true)).json()) as any).committed).toBe(true);
+    const people = (await admin.json("/api/access/people")).body as any[];
+    const P = (n: string) => people.find((p) => p.personalNumber === n);
+    expect(people.length).toBe(5);
+    expect(P("100").id).toBe(bossP.id);
+    expect(P("101").managerName).toBe("Věra Vedoucí");
+    expect(P("102")).toMatchObject({ kind: "contractor", status: "leaver" });
+    expect(P("104")).toMatchObject({ status: "joiner", managerId: bossP.id });
+    // opakovaný import nic nemění
+    expect(((await (await imp(false)).json()) as any).counts).toMatchObject({ create: 0, update: 0 });
+    // katalog oprávnění
+    const payroll = (await admin.json("/api/access/resources", { method: "POST", json: { name: "Mzdový systém", kind: "application", ownerId: owner.id, privileged: true, adGroup: "CN=Mzdy,OU=Groups,DC=firma,DC=cz" } })).body;
+    const vpn = (await admin.json("/api/access/resources", { method: "POST", json: { name: "VPN", kind: "ad_group", approvalOwner: false, maxDays: 30 } })).body;
+    expect((await admin.json("/api/access/resources", { method: "POST", json: { name: "vpn" } })).status).toBe(409);
+    // zaměstnanec vidí jen sebe, za jiné žádat nesmí
+    const mine = (await emp.b.json("/api/access/people")).body as any[];
+    expect(mine.map((p) => p.personalNumber)).toEqual(["101"]);
+    expect((await emp.b.json("/api/access/requests", { method: "POST", json: { personId: P("104").id, resourceId: payroll.id, justification: "Potřebuje mzdy" } })).status).toBe(403);
+    const r1 = await emp.b.json("/api/access/requests", { method: "POST", json: { personId: P("101").id, resourceId: payroll.id, justification: "Zpracování mezd za oddělení" } });
+    expect(r1.status).toBe(201);
+    expect(r1.body.status).toBe("pending");
+    expect(r1.body.approvals.map((a: any) => [a.kind, a.approverId])).toEqual([["manager", boss.id], ["owner", owner.id]]);
+    expect(r1.body.canDecide).toBeNull();
+    expect((await emp.b.json(`/api/access/requests/${r1.body.id}/decide`, { method: "POST", json: { decision: "approved" } })).status).toBe(403);
+    expect((await emp.b.json("/api/access/requests", { method: "POST", json: { personId: P("101").id, resourceId: payroll.id, justification: "Znovu" } })).status).toBe(409);
+    // vlastník je na řadě až po vedoucím
+    expect((await owner.b.json(`/api/access/requests/${r1.body.id}`)).body.canDecide).toBeNull();
+    let my = (await boss.b.json("/api/notifications/mine")).body as any[];
+    expect(my.some((i) => i.kind === "access_approval" && i.link.includes(r1.body.id))).toBe(true);
+    const d1 = await boss.b.json(`/api/access/requests/${r1.body.id}/decide`, { method: "POST", json: { decision: "approved", comment: "OK" } });
+    expect(d1.body.status).toBe("pending");
+    expect((await owner.b.json(`/api/access/requests/${r1.body.id}/decide`, { method: "POST", json: { decision: "rejected" } })).status).toBe(400);
+    const d2 = await owner.b.json(`/api/access/requests/${r1.body.id}/decide`, { method: "POST", json: { decision: "approved" } });
+    expect(d2.body.status).toBe("approved");
+    expect(d2.body.canFulfil).toBe(false);
+    expect((await emp.b.json(`/api/access/requests/${r1.body.id}/fulfil`, { method: "POST", json: {} })).status).toBe(403);
+    const f1 = await admin.json(`/api/access/requests/${r1.body.id}/fulfil`, { method: "POST", json: { note: "Přidáno do skupiny Mzdy" } });
+    expect(f1.body.status).toBe("done");
+    let grants = (await admin.json("/api/access/grants")).body as any[];
+    expect(grants.map((g) => [g.personName, g.resourceName])).toEqual([["Zdeněk Účetní", "Mzdový systém"]]);
+    expect((await emp.b.json("/api/access/requests", { method: "POST", json: { personId: P("101").id, resourceId: payroll.id, justification: "Ještě jednou" } })).status).toBe(409);
+    // vedoucí žádá za podřízeného: krok vedoucího schválen automaticky, VPN nejvýše 30 dní
+    const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    expect((await boss.b.json("/api/access/requests", { method: "POST", json: { personId: P("101").id, resourceId: vpn.id, justification: "Práce z domova", validUntil: inDays(60) } })).status).toBe(400);
+    const r2 = (await boss.b.json("/api/access/requests", { method: "POST", json: { personId: P("101").id, resourceId: vpn.id, justification: "Práce z domova", validUntil: inDays(10) } })).body;
+    expect(r2.status).toBe("approved");
+    expect(r2.approvals[0]).toMatchObject({ kind: "manager", decision: "approved" });
+    await admin.json(`/api/access/requests/${r2.id}/fulfil`, { method: "POST", json: {} });
+    // vlastník oprávnění nemůže schválit žádost, kterou sám podal – rozhoduje správce
+    expect((await owner.b.json("/api/access/people")).body).toEqual([]);
+    // odchod: datum ukončení v minulosti → žádosti o odebrání všech přidělení
+    const p101 = P("101");
+    await admin.json(`/api/access/people/${p101.id}`, { method: "PUT", json: { firstName: p101.firstName, lastName: p101.lastName, email: p101.email, personalNumber: "101", managerId: bossP.id, kind: "employee", startDate: "2024-03-01", endDate: inDays(-1) } });
+    const life = (await admin.json("/api/access/lifecycle/run", { method: "POST" })).body;
+    expect(life).toMatchObject({ leaver: 2, expiry: 0 });
+    expect((await admin.json("/api/access/lifecycle/run", { method: "POST" })).body.leaver).toBe(0);
+    const open = ((await admin.json("/api/access/requests?status=approved")).body as any[]).filter((r) => r.origin === "leaver");
+    expect(open.length).toBe(2);
+    for (const r of open) expect((await admin.json(`/api/access/requests/${r.id}/fulfil`, { method: "POST", json: {} })).body.status).toBe("done");
+    grants = (await admin.json("/api/access/grants")).body as any[];
+    expect(grants.length).toBe(0);
+    expect(((await admin.json("/api/access/grants?history=1")).body as any[]).length).toBe(2);
+    // smazání oprávnění s historií odmítnuto
+    expect((await admin.json(`/api/access/resources/${payroll.id}`, { method: "DELETE" })).status).toBe(409);
+    my = (await boss.b.json("/api/notifications/mine")).body as any[];
+    expect(my.some((i) => i.kind === "access_approval")).toBe(false);
+    const audits = ((await db.select().from(schema.auditLog).where(eq(schema.auditLog.entityId, r1.body.id))) as any[]).map((a) => a.action);
+    expect(audits).toEqual(expect.arrayContaining(["access.requested", "access.approved", "access.granted"]));
+  });
+
+  test("import z PERM ze souboru, odešlí, recertifikace oprávnění (v1.27, ADR-124)", async () => {
+    const { writeFileSync } = await import("node:fs");
+    const NEW_PW = "Revize-Heslo-2026!";
+    await admin.json("/api/admin/users", { method: "POST", json: { email: "revizor@pristupy.cz", displayName: "Revizor ERP", password: PW, roleIds: [await roleId("employee")] } });
+    const rev = browser();
+    await rev.login("revizor@pristupy.cz");
+    await rev.json("/api/auth/password", { method: "POST", json: { currentPassword: PW, newPassword: NEW_PW } });
+    const revId = ((await admin.json("/api/admin/users")).body as any[]).find((u) => u.email === "revizor@pristupy.cz").id;
+    // čistý začátek: osoby z předchozího testu (bez aktivních přidělení) pryč
+    for (const p of (await admin.json("/api/access/people")).body as any[]) await admin.json(`/api/access/people/${p.id}`, { method: "DELETE" });
+    // export s titulkem nad záhlavím, celým jménem v jednom sloupci a citlivými sloupci
+    const perm = (rows: string[]) =>
+      ["Seznam zaměstnanců k 1. 11. 2026;;;;;;", "Os.č.;Příjmení a jméno;Rodné číslo;Název střediska;Pracovní zařazení;Os.č. nadřízeného;Datum nástupu;Druh PPV;Služební e-mail", ...rows].join("\r\n");
+    const v1 = ["500;Ing. Svobodová Alena;805512/1234;Ekonomický úsek;Ředitelka;;1.1.2015;HPP;alena@pristupy.cz", "501;Dvořák Petr, DiS.;900101/1111;Ekonomický úsek;Účetní;500;1.2.2020;HPP;", "502;Malá Jana;;Ekonomický úsek;Účetní;500;1.3.2021;DPČ;", "503;Krátký Ota;;Sklad;Skladník;500;1.4.2022;HPP;"];
+    writeFileSync(`${IMPORT_DIR}/perm-osoby.csv`, perm(v1));
+    expect((await admin.json("/api/access/import-settings", { method: "PUT", json: { enabled: true, fileName: "../etc/passwd.csv" } })).status).toBe(400);
+    let st = (await admin.json("/api/access/import-settings", { method: "PUT", json: { enabled: true, fileName: "perm-osoby.csv", missingAsLeft: true } })).body;
+    expect(st).toMatchObject({ enabled: true, dirAvailable: true, fileFound: true });
+    st = (await admin.json("/api/access/import-settings/run", { method: "POST" })).body;
+    expect(st.lastError).toBeNull();
+    expect(st.lastResult).toMatchObject({ create: 4, errors: 0 });
+    let people = (await admin.json("/api/access/people")).body as any[];
+    const N = (n: string) => people.find((p) => p.personalNumber === n);
+    expect(N("500")).toMatchObject({ firstName: "Alena", lastName: "Svobodová", department: "Ekonomický úsek", jobTitle: "Ředitelka", email: "alena@pristupy.cz" });
+    expect(N("501")).toMatchObject({ firstName: "Petr", lastName: "Dvořák", managerName: "Alena Svobodová" });
+    expect(N("502").kind).toBe("contractor");
+    // ruční náhled hlásí ignorované citlivé sloupce
+    const fd = new FormData();
+    fd.append("file", new File([perm(v1)], "perm.csv"));
+    const prev = (await (await admin.req("/api/access/people/import", { method: "POST", body: fd })).json()) as any;
+    expect(prev.ignoredSensitive).toEqual(["Rodné číslo"]);
+    expect(prev.counts).toMatchObject({ create: 0, update: 0, missing: 0 });
+    // stejný soubor plánovač přeskočí (beze změny obsahu)
+    const { runAutoImport } = await import("../src/modules/access/review");
+    expect((await runAutoImport(db as any, config, "00000000-0000-4000-8000-000000000001", false)).skipped).toBe(true);
+    // oprávnění a přidělení (bez schvalování) pro recertifikaci
+    const erp = (await admin.json("/api/access/resources", { method: "POST", json: { name: "ERP Helios", kind: "application", ownerId: revId, approvalManager: false, approvalOwner: false, privileged: true } })).body;
+    for (const n of ["501", "502"]) {
+      const r = (await admin.json("/api/access/requests", { method: "POST", json: { personId: N(n).id, resourceId: erp.id, justification: "Účetnictví" } })).body;
+      expect(r.status).toBe("approved");
+      await admin.json(`/api/access/requests/${r.id}/fulfil`, { method: "POST", json: {} });
+    }
+    // odchod: osoba 503 v dalším exportu chybí → odešlá
+    writeFileSync(`${IMPORT_DIR}/perm-osoby.csv`, perm(v1.slice(0, 3)));
+    st = (await admin.json("/api/access/import-settings/run", { method: "POST" })).body;
+    expect(st.lastResult.missing).toBe(1);
+    people = (await admin.json("/api/access/people")).body as any[];
+    expect(N("503").status).toBe("leaver");
+    // pojistka: soubor s méně než polovinou osob odchody neoznačí
+    writeFileSync(`${IMPORT_DIR}/perm-osoby.csv`, perm(v1.slice(0, 1)));
+    st = (await admin.json("/api/access/import-settings/run", { method: "POST" })).body;
+    expect(st.lastError).toContain("polovinu");
+    expect(((await admin.json("/api/access/people")).body as any[]).find((p: any) => p.personalNumber === "501").status).toBe("active");
+    await admin.json("/api/access/import-settings", { method: "PUT", json: { enabled: false, fileName: "perm-osoby.csv" } });
+    // recertifikace: posuzuje vlastník oprávnění
+    const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    expect((await admin.json("/api/access/certifications", { method: "POST", json: { name: "Q4", dueDate: inDays(-1) } })).status).toBe(400);
+    const cert = (await admin.json("/api/access/certifications", { method: "POST", json: { name: "Privilegovaná oprávnění Q4", reviewer: "owner", privilegedOnly: true, dueDate: inDays(14) } })).body;
+    expect(cert).toMatchObject({ total: 2, decided: 0, status: "open" });
+    expect((await rev.json("/api/notifications/mine")).body.some((i: any) => i.kind === "access_certification" && i.link.includes(cert.id))).toBe(true);
+    const mineList = (await rev.json("/api/access/certifications")).body as any[];
+    expect(mineList.map((x) => [x.id, x.mine])).toEqual([[cert.id, 2]]);
+    const d = (await rev.json(`/api/access/certifications/${cert.id}`)).body;
+    const item = (name: string) => d.items.find((i: any) => i.personName === name);
+    expect(item("Petr Dvořák").canDecide).toBe(true);
+    await rev.json(`/api/access/certifications/${cert.id}/items/${item("Petr Dvořák").id}`, { method: "POST", json: { decision: "keep" } });
+    expect((await rev.json(`/api/access/certifications/${cert.id}/items/${item("Jana Malá").id}`, { method: "POST", json: { decision: "revoke" } })).status).toBe(400);
+    const after = (await rev.json(`/api/access/certifications/${cert.id}/items/${item("Jana Malá").id}`, { method: "POST", json: { decision: "revoke", comment: "Dohoda skončila" } })).body;
+    expect(after).toMatchObject({ decided: 2, revoked: 1, mine: 0 });
+    const rq = ((await admin.json("/api/access/requests?status=approved")).body as any[]).find((r) => r.origin === "review");
+    expect(rq).toMatchObject({ personName: "Jana Malá", action: "revoke" });
+    expect(rq.justification).toContain("Dohoda skončila");
+    // posuzovatel nesmí exportovat ani uzavřít
+    expect((await rev.req(`/api/access/certifications/${cert.id}/export.csv`)).status).toBe(403);
+    const csv = await (await admin.req(`/api/access/certifications/${cert.id}/export.csv`)).text();
+    expect(csv).toContain("Jana Malá");
+    expect(csv).toContain("odebrat");
+    expect((await admin.json(`/api/access/certifications/${cert.id}/close`, { method: "POST" })).body.status).toBe("closed");
+    expect((await rev.json(`/api/access/certifications/${cert.id}/items/${item("Petr Dvořák").id}`, { method: "POST", json: { decision: "revoke", comment: "x" } })).status).toBe(403);
+    expect((await rev.json("/api/notifications/mine")).body.some((i: any) => i.kind === "access_certification")).toBe(false);
+  });
+
+  test("soulad s AD: členství ve skupinách proti přidělením, převzetí, odebrání (v1.28, ADR-125)", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const people = (await admin.json("/api/access/people")).body as any[];
+    const N = (n: string) => people.find((p) => p.personalNumber === n);
+    const ota = N("503");
+    await admin.json(`/api/access/people/${ota.id}`, { method: "PUT", json: { firstName: ota.firstName, lastName: ota.lastName, personalNumber: "503", login: "okratky", kind: "employee", startDate: ota.startDate, endDate: ota.endDate } });
+    const grp = (await admin.json("/api/access/resources", { method: "POST", json: { name: "Skupina ERP", kind: "ad_group", adGroup: "CN=ERP-Users,OU=Groups,DC=firma,DC=cz", approvalManager: false, approvalOwner: false } })).body;
+    const r = (await admin.json("/api/access/requests", { method: "POST", json: { personId: N("501").id, resourceId: grp.id, justification: "Účetnictví" } })).body;
+    await admin.json(`/api/access/requests/${r.id}/fulfil`, { method: "POST", json: {} });
+    const [src] = await db.insert(schema.identitySources).values({ companyId: ROOT, kind: "ad", name: "AD soulad", config: {}, policy: {} as any }).returning();
+    const flags = { pwdNeverExpires: false, pwdNotRequired: false, preauthDisabled: false, hasSpn: false, unconstrainedDelegation: false };
+    await db.insert(schema.identityAccounts).values([
+      { sourceId: src!.id, companyId: ROOT, externalId: "s1", login: "asvobodova", email: "alena@pristupy.cz", enabled: true, flags, groups: ["ERP-Users", "Domain Users"] },
+      { sourceId: src!.id, companyId: ROOT, externalId: "s2", login: "okratky", enabled: false, flags, groups: ["erp-users"] },
+      { sourceId: src!.id, companyId: ROOT, externalId: "s3", login: "cizi.ucet", enabled: true, flags, groups: ["ERP-Users"] },
+    ] as any);
+    let d = (await admin.json("/api/access/reconcile")).body;
+    const res = () => d.resources.find((x: any) => x.resourceId === grp.id);
+    expect(res()).toMatchObject({ members: 3, granted: 1 });
+    expect(res().items.map((i: any) => [i.type, i.personName ?? i.login])).toEqual([
+      ["unapproved", "Alena Svobodová"],
+      ["leaver_in_ad", "Ota Krátký"],
+      ["unknown_account", "cizi.ucet"],
+      ["no_account", "Petr Dvořák"],
+    ]);
+    expect(d.sources.some((s: any) => s.name === "AD soulad")).toBe(true);
+    // převzetí stávajícího členství (jen osoby, které soulad opravdu hlásí)
+    expect((await admin.json("/api/access/reconcile/adopt", { method: "POST", json: { resourceId: grp.id, personIds: [N("502").id] } })).status).toBe(400);
+    d = (await admin.json("/api/access/reconcile/adopt", { method: "POST", json: { resourceId: grp.id, personIds: [N("500").id] } })).body;
+    expect(res().items.map((i: any) => i.type)).toEqual(["leaver_in_ad", "unknown_account", "no_account"]);
+    expect(res().granted).toBe(2);
+    // odešlá osoba ve skupině → žádost o odebrání (rovnou k vyřízení)
+    const rv = await admin.json("/api/access/reconcile/revoke", { method: "POST", json: { resourceId: grp.id, personId: ota.id } });
+    expect(rv.status).toBe(200);
+    const req = (await admin.json(`/api/access/requests/${rv.body.requestId}`)).body;
+    expect(req).toMatchObject({ origin: "reconcile", action: "revoke", status: "approved" });
+    expect((await admin.json("/api/access/reconcile/revoke", { method: "POST", json: { resourceId: grp.id, personId: ota.id } })).status).toBe(409);
+    // čtenář bez správy přístupů soulad nevidí
+    const emp = browser();
+    await emp.login("zamestnanec@pristupy.cz", "Pristupy-Heslo-2026!");
+    expect((await emp.json("/api/access/reconcile")).status).toBe(403);
+  });
+
+  test("nastavení skupin v AD: náhled, pojistky, zápis, limit, skript a ověření synchronizací (v1.29, ADR-126)", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const people = (await admin.json("/api/access/people")).body as any[];
+    const N = (n: string) => people.find((p) => p.personalNumber === n);
+    const jana = N("502");
+    await admin.json(`/api/access/people/${jana.id}`, { method: "PUT", json: { firstName: jana.firstName, lastName: jana.lastName, personalNumber: "502", login: "jmala", kind: "contractor", startDate: jana.startDate } });
+    const [src] = await db.insert(schema.identitySources).values({ companyId: ROOT, kind: "ad", name: "AD zápis", config: { url: "ldaps://dc.firma.test:636", baseDn: "DC=firma,DC=cz", bindDn: "contix-read@firma.cz" }, policy: {} as any }).returning();
+    const flags = { pwdNeverExpires: false, pwdNotRequired: false, preauthDisabled: false, hasSpn: false, unconstrainedDelegation: false };
+    await db.insert(schema.identityAccounts).values([
+      { sourceId: src!.id, companyId: ROOT, externalId: "w1", login: "asvobodova", email: "alena@pristupy.cz", enabled: true, flags, groups: [], dn: "CN=Alena Svobodová,OU=Users,DC=firma,DC=cz" },
+      { sourceId: src!.id, companyId: ROOT, externalId: "w2", login: "jmala", enabled: true, flags, groups: [], dn: "CN=Jana O'Malá,OU=Users,DC=firma,DC=cz" },
+    ] as any);
+    const OU = "OU=CONTIX,OU=Groups,DC=firma,DC=cz";
+    const mk = async (name: string, adGroup: string) => (await admin.json("/api/access/resources", { method: "POST", json: { name, kind: "ad_group", adGroup, approvalManager: false, approvalOwner: false } })).body.id as string;
+    const vpn = await mk("VPN zápis", `CN=VPN-Users,${OU}`);
+    const da = await mk("Admini v OU", `CN=Domain Admins,${OU}`);
+    const out = await mk("Mimo OU", "CN=Ucetni,OU=Jinde,DC=firma,DC=cz");
+    const prot = await mk("Chráněná", `CN=Chranena,${OU}`);
+    const req = async (personId: string, resourceId: string) => (await admin.json("/api/access/requests", { method: "POST", json: { personId, resourceId, justification: "Práce" } })).body.id as string;
+    const rVpn = await req(N("500").id, vpn);
+    const rDa = await req(jana.id, da);
+    const rOut = await req(jana.id, out);
+    const rProt = await req(N("500").id, prot);
+    // nastavení: vypnuto; zapisovací účet jen se zdrojem, OU a heslem
+    expect((await admin.json("/api/access/provisioning")).body.mode).toBe("off");
+    expect((await admin.json("/api/access/provisioning", { method: "PUT", json: { mode: "ldap", sourceId: src!.id, bindDn: "contix-write@firma.cz", allowedOu: OU } })).status).toBe(400);
+    const set = await admin.json("/api/access/provisioning", { method: "PUT", json: { mode: "ldap", sourceId: src!.id, bindDn: "contix-write@firma.cz", password: "Zapis-Heslo-1", allowedOu: OU, dailyLimit: 2 } });
+    expect(set.body).toMatchObject({ mode: "ldap", hasPassword: true, sourceName: "AD zápis" });
+    expect(JSON.stringify(set.body)).not.toContain("Zapis-Heslo-1");
+    // náhled s pojistkami
+    const plan = (await admin.json("/api/access/provisioning/plan")).body as any[];
+    const P = (id: string) => plan.find((x) => x.requestId === id);
+    expect(P(rVpn)).toMatchObject({ error: null, member: "CN=Alena Svobodová,OU=Users,DC=firma,DC=cz", action: "grant" });
+    expect(P(rDa).error).toContain("privilegovaná");
+    expect(P(rOut).error).toContain("mimo povolenou OU");
+    expect(P(rProt).error).toBeNull();
+    // zápis: jen platné, chráněná skupina odmítnuta serverem
+    const res = (await admin.json("/api/access/provisioning/apply", { method: "POST", json: { requestIds: [rVpn, rDa, rProt] } })).body as any[];
+    expect(res.find((x) => x.requestId === rVpn)).toMatchObject({ ok: true });
+    expect(res.find((x) => x.requestId === rDa).ok).toBe(false);
+    expect(res.find((x) => x.requestId === rProt).message).toContain("chráněná");
+    expect(adWrites).toEqual([`add CN=VPN-Users,${OU} CN=Alena Svobodová,OU=Users,DC=firma,DC=cz`]);
+    expect((await admin.json(`/api/access/requests/${rVpn}`)).body).toMatchObject({ status: "done" });
+    expect((await admin.json(`/api/access/requests/${rProt}`)).body.status).toBe("approved");
+    // denní limit (2, jeden už využit) – dva zápisy najednou nepustí
+    const rJ = await req(jana.id, vpn);
+    const rA2 = await req(N("501").id, vpn);
+    expect((await admin.json("/api/access/provisioning/apply", { method: "POST", json: { requestIds: [rJ, rProt] } })).status).toBe(429);
+    // režim jen skript: PowerShell s escapováním, stav se nemění, vyřízení až podle synchronizace
+    await admin.json("/api/access/provisioning", { method: "PUT", json: { mode: "script", sourceId: src!.id, bindDn: "", allowedOu: OU } });
+    const ps = await (await admin.req("/api/access/provisioning/script", { method: "POST", json: { requestIds: [rJ, rA2] } })).text();
+    expect(ps).toContain(`Add-ADGroupMember -Identity 'CN=VPN-Users,${OU}' -Members 'CN=Jana O''Malá,OU=Users,DC=firma,DC=cz' -Confirm:$false`);
+    expect(ps).not.toContain("Petr");
+    expect((await admin.json(`/api/access/requests/${rJ}`)).body.status).toBe("approved");
+    expect((await admin.json("/api/access/provisioning/verify", { method: "POST" })).body.fulfilled).toBe(0);
+    await db.update(schema.identityAccounts).set({ groups: ["VPN-Users"] }).where(eq(schema.identityAccounts.externalId, "w2"));
+    expect((await admin.json("/api/access/provisioning/verify", { method: "POST" })).body.fulfilled).toBe(1);
+    const done = (await admin.json(`/api/access/requests/${rJ}`)).body;
+    expect(done.status).toBe("done");
+    expect(done.fulfilNote).toContain("Ověřeno");
+    expect(((await admin.json("/api/access/grants")).body as any[]).some((g) => g.personName === "Jana Malá" && g.resourceName === "VPN zápis")).toBe(true);
+    // bez správy přístupů nic
+    const emp = browser();
+    await emp.login("zamestnanec@pristupy.cz", "Pristupy-Heslo-2026!");
+    expect((await emp.json("/api/access/provisioning/plan")).status).toBe(403);
+  });
+
+  test("CRA: EU prohlášení o shodě, zjednodušené prohlášení, informace pro uživatele, technická dokumentace (v1.30, ADR-127)", async () => {
+    const p = (await admin.json("/api/cra", { method: "POST", json: { code: "FW-7", name: "Firewall Seven", version: "7.2", productType: "software", role: "manufacturer", status: "on_market", category: "default", conformityModule: "A", supportUntil: "2031-12-31", intendedPurpose: "Ochrana firemní sítě", description: "Softwarový firewall", securityContact: "security@firma.cz", cvdPolicyUrl: "https://firma.cz/cvd" } })).body;
+    let di = (await admin.json(`/api/cra/${p.id}/doc-info`)).body;
+    const miss = (k: string) => di.documents.find((d: any) => d.kind === k).missing;
+    expect(miss("doc")).toEqual(expect.arrayContaining(["manufacturerAddress", "identification", "signatoryName", "docIssuedAt"]));
+    expect(miss("doc")).not.toContain("manufacturerName"); // výrobce = vlastní organizace
+    expect(miss("doc_simplified")).toEqual(["docUrl"]);
+    // koncept se zvýrazněnými chybějícími údaji
+    let html = await (await admin.req(`/api/cra/${p.id}/documents/doc`)).text();
+    expect(html).toContain("2024/2847");
+    expect(html).toContain("na výhradní odpovědnost výrobce");
+    expect(html).toContain("[doplňte: adresa výrobce]");
+    expect(html).toContain("interní kontrola (modul A");
+    // doplnění údajů a vydání
+    expect((await admin.json(`/api/cra/${p.id}/doc-info`, { method: "PUT", json: { manufacturerAddress: "Hlavní 1, 110 00 Praha", manufacturerEmail: "info@firma.cz", identification: "Sestavení 7.2.0-1234", docUrl: "https://firma.cz/doc/fw7", signatoryName: "Jan Novák", signatoryFunction: "jednatel", signPlace: "Praha", securityProperties: "Šifrovaná správa, MFA", foreseeableRisks: "Vystavení správy do internetu", supportType: "Bezpečnostní aktualizace zdarma", secureInstall: "Změňte výchozí heslo", changesImpact: "Pravidla ovlivní dostupnost", updateInstall: "Automaticky, nebo ručně v administraci", autoUpdateOff: "Nastavení → Aktualizace", decommission: "Obnovit tovární nastavení" } })).status).toBe(200);
+    await admin.json(`/api/cra/${p.id}`, { method: "PATCH", json: { docIssuedAt: "2026-11-01" } });
+    di = (await admin.json(`/api/cra/${p.id}/doc-info`)).body;
+    expect(miss("doc")).toEqual([]);
+    expect(miss("user_info")).toEqual([]);
+    html = await (await admin.req(`/api/cra/${p.id}/documents/doc`)).text();
+    expect(html).not.toContain("[doplňte");
+    expect(html).toContain("Hlavní 1, 110 00 Praha");
+    expect(html).toContain("Jan Novák, jednatel");
+    const en = await (await admin.req(`/api/cra/${p.id}/documents/doc_simplified?lang=en`)).text();
+    expect(en).toContain("declares that the product with digital elements type Firewall Seven 7.2 is in compliance with Regulation (EU) 2024/2847");
+    expect(en).toContain("https://firma.cz/doc/fw7");
+    const ui = await (await admin.req(`/api/cra/${p.id}/documents/user_info`)).text();
+    expect(ui).toContain("security@firma.cz");
+    expect(ui).toContain("31. 12. 2031");
+    const ts = await (await admin.req(`/api/cra/${p.id}/documents/tech_summary`)).text();
+    expect(ts).toContain("Příloha I část I");
+    const docx = await admin.req(`/api/cra/${p.id}/documents/doc?format=docx`);
+    expect(docx.headers.get("content-type")).toContain("officedocument");
+    expect((await docx.arrayBuffer()).byteLength).toBeGreaterThan(2000);
+    // distributor prohlášení nevydává
+    const d = (await admin.json("/api/cra", { method: "POST", json: { name: "Cizí kamera", role: "distributor", productType: "hardware", manufacturerName: "Výrobce s.r.o." } })).body;
+    expect((await admin.req(`/api/cra/${d.id}/documents/doc`)).status).toBe(409);
+    expect((await admin.json(`/api/cra/${d.id}/doc-info`)).body.documents.every((x: any) => !x.allowed)).toBe(true);
+    expect((await admin.req(`/api/cra/${p.id}/documents/nic`)).status).toBe(404);
+  });
+
+  test("projekty: šablona, dokumenty se čtyřma očima, brána sponzorem, blokace, uzavření (v1.31, ADR-128)", async () => {
+    const mkUser = async (email: string, name: string, role: string, pw: string) => {
+      await admin.json("/api/admin/users", { method: "POST", json: { email, displayName: name, password: PW, roleIds: [await roleId(role)] } });
+      const u = browser();
+      await u.login(email);
+      await u.json("/api/auth/password", { method: "POST", json: { currentPassword: PW, newPassword: pw } });
+      return { b: u, id: ((await admin.json("/api/admin/users")).body as any[]).find((x) => x.email === email).id as string };
+    };
+    const pm = await mkUser("pm@projekty.cz", "Manažer Projektu", "it_admin", "Projekt-Heslo-2026!");
+    const sp = await mkUser("sponzor@projekty.cz", "Sponzor Projektu", "viewer", "Sponzor-Heslo-2026!");
+    expect((await admin.json("/api/projects/templates")).body.map((t: any) => t.key)).toEqual(["it", "security", "procurement"]);
+    expect((await admin.json("/api/projects", { method: "POST", json: { name: "X", templateKey: "it", managerId: pm.id, sponsorId: pm.id } })).status).toBe(400);
+    const pr = await admin.json("/api/projects", { method: "POST", json: { code: "PRJ-1", name: "Nákup zálohovacího řešení", templateKey: "procurement", managerId: pm.id, sponsorId: sp.id, startDate: "2026-11-01" } });
+    expect(pr.status).toBe(201);
+    const id = pr.body.id;
+    expect(pr.body.phases.map((x: any) => [x.name, x.status])).toEqual([["Potřeba", "active"], ["Výběr dodavatele", "planned"], ["Smlouva", "planned"], ["Převzetí", "planned"]]);
+    const ph1 = pr.body.phases[0];
+    expect(ph1.blockers.length).toBe(2);
+    const [d1, d2] = ph1.docs;
+    expect(ph1.docs.find((d: any) => d.name.startsWith("Bezpečnostní")).security).toBe(true);
+    // manažer nahraje soubor (= předloženo), sám schválit nesmí, schválí admin
+    const fd = new FormData();
+    fd.append("file", new File(["Požadavky na zálohování"], "pozadavky.pdf"));
+    expect((await pm.b.req(`/api/projects/${id}/docs/${d1.id}/file`, { method: "POST", body: fd })).status).toBe(200);
+    expect((await pm.b.json(`/api/projects/${id}/docs/${d1.id}`, { method: "PATCH", json: { status: "approved" } })).status).toBe(403);
+    expect((await admin.json(`/api/projects/${id}/docs/${d1.id}`, { method: "PATCH", json: { status: "approved" } })).status).toBe(200);
+    expect(await (await admin.req(`/api/projects/${id}/docs/${d1.id}/file`)).text()).toBe("Požadavky na zálohování");
+    // druhý dokument: předloží admin odkazem, vrácení vyžaduje důvod, schválí manažer
+    expect((await admin.json(`/api/projects/${id}/docs/${d2.id}`, { method: "PATCH", json: { status: "submitted" } })).status).toBe(400);
+    await admin.json(`/api/projects/${id}/docs/${d2.id}`, { method: "PATCH", json: { status: "submitted", url: "https://sharepoint.firma.cz/pozadavky" } });
+    expect((await pm.b.json(`/api/projects/${id}/docs/${d2.id}`, { method: "PATCH", json: { status: "rejected" } })).status).toBe(400);
+    let d = (await pm.b.json(`/api/projects/${id}/docs/${d2.id}`, { method: "PATCH", json: { status: "approved" } })).body;
+    expect(d.phases[0].blockers).toEqual([]);
+    // brána: manažer ne, sponzor (jen čtení projektů) ano; Moje práce
+    expect((await sp.b.json("/api/notifications/mine")).body.some((i: any) => i.kind === "project_gate" && i.link === `/projects/${id}`)).toBe(true);
+    expect((await pm.b.json(`/api/projects/${id}/phases/${ph1.id}/approve`, { method: "POST", json: {} })).status).toBe(403);
+    expect((await sp.b.json(`/api/projects/${id}`)).body.canApproveGate).toBe(true);
+    d = (await sp.b.json(`/api/projects/${id}/phases/${ph1.id}/approve`, { method: "POST", json: { comment: "Souhlasím" } })).body;
+    expect(d.phases.map((x: any) => x.status)).toEqual(["approved", "active", "planned", "planned"]);
+    expect(d.currentPhase).toBe("Výběr dodavatele");
+    expect(d.progress).toMatchObject({ phases: 4, approved: 1 });
+    // druhá brána blokovaná chybějícími dokumenty
+    const ph2 = d.phases[1];
+    const r2 = await sp.b.json(`/api/projects/${id}/phases/${ph2.id}/approve`, { method: "POST", json: {} });
+    expect(r2.status).toBe(409);
+    expect(JSON.stringify(r2.body)).toContain("Hodnocení nabídek");
+    // netýká se jen s důvodem; povinný dokument nelze smazat; vlastní volitelný ano
+    expect((await pm.b.json(`/api/projects/${id}/docs/${ph2.docs[0].id}`, { method: "PATCH", json: { status: "na" } })).status).toBe(400);
+    expect((await pm.b.json(`/api/projects/${id}/docs/${ph2.docs[0].id}`, { method: "PATCH", json: { status: "na", note: "Jediný dodavatel" } })).status).toBe(200);
+    expect((await pm.b.json(`/api/projects/${id}/docs/${ph2.docs[1].id}`, { method: "DELETE" })).status).toBe(409);
+    d = (await pm.b.json(`/api/projects/${id}/phases/${ph2.id}/docs`, { method: "POST", json: { name: "Reference dodavatele", required: false } })).body;
+    const opt = d.phases[1].docs.find((x: any) => x.name === "Reference dodavatele");
+    expect((await pm.b.json(`/api/projects/${id}/docs/${opt.id}`, { method: "DELETE" })).status).toBe(200);
+    // úkol navázaný na projekt
+    const task = (await admin.json("/api/actions/tasks", { method: "POST", json: { title: "Oslovit dodavatele", sourceKind: "project", sourceId: id } })).body;
+    expect(task.source ?? task.sourceLabel ?? JSON.stringify(task)).toContain("Nákup zálohovacího řešení");
+    // uzavření jen po všech branách; zrušení zamkne projekt
+    expect((await admin.json(`/api/projects/${id}`, { method: "PATCH", json: { status: "closed" } })).status).toBe(409);
+    expect((await admin.json(`/api/projects/${id}`, { method: "PATCH", json: { status: "cancelled" } })).body.status).toBe("cancelled");
+    expect((await pm.b.json(`/api/projects/${id}/docs/${ph2.docs[1].id}`, { method: "PATCH", json: { status: "na", note: "x" } })).status).toBe(409);
+    const list = (await sp.b.json("/api/projects")).body as any[];
+    expect(list.find((x) => x.id === id)).toMatchObject({ status: "cancelled", managerName: "Manažer Projektu", sponsorName: "Sponzor Projektu" });
+    const emp = browser();
+    await emp.login("zamestnanec@pristupy.cz", "Pristupy-Heslo-2026!");
+    expect((await emp.json("/api/projects")).status).toBe(403);
+  });
+
+  test("projekty II: vlastní šablona, harmonogram, rozpočet a náklady, vazby a zpětné vazby (v1.32, ADR-129)", async () => {
+    // vlastní šablona organizace
+    expect((await admin.json("/api/projects/templates", { method: "POST", json: { name: "Prázdná", phases: [] } })).status).toBe(400);
+    const tid = (await admin.json("/api/projects/templates", { method: "POST", json: { name: "Malá změna", phases: [{ name: "Příprava", docs: [{ name: "Popis změny", required: true }, { name: "Posouzení dopadu na bezpečnost", required: true, security: true }] }, { name: "Nasazení", docs: [{ name: "Záznam o nasazení", required: true }] }] } })).body.id;
+    const tpls = (await admin.json("/api/projects/templates")).body as any[];
+    const ct = tpls.find((x) => x.id === tid);
+    expect(ct).toMatchObject({ custom: true, key: `custom:${tid}`, name: "Malá změna" });
+    const pr = await admin.json("/api/projects", { method: "POST", json: { name: "Upgrade firewallu", templateKey: `custom:${tid}`, budget: 100000 } });
+    if (pr.status !== 201) throw new Error(JSON.stringify(pr.body));
+    const p = pr.body;
+    expect(p.templateName).toBe("Malá změna");
+    expect(p.phases.map((x: any) => x.name)).toEqual(["Příprava", "Nasazení"]);
+    expect(p.phases[0].docs.find((d: any) => d.name.startsWith("Posouzení")).security).toBe(true);
+    expect((await admin.json(`/api/projects/templates/${tid}`, { method: "DELETE" })).status).toBe(409);
+    await admin.json(`/api/projects/templates/${tid}`, { method: "PUT", json: { name: "Malá změna", active: false, phases: ct.phases.map((x: any) => ({ name: x.name, docs: x.docs })) } });
+    expect((await admin.json("/api/projects", { method: "POST", json: { name: "X", templateKey: `custom:${tid}` } })).status).toBe(400);
+    expect((await admin.json("/api/projects", { method: "POST", json: { name: "X", templateKey: "custom:nesmysl" } })).status).toBe(400);
+    // harmonogram fází
+    const [f1, f2] = p.phases;
+    expect((await admin.json(`/api/projects/${p.id}/phases/${f1.id}`, { method: "PATCH", json: { plannedStart: "2026-12-10", plannedEnd: "2026-12-01" } })).status).toBe(400);
+    await admin.json(`/api/projects/${p.id}/phases/${f1.id}`, { method: "PATCH", json: { plannedStart: "2026-11-01", plannedEnd: "2026-11-30" } });
+    let d = (await admin.json(`/api/projects/${p.id}/phases/${f2.id}`, { method: "PATCH", json: { plannedStart: "2026-12-01" } })).body;
+    expect(d.phases.map((x: any) => [x.plannedStart, x.plannedEnd])).toEqual([["2026-11-01", "2026-11-30"], ["2026-12-01", null]]);
+    // rozpočet a náklady
+    const other = (await admin.json("/api/projects", { method: "POST", json: { name: "Jiný", templateKey: "security" } })).body;
+    expect((await admin.json(`/api/projects/${p.id}/costs`, { method: "POST", json: { date: "2026-11-05", description: "X", amount: 1, phaseId: other.phases[0].id } })).status).toBe(400);
+    expect((await admin.json(`/api/projects/${p.id}/costs`, { method: "POST", json: { date: "2026-11-05", description: "X", amount: 0 } })).status).toBe(400);
+    await admin.json(`/api/projects/${p.id}/costs`, { method: "POST", json: { date: "2026-11-05", description: "Licence", amount: 60000, phaseId: f1.id } });
+    d = (await admin.json(`/api/projects/${p.id}/costs`, { method: "POST", json: { date: "2026-11-20", description: "Práce dodavatele", amount: 35000 } })).body;
+    expect(d).toMatchObject({ budget: 100000, spent: 95000, budgetState: "warn" });
+    d = (await admin.json(`/api/projects/${p.id}/costs`, { method: "POST", json: { date: "2026-11-25", description: "Školení", amount: 10000 } })).body;
+    expect(d.budgetState).toBe("over");
+    expect(d.costs[0]).toMatchObject({ description: "Školení", amount: 10000 });
+    expect(d.costs.find((x: any) => x.description === "Licence").phaseName).toBe("Příprava");
+    d = (await admin.json(`/api/projects/${p.id}/costs/${d.costs[0].id}`, { method: "DELETE" })).body;
+    expect(d.budgetState).toBe("warn");
+    d = (await admin.json(`/api/projects/${p.id}`, { method: "PATCH", json: { budget: null } })).body;
+    expect(d.budgetState).toBe("none");
+    expect(((await admin.json("/api/projects")).body as any[]).find((x) => x.id === p.id).spent).toBe(95000);
+    // vazby a zpětné vazby z aktiva a rizika
+    const asset = (await admin.json("/api/assets", { method: "POST", json: { name: "Firewall FW-01", assetType: "network_device" } })).body;
+    const risk = ((await admin.json("/api/risks?limit=1")).body as any).items[0];
+    expect((await admin.json(`/api/projects/${p.id}/links`, { method: "PUT", json: { assetIds: ["00000000-0000-4000-8000-000000000999"], supplierIds: [], processIds: [], riskIds: [] } })).status).toBe(400);
+    const l = (await admin.json(`/api/projects/${p.id}/links`, { method: "PUT", json: { assetIds: [asset.id], supplierIds: [], processIds: [], riskIds: [risk.id] } })).body;
+    expect(l.assets.map((x: any) => x.name)).toEqual(["Firewall FW-01"]);
+    const bl = (await admin.json(`/api/links/asset/${asset.id}`)).body;
+    expect(bl.groups.find((g: any) => g.kind === "project").items[0]).toMatchObject({ label: "Upgrade firewallu", link: `/projects/${p.id}` });
+    expect(((await admin.json(`/api/links/risk/${risk.id}`)).body.groups as any[]).some((g) => g.kind === "project")).toBe(true);
+  });
+
+  test("projekty III: tým, Kanban úkolů, milníky, rizika, hlášení RAG, změny se schválením sponzorem, zprávy, portfolio (v1.35, ADR-132)", async () => {
+    const users = (await admin.json("/api/admin/users")).body as any[];
+    const pmId = users.find((x) => x.email === "pm@projekty.cz").id;
+    const spId = users.find((x) => x.email === "sponzor@projekty.cz").id;
+    const pm = browser();
+    await pm.login("pm@projekty.cz", "Projekt-Heslo-2026!");
+    const sp = browser();
+    await sp.login("sponzor@projekty.cz", "Sponzor-Heslo-2026!");
+    const pr = await pm.json("/api/projects", { method: "POST", json: { code: "PRJ-35", name: "Nový docházkový systém", templateKey: "it", managerId: pmId, sponsorId: spId, startDate: "2026-01-01", endDate: "2027-03-31", budget: 500000 } });
+    expect(pr.status).toBe(201);
+    const id = pr.body.id;
+    expect(pr.body).toMatchObject({ members: [], tasks: [], reports: [], canReport: true });
+    expect(pr.body.suggested.overall).toBe("green");
+    // tým (RACI)
+    let d = (await pm.json(`/api/projects/${id}/members`, { method: "POST", json: { userId: spId, role: "Klíčový uživatel", raci: "C" } })).body;
+    d = (await pm.json(`/api/projects/${id}/members`, { method: "POST", json: { userId: spId, role: "Klíčový uživatel HR", raci: "I" } })).body;
+    expect(d.members).toEqual([expect.objectContaining({ name: "Sponzor Projektu", role: "Klíčový uživatel HR", raci: "I" })]);
+    // úkoly: založení, řešitel bez práva zápisu smí jen posunout svůj úkol
+    const ph = d.phases[0];
+    expect((await pm.json(`/api/projects/${id}/tasks`, { method: "POST", json: { title: "X", phaseId: (await admin.json("/api/projects", { method: "POST", json: { name: "Cizí", templateKey: "security" } })).body.phases[0].id } })).status).toBe(400);
+    d = (await pm.json(`/api/projects/${id}/tasks`, { method: "POST", json: { title: "Sběr požadavků HR", phaseId: ph.id, assigneeId: spId, dueDate: "2026-01-15", priority: "high" } })).body;
+    d = (await pm.json(`/api/projects/${id}/tasks`, { method: "POST", json: { title: "Výběr dodavatele", status: "doing" } })).body;
+    const t1 = d.tasks.find((x: any) => x.title === "Sběr požadavků HR");
+    expect(t1).toMatchObject({ phaseName: ph.name, assigneeName: "Sponzor Projektu", overdue: true, status: "todo" });
+    expect((await sp.json(`/api/projects/${id}`)).body.tasks.find((x: any) => x.id === t1.id).canMove).toBe(true);
+    expect((await sp.json(`/api/projects/${id}/tasks/${t1.id}`, { method: "PATCH", json: { title: "Přejmenovat" } })).status).toBe(403);
+    const tItem = ((await sp.json("/api/notifications/mine")).body as any[]).find((i) => i.kind === "project_task" && i.title === "Sběr požadavků HR");
+    expect(tItem).toMatchObject({ urgency: "overdue", action: { type: "project_task_done", projectId: id, taskId: t1.id } });
+    const rb = await sp.json(`/api/projects/${id}/tasks/${t1.id}`, { method: "PATCH", json: { status: "blocked" } });
+    if (rb.status !== 200) throw new Error(JSON.stringify(rb));
+    d = rb.body;
+    expect(d.suggested.schedule).toBe("amber");
+    d = (await sp.json(`/api/projects/${id}/tasks/${t1.id}`, { method: "PATCH", json: { status: "done" } })).body;
+    expect(d.tasks.find((x: any) => x.id === t1.id).doneAt).not.toBeNull();
+    // milníky
+    d = (await pm.json(`/api/projects/${id}/milestones`, { method: "POST", json: { name: "Podpis smlouvy", dueDate: "2026-02-01" } })).body;
+    d = (await pm.json(`/api/projects/${id}/milestones`, { method: "POST", json: { name: "Go-live", dueDate: "2027-03-01" } })).body;
+    expect(d.milestones.map((m: any) => [m.name, m.overdue])).toEqual([["Podpis smlouvy", true], ["Go-live", false]]);
+    expect(d.suggested.schedule).toBe("amber");
+    const ms = d.milestones[0];
+    d = (await pm.json(`/api/projects/${id}/milestones/${ms.id}`, { method: "PUT", json: { name: ms.name, dueDate: ms.dueDate, done: true } })).body;
+    expect(d.milestones[0].doneAt).not.toBeNull();
+    // rizika a problémy: skóre, problém = už nastal
+    d = (await pm.json(`/api/projects/${id}/issues`, { method: "POST", json: { kind: "risk", title: "Dodavatel nestihne integraci", probability: "high", impact: "high", ownerId: pmId } })).body;
+    d = (await pm.json(`/api/projects/${id}/issues`, { method: "POST", json: { kind: "issue", title: "Chybí data z mezd", probability: "low", impact: "low" } })).body;
+    expect(d.issues.map((x: any) => [x.title, x.score, x.level, x.probability])).toEqual([["Dodavatel nestihne integraci", 9, "high", "high"], ["Chybí data z mezd", 3, "medium", null]]);
+    expect(d.suggested.scope).toBe("amber");
+    // žádost o změnu: podá manažer, schválí sponzor → termín a rozpočet se propíšou
+    expect((await pm.json(`/api/projects/${id}/changes`, { method: "POST", json: { title: "Bez dopadu", description: "Nic" } })).status).toBe(400);
+    d = (await pm.json(`/api/projects/${id}/changes`, { method: "POST", json: { title: "Rozšíření o přístupový systém", description: "Napojení na turnikety", newEndDate: "2027-06-30", budgetDelta: 120000 } })).body;
+    const ch = d.changes[0];
+    expect(ch).toMatchObject({ number: 1, oldEndDate: "2027-03-31", status: "submitted", canDecide: false });
+    const chItem = ((await sp.json("/api/notifications/mine")).body as any[]).find((i) => i.kind === "project_change");
+    expect(chItem.action).toEqual({ type: "project_change", projectId: id, changeId: ch.id });
+    expect((await pm.json(`/api/projects/${id}/changes/${ch.id}/decide`, { method: "POST", json: { decision: "approved" } })).status).toBe(403);
+    expect((await sp.json(`/api/projects/${id}/changes/${ch.id}/decide`, { method: "POST", json: { decision: "rejected" } })).status).toBe(400);
+    d = (await sp.json(`/api/projects/${id}/changes/${ch.id}/decide`, { method: "POST", json: { decision: "approved", comment: "OK" } })).body;
+    expect(d).toMatchObject({ endDate: "2027-06-30", budget: 620000 });
+    expect(d.changes[0]).toMatchObject({ status: "approved", decidedByName: "Sponzor Projektu" });
+    expect((await sp.json(`/api/projects/${id}/changes/${ch.id}/decide`, { method: "POST", json: { decision: "approved" } })).status).toBe(409);
+    // hlášení stavu (RAG) jen se zápisem; sponzor ne
+    expect((await sp.json(`/api/projects/${id}/reports`, { method: "POST", json: { overall: "green", schedule: "green", budget: "green", scope: "green", summary: "Vše OK" } })).status).toBe(403);
+    d = (await pm.json(`/api/projects/${id}/reports`, { method: "POST", json: { overall: "amber", schedule: "green", budget: "green", scope: "amber", summary: "Rozšíření rozsahu schváleno, riziko integrace.", nextSteps: "Smlouva s dodavatelem" } })).body;
+    expect(d.reports[0]).toMatchObject({ overall: "amber", createdByName: "Manažer Projektu" });
+    // poučení a zprávy
+    d = (await pm.json(`/api/projects/${id}/lessons`, { method: "POST", json: { kind: "improve", text: "Zapojit HR do výběru dříve" } })).body;
+    expect(d.lessons).toHaveLength(1);
+    const html = await (await pm.req(`/api/projects/${id}/report?kind=closure`)).text();
+    expect(html).toContain("Závěrečná zpráva projektu");
+    expect(html).toContain("Zapojit HR do výběru dříve");
+    expect(html).toContain("Rozšíření o přístupový systém");
+    const en = await (await pm.req(`/api/projects/${id}/report?kind=status&lang=en`)).text();
+    expect(en).toContain("Project status report");
+    const docx = await pm.req(`/api/projects/${id}/report?kind=status&format=docx`);
+    expect(docx.headers.get("content-type")).toContain("wordprocessingml");
+    // portfolio
+    const row = ((await sp.json("/api/projects")).body as any[]).find((x) => x.id === id);
+    expect(row.info).toMatchObject({ rag: "amber", tasks: { open: 1, overdue: 0, blocked: 0, done: 1 }, issues: { open: 2, high: 1 }, nextMilestone: { name: "Go-live", dueDate: "2027-03-01" }, pendingChanges: 0 });
+    // smazání úkolu jen se zápisem
+    expect((await sp.json(`/api/projects/${id}/tasks/${t1.id}`, { method: "DELETE" })).status).toBe(403);
+    d = (await pm.json(`/api/projects/${id}/tasks/${t1.id}`, { method: "DELETE" })).body;
+    expect(d.tasks).toHaveLength(1);
+  });
+
+  test("skupiny z AD do katalogu, výběr OU, pojistky nastavení, vytvoření nové skupiny v AD (v1.33, ADR-130)", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const [src] = await db.select().from(schema.identitySources).where(eq(schema.identitySources.name, "AD zápis"));
+    const BIZ = "OU=Business,OU=Groups,DC=firma,DC=cz";
+    await db.insert(schema.identityGroups).values([
+      { sourceId: src!.id, companyId: ROOT, dn: `CN=GG_FIN_Faktury,${BIZ}`, cn: "GG_FIN_Faktury", description: "Fakturace", members: 1 },
+      { sourceId: src!.id, companyId: ROOT, dn: `CN=GG_HR_Mzdy,${BIZ}`, cn: "GG_HR_Mzdy", protectedGroup: true },
+      { sourceId: src!.id, companyId: ROOT, dn: "CN=GG_IT_AD_Admin,OU=IT,OU=Groups,DC=firma,DC=cz", cn: "GG_IT_AD_Admin", privileged: true },
+    ] as any);
+    await db.update(schema.identityAccounts).set({ groups: ["GG_FIN_Faktury"] }).where(eq(schema.identityAccounts.externalId, "w1"));
+    let ag = (await admin.json("/api/access/ad-groups")).body;
+    expect(ag.ous).toEqual(expect.arrayContaining(["OU=Groups,DC=firma,DC=cz", BIZ, "OU=IT,OU=Groups,DC=firma,DC=cz"]));
+    const fin = ag.groups.find((g: any) => g.cn === "GG_FIN_Faktury");
+    expect(fin).toMatchObject({ ou: BIZ, resourceId: null, members: 1 });
+    // hromadné založení oprávnění s převzetím členů
+    expect((await admin.json("/api/access/resources/import-ad", { method: "POST", json: { dns: ["CN=Neni,OU=X,DC=f"] } })).status).toBe(400);
+    const imp = (await admin.json("/api/access/resources/import-ad", { method: "POST", json: { dns: [fin.dn, `CN=GG_HR_Mzdy,${BIZ}`], approvalManager: true, approvalOwner: false, adopt: true } })).body;
+    expect(imp).toMatchObject({ created: 2, adopted: 1 });
+    const res = (await admin.json("/api/access/resources")).body as any[];
+    expect(res.find((r) => r.adGroup === `CN=GG_HR_Mzdy,${BIZ}`)).toMatchObject({ kind: "ad_group", privileged: true, approvalOwner: false });
+    expect(((await admin.json("/api/access/grants")).body as any[]).some((g) => g.resourceName === "GG_FIN_Faktury" && g.personName === "Alena Svobodová")).toBe(true);
+    expect((await admin.json("/api/access/resources/import-ad", { method: "POST", json: { dns: [fin.dn] } })).body).toMatchObject({ created: 0, skipped: 1 });
+    ag = (await admin.json("/api/access/ad-groups")).body;
+    expect(ag.groups.find((g: any) => g.cn === "GG_FIN_Faktury").resourceId).not.toBeNull();
+    // pojistky nastavení: neúplná OU, vestavěný správce
+    const base = { mode: "ldap", sourceId: src!.id, bindDn: "contix-write@firma.cz", allowedOu: BIZ, dailyLimit: 50 };
+    expect(JSON.stringify((await admin.json("/api/access/provisioning", { method: "PUT", json: { ...base, allowedOu: "OU=CONTIX-LAB" } })).body)).toContain("úplné rozlišující jméno");
+    for (const b of ["administrator", "LAB\\Administrator", "administrator@lab.test", "CN=Administrator,CN=Users,DC=lab,DC=test"])
+      expect((await admin.json("/api/access/provisioning", { method: "PUT", json: { ...base, bindDn: b } })).status).toBe(400);
+    expect((await admin.json("/api/access/provisioning", { method: "PUT", json: base })).status).toBe(200);
+    // nová skupina v AD
+    expect((await admin.json("/api/access/resources", { method: "POST", json: { name: "Nová app", kind: "application", adCreate: true, adGroup: `CN=X,${BIZ}` } })).status).toBe(400);
+    expect((await admin.json("/api/access/resources", { method: "POST", json: { name: "Nová app", kind: "ad_group", adCreate: true, adGroup: `CN=Špatný*název,${BIZ}` } })).status).toBe(400);
+    const nr = (await admin.json("/api/access/resources", { method: "POST", json: { name: "Nová aplikace", kind: "ad_group", adCreate: true, adGroup: `CN=GG_APP_Nova,${BIZ}`, description: "Nová aplikace", approvalManager: false, approvalOwner: false } })).body;
+    expect(nr.adCreate).toBe(true);
+    const gp = (await admin.json("/api/access/provisioning/groups")).body as any[];
+    expect(gp.find((g) => g.resourceId === nr.id)).toMatchObject({ name: "GG_APP_Nova", ou: BIZ, error: null });
+    const people = (await admin.json("/api/access/people")).body as any[];
+    const alena = people.find((p) => p.personalNumber === "500");
+    const rq = (await admin.json("/api/access/requests", { method: "POST", json: { personId: alena.id, resourceId: nr.id, justification: "Pilot" } })).body;
+    expect(((await admin.json("/api/access/provisioning/plan")).body as any[]).find((x) => x.requestId === rq.id).error).toContain("ještě neexistuje");
+    adWrites.length = 0;
+    const out = (await admin.json("/api/access/provisioning/apply", { method: "POST", json: { resourceIds: [nr.id], requestIds: [rq.id] } })).body as any[];
+    expect(out.every((x) => x.ok)).toBe(true);
+    expect(adWrites).toEqual([`create CN=GG_APP_Nova,${BIZ}`, `add CN=GG_APP_Nova,${BIZ} CN=Alena Svobodová,OU=Users,DC=firma,DC=cz`]);
+    expect(((await admin.json("/api/access/resources")).body as any[]).find((r) => r.id === nr.id).adCreate).toBe(false);
+    // režim skript: New-ADGroup ve skriptu, příznak zmizí až po synchronizaci
+    await admin.json("/api/access/provisioning", { method: "PUT", json: { ...base, mode: "script" } });
+    const n2 = (await admin.json("/api/access/resources", { method: "POST", json: { name: "Druhá aplikace", kind: "ad_group", adCreate: true, adGroup: `CN=GG_APP_Druha,${BIZ}` } })).body;
+    const ps = await (await admin.req("/api/access/provisioning/script", { method: "POST", json: { resourceIds: [n2.id] } })).text();
+    expect(ps).toContain(`New-ADGroup -Name 'GG_APP_Druha' -SamAccountName 'GG_APP_Druha' -GroupCategory Security -GroupScope Global -Path '${BIZ}'`);
+    await db.insert(schema.identityGroups).values({ sourceId: src!.id, companyId: ROOT, dn: `CN=GG_APP_Druha,${BIZ}`, cn: "GG_APP_Druha" } as any);
+    await admin.json("/api/access/provisioning/verify", { method: "POST" });
+    expect(((await admin.json("/api/access/resources")).body as any[]).find((r) => r.id === n2.id).adCreate).toBe(false);
+  });
+
+  test("IDM: business role, matice, detail osoby, JML průvodce a SoD při žádosti (v1.34, ADR-131)", async () => {
+    const mk = async (json: any) => (await admin.json("/api/access/resources", { method: "POST", json })).body;
+    const pay = await mk({ name: "Platby – zadávání", kind: "application", approvalManager: false, approvalOwner: false });
+    const appr = await mk({ name: "Platby – schvalování", kind: "application", approvalManager: false, approvalOwner: false });
+    const crm = await mk({ name: "CRM obchod", kind: "application", approvalManager: false, approvalOwner: false });
+    const tmp = await mk({ name: "Dočasný audit", kind: "application", approvalManager: false, approvalOwner: false, maxDays: 30 });
+    const person = async (json: any) => (await admin.json("/api/access/people", { method: "POST", json })).body;
+    const petr = await person({ firstName: "Petr", lastName: "Účetní", email: "petr.ucetni@firma.cz", department: "Účtárna", jobTitle: "Účetní" });
+    const iva = await person({ firstName: "Iva", lastName: "Obchodní", department: "Obchod", jobTitle: "Obchodník" });
+    // role: kritéria útvar + funkce, chybějící přidělení
+    expect((await admin.json("/api/access/roles", { method: "POST", json: { name: "x", resourceIds: [] } })).status).toBe(400);
+    const role = (await admin.json("/api/access/roles", { method: "POST", json: { name: "Účetní", department: "účtárna", jobTitle: "ÚČETNÍ", resourceIds: [pay.id, tmp.id] } })).body;
+    expect(role).toMatchObject({ members: 1, gaps: 2 });
+    expect((await admin.json("/api/access/roles", { method: "POST", json: { name: "účetní", resourceIds: [] } })).status).toBe(409);
+    const sales = (await admin.json("/api/access/roles", { method: "POST", json: { name: "Obchodník", department: "Obchod", resourceIds: [crm.id] } })).body;
+    expect((await admin.json(`/api/access/roles/${role.id}/gaps`)).body).toHaveLength(2);
+    // doplnění role: časově omezené oprávnění se přeskočí (vyžaduje datum)
+    expect((await admin.json(`/api/access/roles/${role.id}/fill`, { method: "POST", json: {} })).body).toEqual({ requests: 1, skipped: 1 });
+    const rq = ((await admin.json("/api/access/requests?status=approved")).body as any[]).find((r) => r.personId === petr.id && r.resourceId === pay.id);
+    expect(rq).toMatchObject({ origin: "role", sodConflicts: [] });
+    await admin.json(`/api/access/requests/${rq.id}/fulfil`, { method: "POST", json: {} });
+    // matice
+    const m = (await admin.json("/api/access/matrix?department=Účtárna")).body;
+    expect(m.people.map((p: any) => p.id)).toEqual([petr.id]);
+    expect(m.cells[`${petr.id}:${pay.id}`]).toBe("granted");
+    expect(m.cells[`${petr.id}:${tmp.id}`]).toBe("expected");
+    expect(m.departments).toEqual(expect.arrayContaining(["Účtárna", "Obchod"]));
+    expect((await admin.json(`/api/access/matrix?roleId=${sales.id}`)).body.resources.map((r: any) => r.id)).toEqual([crm.id]);
+    // SoD: zadávání × schvalování plateb
+    await admin.json("/api/identity/sod/rules", { method: "POST", json: { name: "Zadání a schválení platby", severity: "critical", sideA: { groups: ["Platby – zadávání"] }, sideB: { groups: ["Platby – schvalování"] } } });
+    const chk = (await admin.json("/api/access/sod-check", { method: "POST", json: { personId: petr.id, resourceIds: [appr.id, crm.id] } })).body;
+    expect(Object.keys(chk)).toEqual([appr.id]);
+    expect(chk[appr.id][0]).toMatchObject({ rule: "Zadání a schválení platby", sideA: ["Platby – zadávání"], sideB: ["Platby – schvalování"] });
+    // žádost s konfliktem: i bez kroků schválení čeká na správce, schválení vyžaduje zdůvodnění
+    const sr = (await admin.json("/api/access/requests", { method: "POST", json: { personId: petr.id, resourceId: appr.id, justification: "Zástup" } })).body;
+    expect(sr.status).toBe("pending");
+    expect(sr.sodConflicts).toHaveLength(1);
+    expect((await admin.json(`/api/access/requests/${sr.id}/decide`, { method: "POST", json: { decision: "approved", comment: "x" } })).status).toBe(403); // žadatel neschvaluje
+    await db.update(schema.iamRequests).set({ requestedById: null }).where(eq(schema.iamRequests.id, sr.id));
+    expect((await admin.json(`/api/access/requests/${sr.id}/decide`, { method: "POST", json: { decision: "approved" } })).status).toBe(400);
+    expect((await admin.json(`/api/access/requests/${sr.id}/decide`, { method: "POST", json: { decision: "rejected", comment: "SoD" } })).body.status).toBe("rejected");
+    // detail osoby 360°
+    const ov = (await admin.json(`/api/access/people/${petr.id}/overview`)).body;
+    expect(ov.person).toMatchObject({ name: "Petr Účetní", department: "Účtárna" });
+    expect(ov.roles).toEqual([{ id: role.id, name: "Účetní", missing: ["Dočasný audit"] }]);
+    expect(ov.grants.map((g: any) => [g.name, g.roles, g.origin])).toEqual([["Platby – zadávání", ["Účetní"], "role"]]);
+    expect(ov.requests.length).toBeGreaterThanOrEqual(2);
+    // JML přesun: z účtárny do obchodu → přidat CRM, odebrat oprávnění ze staré role (předvybráno)
+    const pv = (await admin.json("/api/access/jml/preview", { method: "POST", json: { personId: petr.id, kind: "mover", department: "Obchod", jobTitle: "Obchodník" } })).body;
+    expect(pv).toMatchObject({ rolesBefore: ["Účetní"], rolesAfter: ["Obchodník"] });
+    expect(pv.add.map((a: any) => [a.name, a.suggested])).toEqual([["CRM obchod", true]]);
+    expect(pv.remove.map((a: any) => [a.name, a.suggested])).toEqual([["Platby – zadávání", true]]);
+    expect((await admin.json("/api/access/jml/apply", { method: "POST", json: { personId: petr.id, kind: "mover", department: "Obchod", add: [appr.id] } })).status).toBe(400);
+    const ap = (await admin.json("/api/access/jml/apply", { method: "POST", json: { personId: petr.id, kind: "mover", department: "Obchod", jobTitle: "Obchodník", add: [crm.id], remove: [pay.id] } })).body;
+    expect(ap).toMatchObject({ requests: 2, personUpdated: true, scheduled: false });
+    const open = ((await admin.json("/api/access/requests?status=pending,approved")).body as any[]).filter((r) => r.personId === petr.id);
+    expect(open.map((r: any) => [r.resourceName, r.action, r.origin]).sort()).toEqual([["CRM obchod", "grant", "jml"], ["Platby – zadávání", "revoke", "jml"]]);
+    // nástup: návrh z role, otevřená žádost se nenabídne znovu
+    const jv = (await admin.json("/api/access/jml/preview", { method: "POST", json: { personId: iva.id, kind: "joiner" } })).body;
+    expect(jv.add.map((a: any) => a.name)).toEqual(["CRM obchod"]);
+    // odchod v budoucnu: jen datum, odebrání proběhne v den odchodu
+    const future = new Date(Date.now() + 10 * 86_400_000).toISOString().slice(0, 10);
+    expect((await admin.json("/api/access/jml/apply", { method: "POST", json: { personId: petr.id, kind: "leaver" } })).status).toBe(400);
+    expect((await admin.json("/api/access/jml/apply", { method: "POST", json: { personId: petr.id, kind: "leaver", endDate: future } })).body).toMatchObject({ requests: 0, scheduled: true, personUpdated: true });
+    // přehled
+    const o = (await admin.json("/api/access/idm/overview")).body;
+    expect(o.manage).toBe(true);
+    expect(o.people.leavers14).toBeGreaterThanOrEqual(1);
+    expect(o.risks.roleGaps).toBeGreaterThanOrEqual(1);
+    expect(o.upcoming.some((u: any) => u.kind === "leaver" && u.personId === petr.id)).toBe(true);
+    expect(o.flow.pending + o.flow.approved).toBeGreaterThanOrEqual(1);
+    expect((await admin.json(`/api/access/roles/${sales.id}`, { method: "DELETE" })).status).toBe(200);
+  });
+
+  test("modelování hrozeb: útočné cesty, kalibrace z dat, aktéři pro odvětví, threat model STRIDE (v1.40, ADR-137)", async () => {
+    const co = (await admin.json("/api/companies", { method: "POST", json: { name: "Modelování s.r.o.", regime: "lower" } })).body;
+    const H = { "x-contix-company": co.id };
+    const mk = async (json: Record<string, unknown>) => (await admin.json("/api/assets", { method: "POST", headers: H, json })).body.id as string;
+    const data = await mk({ name: "Zákaznická data", assetType: "information_asset", confidentiality: 4, integrity: 3, availability: 3, criticality: "critical" });
+    const web = await mk({ name: "Webový portál", assetType: "application", internetFacing: true });
+    const srv = await mk({ name: "Aplikační server", assetType: "server" });
+    const dbs = await mk({ name: "Databáze zákazníků", assetType: "database" });
+    await db.insert(schema.assetLinks).values([{ primaryId: data, supportingId: dbs }]);
+    await db.insert(schema.assetDependencies).values([
+      { fromId: web, toId: srv, kind: "runs_on" },
+      { fromId: web, toId: dbs, kind: "uses" },
+    ]);
+    await db.insert(schema.vulnIntel).values({ cveId: "CVE-2026-8801", kev: true }).onConflictDoNothing();
+    await db.insert(schema.assetVulnerabilities).values({ assetId: web, cveId: "CVE-2026-8801", severity: "critical", status: "open" } as any);
+    // postup: bez odvětví je dalším krokem odvětví, korunní klenot a vstup z internetu jsou v pořádku
+    let ov = (await admin.json("/api/risks/modeling/overview", { headers: H })).body;
+    expect(ov.next).toBe("sector");
+    expect(ov.readiness.find((r: any) => r.key === "crown_jewels")).toMatchObject({ status: "ok", value: 1 });
+    expect(ov.readiness.find((r: any) => r.key === "internet_facing").status).toBe("ok");
+    expect(ov.readiness.find((r: any) => r.key === "dependencies")).toMatchObject({ value: 3, total: 3, status: "ok" });
+    expect(ov.readiness.find((r: any) => r.key === "segments").status).toBe("missing");
+    expect(ov.counts).toMatchObject({ paths: 1, pathsOpen: 1, models: 0 });
+    // 1. útočné cesty: internet → portál (KEV) → databáze → zákaznická data
+    const paths = (await admin.json("/api/risks/modeling/paths", { headers: H })).body;
+    expect(paths.targets).toBe(1);
+    const p = paths.paths[0];
+    expect(p.entry).toBe("internet");
+    expect(p.targetId).toBe(data);
+    expect(p.steps.map((s: any) => s.assetName)).toEqual(["Webový portál", "Databáze zákazníků", "Zákaznická data"]);
+    expect(p.steps[0]).toMatchObject({ technique: "T1190", reason: { text: "tm.why.entryKev" } });
+    expect(p.techniques).toContain("T1567");
+    expect(p.decision).toBeNull();
+    // riziko z cesty přes POST /api/risks, podruhé 409
+    const made = await admin.json("/api/risks/modeling/paths/decision", { method: "POST", headers: H, json: { key: p.key, action: "risk" } });
+    expect(made.status).toBe(201);
+    const risk = (await admin.json(`/api/risks/${made.body.riskId}`, { headers: H })).body;
+    expect(risk.name).toBe("Útočná cesta: Webový portál → Zákaznická data");
+    expect(risk.description).toContain("T1190 Exploit Public-Facing Application");
+    expect((await admin.json("/api/risks/modeling/paths/decision", { method: "POST", headers: H, json: { key: p.key, action: "risk" } })).status).toBe(409);
+    expect((await admin.json("/api/risks/modeling/paths/decision", { method: "POST", headers: H, json: { key: "internet:x>y", action: "accept", reason: "x" } })).status).toBe(400);
+    const again = (await admin.json("/api/risks/modeling/paths", { headers: H })).body.paths.find((x: any) => x.key === p.key);
+    expect(again.decision).toMatchObject({ status: "risk", riskId: made.body.riskId, byName: "Admin" });
+    // 2. kalibrace: BIA s MTPD 4 h → nejvyšší dopad, KEV na aktivu rizika → vyšší zranitelnost
+    const proc = (await admin.json("/api/processes", { method: "POST", headers: H, json: { name: "Prodej online" } })).body.id;
+    await db.insert(schema.processAssets).values({ processId: proc, assetId: web } as any);
+    await db.insert(schema.biaAssessments).values({ companyId: co.id, processId: proc, mtpdHours: 4, impacts: { financial: { "1d": 3 } } });
+    const cal = ((await admin.json("/api/risks/modeling/calibration", { headers: H })).body as any[]).find((x) => x.riskId === made.body.riskId);
+    expect(cal.proposed.impact).toBe(cal.levels);
+    expect(cal.proposed.reasons.map((r: any) => r.text)).toEqual(expect.arrayContaining(["tm.cal.mtpd", "tm.cal.kev", "tm.cal.exposed"]));
+    expect(cal.proposed.vulnLevel).toBeGreaterThan(Math.ceil(cal.levels / 2));
+    const ap = await admin.json(`/api/risks/modeling/calibration/${made.body.riskId}/apply`, { method: "POST", headers: H, json: { impact: cal.proposed.impact, threatLevel: cal.proposed.threatLevel, vulnLevel: cal.proposed.vulnLevel, likelihood: cal.proposed.likelihood, note: "test" } });
+    expect(ap.status).toBe(200);
+    expect((await admin.json(`/api/risks/${made.body.riskId}`, { headers: H })).body.impact).toBe(cal.proposed.impact);
+    // 3. aktéři: odvětví + zmínka NÚKIB → vysoká relevance, vliv na šablony
+    await db.insert(schema.infoFeedItems).values({ feedId: "nukib", guid: "tm-1", kind: "news", title: "Varování před kampaní APT28 proti energetice", publishedAt: new Date() }).onConflictDoNothing();
+    let land = (await admin.json("/api/risks/modeling/landscape/profile", { method: "PUT", headers: H, json: { sector: "energy", overrides: {} } })).body;
+    const apt28 = land.actors.find((a: any) => a.key === "apt28");
+    expect(apt28).toMatchObject({ sectorMatch: "sector", relevance: "medium" });
+    expect(apt28.signals.mentions[0].title).toContain("APT28");
+    expect(land.actors.find((a: any) => a.key === "lazarus").relevance).toBe("low");
+    land = (await admin.json("/api/risks/modeling/landscape/profile", { method: "PUT", headers: H, json: { sector: "energy", overrides: { lazarus: { relevant: false, reason: "nepůsobíme ve financích" } } } })).body;
+    expect(land.actors.find((a: any) => a.key === "lazarus").override.reason).toBe("nepůsobíme ve financích");
+    expect(land.templates.length).toBeGreaterThan(5);
+    expect((await admin.json("/api/risks/modeling/landscape/profile", { method: "PUT", headers: H, json: { sector: "mars" } })).status).toBe(400);
+    ov = (await admin.json("/api/risks/modeling/overview", { headers: H })).body;
+    expect(ov.sector).toBe("energy");
+    expect(ov.steps.find((x: any) => x.key === "sector").state).toBe("done");
+    expect(ov.steps.find((x: any) => x.key === "paths").state).toBe("done");
+    // 4. threat model z aktiva: předvyplnění z grafu, STRIDE, riziko z hrozby, zpráva Word
+    const seed = (await admin.json(`/api/risks/modeling/models/seed?assetId=${web}`, { headers: H })).body;
+    expect(seed.elements.map((e: any) => e.name)).toEqual(expect.arrayContaining(["Webový portál", "Uživatelé z internetu", "Databáze zákazníků"]));
+    expect(seed.elements.some((e: any) => e.name === "Aplikační server")).toBe(false);
+    const bad = await admin.json("/api/risks/modeling/models", { method: "POST", headers: H, json: { name: "Chybný", elements: [{ id: "f1", kind: "flow", name: "x", from: "a", to: "b" }] } });
+    expect(bad.status).toBe(400);
+    const m = (await admin.json("/api/risks/modeling/models", { method: "POST", headers: H, json: { name: "Portál", scope: "application", scopeId: web, elements: seed.elements } })).body;
+    expect(m.scopeName).toBe("Webový portál");
+    expect(m.summary.threats).toBeGreaterThan(8);
+    const spoof = m.threats.find((t: any) => t.key === "e1:S");
+    expect(spoof).toMatchObject({ stride: "S", status: "open" });
+    // MFA na externí entitě sníží závažnost podvržení identity, rozhodnutí u hrozeb zůstává
+    const els = m.elements.map((e: any) => (e.id === "e1" ? { ...e, auth: "mfa" } : e));
+    const decided = m.threats.map((t: any) => (t.key === "f1:I" ? { ...t, status: "mitigate", note: "TLS 1.3" } : t.key === "e1:S" ? { ...t, riskId: "00000000-0000-4000-8000-000000000999" } : t));
+    const m2 = (await admin.json(`/api/risks/modeling/models/${m.id}`, { method: "PATCH", headers: H, json: { elements: els, threats: decided, status: "review" } })).body;
+    expect(m2.threats.find((t: any) => t.key === "e1:S").severity).toBeLessThan(spoof.severity);
+    expect(m2.threats.find((t: any) => t.key === "e1:S").riskId).toBeNull();
+    expect(m2.threats.find((t: any) => t.key === "f1:I")).toMatchObject({ status: "mitigate", note: "TLS 1.3" });
+    expect(m2.summary.requirements).toBe(1);
+    // PATCH jen s rozhodnutím nesmaže prvky (patchOf bez výchozích hodnot)
+    const m3 = (await admin.json(`/api/risks/modeling/models/${m.id}`, { method: "PATCH", headers: H, json: { threats: m2.threats } })).body;
+    expect(m3.elements.length).toBe(m2.elements.length);
+    expect(m3.status).toBe("review");
+    const tr = await admin.json(`/api/risks/modeling/models/${m.id}/threats/risk`, { method: "POST", headers: H, json: { key: "p1:E" } });
+    expect(tr.status).toBe(201);
+    expect(tr.body.model.threats.find((t: any) => t.key === "p1:E")).toMatchObject({ status: "risk", riskId: tr.body.riskId });
+    const r2 = (await admin.json(`/api/risks/${tr.body.riskId}`, { headers: H })).body;
+    expect(r2.assets.map((a: any) => a.id)).toContain(web);
+    expect((await admin.json(`/api/risks/modeling/models/${m.id}/threats/risk`, { method: "POST", headers: H, json: { key: "p1:E" } })).status).toBe(409);
+    const docx = await admin.req(`/api/risks/modeling/models/${m.id}/report?format=docx`, { headers: H });
+    expect(docx.status).toBe(200);
+    expect(docx.headers.get("content-type")).toContain("wordprocessingml");
+    const html = await (await admin.req(`/api/risks/modeling/models/${m.id}/report?format=html`, { headers: H })).text();
+    expect(html).toContain("Bezpečnostní požadavky");
+    expect(html).toContain("TLS");
+    expect(((await admin.json("/api/risks/modeling/models", { headers: H })).body as any[]).some((x) => x.id === m.id)).toBe(true);
+    expect((await admin.json(`/api/risks/modeling/models/${m.id}`, { method: "DELETE", headers: H })).status).toBe(200);
+  });
+
+  test("postup krok za krokem: průvodci modulů a cesta k souladu z dat (v1.42, ADR-139)", async () => {
+    const co = (await admin.json("/api/companies", { method: "POST", json: { name: "Průvodce s.r.o.", regime: "lower" } })).body;
+    const H = { "x-contix-company": co.id };
+    let all = (await admin.json("/api/guides", { headers: H })).body;
+    const ids = all.guides.map((g: any) => g.id);
+    expect(ids).toEqual(expect.arrayContaining(["isms", "risks", "controls", "audits", "continuity", "incidents", "suppliers", "gdpr", "aiact", "cra", "legislation", "assets", "vulnerabilities", "policies", "awareness", "identity", "changes"]));
+    // DORA jen u finančního subjektu
+    expect(ids).not.toContain("dora");
+    let risks = all.guides.find((g: any) => g.id === "risks");
+    expect(risks.next).toBe("assets");
+    expect(risks.steps.find((s: any) => s.key === "assess").state).toBe("waiting");
+    // incidenty bez záznamů = nic k vyřízení
+    expect(all.guides.find((g: any) => g.id === "incidents").next).toBeNull();
+    expect(all.summary.progress).toBeGreaterThan(0);
+    // primární aktivum s CIA a riziko bez vlastníka → další krok se posune
+    await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "Data průvodce", assetType: "information_asset", confidentiality: 2, integrity: 2, availability: 2 } });
+    await admin.json("/api/risks", { method: "POST", headers: H, json: { name: "Riziko průvodce" } });
+    risks = (await admin.json("/api/guides/risks", { headers: H })).body;
+    expect(risks.steps.find((s: any) => s.key === "assets").state).toBe("done");
+    expect(risks.steps.find((s: any) => s.key === "assess")).toMatchObject({ state: "todo", count: 1 });
+    expect(risks.steps.find((s: any) => s.key === "owners")).toMatchObject({ state: "todo", count: 1 });
+    expect((await admin.json("/api/guides/neexistuje", { headers: H })).status).toBe(404);
+    // dodavatel: významný bez smlouvy
+    await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "Průvodce cloud", significant: true } });
+    const sup = (await admin.json("/api/guides/suppliers", { headers: H })).body;
+    expect(sup.steps.find((s: any) => s.key === "contracts")).toMatchObject({ state: "todo", count: 1 });
+    expect(sup.next).toBe("contracts");
+    // aktiva: aktivum bez vlastníka; zranitelnosti čekají na data
+    const as = (await admin.json("/api/guides/assets", { headers: H })).body;
+    expect(as.steps.find((s: any) => s.key === "owners")).toMatchObject({ state: "todo", count: 1 });
+    expect((await admin.json("/api/guides/vulnerabilities", { headers: H })).body.steps.find((s: any) => s.key === "kev").state).toBe("waiting");
+    // ohodnocené riziko nad akceptovatelnou úrovní bez zvládání
+    await admin.json("/api/risks", { method: "POST", headers: H, json: { name: "Vysoké riziko průvodce", impact: 4, threatLevel: 4, vulnLevel: 4 } });
+    expect((await admin.json("/api/guides/risks", { headers: H })).body.steps.find((s: any) => s.key === "treat")).toMatchObject({ state: "todo", count: 1 });
+    // DORA po označení finančního subjektu
+    await admin.json(`/api/companies/${co.id}`, { method: "PATCH", json: { doraEntity: true } });
+    const dora = (await admin.json("/api/guides/dora", { headers: H })).body;
+    expect(dora.steps.map((s: any) => s.key)).toEqual(["entity", "functions", "providers", "contracts", "complete"]);
+    // garant postupu: další krok do Moje práce držitele funkčního místa (v1.44)
+    const unit = (await admin.json("/api/org/units", { method: "POST", headers: H, json: { name: "Bezpečnost průvodce", companyId: co.id } })).body;
+    const pos = (await admin.json("/api/org/positions", { method: "POST", headers: H, json: { orgUnitId: unit.id, name: "Manažer KB průvodce" } })).body;
+    const meId = (await admin.json("/api/auth/me")).body.user.id;
+    await db.insert(schema.positionHolders).values({ positionId: pos.id, userId: meId } as any);
+    expect((await admin.json("/api/guides/risks/owner", { method: "PUT", headers: H, json: { positionId: "00000000-0000-4000-8000-000000000999" } })).status).toBe(400);
+    const owned = (await admin.json("/api/guides/risks/owner", { method: "PUT", headers: H, json: { positionId: pos.id } })).body;
+    expect(owned).toMatchObject({ owner: { positionId: pos.id, name: "Manažer KB průvodce" }, canEdit: true });
+    const mine = ((await admin.json("/api/notifications/mine")).body as any[]).filter((o) => o.kind === "guide_step" && o.companyId === co.id);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]).toMatchObject({ key: `guide_step:${co.id}:risks`, urgency: "soon", ownerPositionId: pos.id, link: "/risks/appetite", title: "Řízení rizik: Ochota riskovat", detail: "Ochota riskovat neschválena" });
+    await admin.json("/api/guides/risks/owner", { method: "PUT", headers: H, json: { positionId: null } });
+    expect(((await admin.json("/api/notifications/mine")).body as any[]).some((o) => o.kind === "guide_step" && o.companyId === co.id)).toBe(false);
+    // SOC a žádosti o přístup
+    expect((await admin.json("/api/guides/soc", { headers: H })).body.next).toBe("sources");
+    expect((await admin.json("/api/guides/access", { headers: H })).body.next).toBe("people");
+    // odkazy na předpis, úvodní cesta, příprava na audit (v1.45)
+    const rk = (await admin.json("/api/guides/risks", { headers: H })).body;
+    expect(rk.steps.find((s: any) => s.key === "assess").refs).toEqual(["§ 3"]); // nižší režim → vyhl. 410 (§ 3 odpovídá § 8 vyhl. 409)
+    expect(rk.steps.find((s: any) => s.key === "scenario")).toMatchObject({ state: "todo" });
+    const lst = (await admin.json("/api/guides", { headers: H })).body;
+    expect(lst.onboarding.phases.map((p: any) => p.key)).toEqual(["foundation", "analysis", "measures", "operations", "verification"]);
+    expect(lst.guides.map((g: any) => g.id)).toEqual(expect.arrayContaining(["org", "exceptions"]));
+    const aud = (await admin.json("/api/guides/audit?framework=cz409", { headers: H })).body;
+    const s8 = aud.sections.find((x: any) => x.section === "§ 8");
+    expect(s8.title).toBe("Řízení rizik");
+    expect(s8.steps.some((x: any) => x.guide === "risks" && x.key === "owners" && x.state === "todo")).toBe(true);
+    expect(aud.summary.sections).toBeGreaterThan(20);
+    const nis = (await admin.json("/api/guides/audit?framework=nis2", { headers: H })).body;
+    expect(nis.sections.some((x: any) => x.steps.some((y: any) => y.guide === "suppliers"))).toBe(true);
+    const ad = await admin.req("/api/guides/audit?framework=cz409&format=docx", { headers: H });
+    expect(ad.headers.get("content-type")).toContain("wordprocessingml");
+    expect(await (await admin.req("/api/guides/audit?framework=cz409&format=html", { headers: H })).text()).toContain("Řízení rizik");
+    // neposouzené požadavky (bez opatření) nejsou nesplněné (v1.46)
+    const allSecs = [...aud.sections, ...nis.sections];
+    expect(allSecs.some((x: any) => x.unassessed > 0)).toBe(true);
+    for (const x of allSecs) expect(x.compliant + x.partial + x.nonCompliant + x.unassessed).toBe(x.applicable);
+    for (const x of allSecs.filter((y: any) => y.unassessed === y.applicable)) expect(x.readiness).toBeNull();
+    // startovací balíček: složky, katalog, koncept politiky, cíle – podruhé „už existuje“
+    const st1 = (await admin.json("/api/guides/starter", { method: "POST", headers: H, json: { items: ["folders", "catalog", "policy", "objectives"] } })).body as any[];
+    expect(Object.fromEntries(st1.map((x) => [x.item, x.status]))).toEqual({ folders: "created", catalog: "created", policy: "created", objectives: "created" });
+    const st2 = (await admin.json("/api/guides/starter", { method: "POST", headers: H, json: { items: ["folders", "catalog", "policy", "objectives"] } })).body as any[];
+    expect(st2.every((x) => x.status === "exists")).toBe(true);
+    // koncept politiky má první verzi s osnovou kapitol podle hlavního předpisu (v1.47)
+    const polId = st1.find((x) => x.item === "policy").detail;
+    const polDet = (await admin.json(`/api/policies/${polId}`, { headers: H })).body;
+    const v01 = (polDet.versions ?? []).find((v: any) => v.version === "0.1");
+    expect(v01).toBeDefined();
+    const [vrow] = await db.select().from(schema.policyVersions).where(eq(schema.policyVersions.policyId, polId));
+    expect(vrow?.content).toContain("## 5. Řízení rizik");
+    // průvodci SOC 2 a Trust Center (v1.47)
+    expect((await admin.json("/api/guides/soc2", { headers: H })).body.steps.map((s: any) => s.key)).toEqual(["engagement", "description", "mapping", "tests", "exceptions", "report"]);
+    expect((await admin.json("/api/guides/trust", { headers: H })).body.steps.map((s: any) => s.key)).toEqual(["library", "questionnaires", "inProgress", "center", "requests"]);
+    // export / import nastavení průvodců mezi instalacemi (v1.47)
+    await admin.json("/api/guides/risks/owner", { method: "PUT", headers: H, json: { positionId: pos.id } });
+    const ex = await admin.req("/api/guides/config/export", { headers: H });
+    expect(ex.headers.get("content-disposition")).toContain("contix-pruvodci.json");
+    const cfg = (await ex.json()) as any;
+    expect(cfg).toMatchObject({ format: "contix-guides", version: 1 });
+    expect(cfg.owners).toEqual(expect.arrayContaining([{ guide: "risks", position: "Manažer KB průvodce", unit: "Bezpečnost průvodce" }]));
+    await admin.json("/api/guides/risks/owner", { method: "PUT", headers: H, json: { positionId: null } });
+    const imp = (await admin.json("/api/guides/config/import", { method: "POST", headers: H, json: { ...cfg, owners: [...cfg.owners, { guide: "assets", position: "Neexistující místo", unit: null }, { guide: "xyz", position: "Manažer KB průvodce", unit: null }], threatProfile: { sector: "energy", overrides: {} } } })).body;
+    expect(imp.owners).toEqual(expect.arrayContaining([{ guide: "risks", position: "Manažer KB průvodce", status: "applied" }, { guide: "assets", position: "Neexistující místo", status: "unmatched" }, { guide: "xyz", position: "Manažer KB průvodce", status: "unknown_guide" }]));
+    expect(imp.threatProfile).toBe("applied");
+    expect((await admin.json("/api/guides/risks", { headers: H })).body.owner).toMatchObject({ positionId: pos.id });
+    expect((await admin.json("/api/guides/config/import", { method: "POST", headers: H, json: { format: "jiny" } })).status).toBe(400);
+    await admin.json("/api/guides/risks/owner", { method: "PUT", headers: H, json: { positionId: null } });
+    const aud2 = (await admin.json("/api/guides/audit?framework=cz410", { headers: H })).body;
+    expect(aud2.sections.some((x: any) => x.controls > 0)).toBe(true);
+    // balíček pro auditora se zprávou o připravenosti
+    const zr = await admin.req("/api/guides/audit?framework=cz410&format=zip", { headers: H });
+    expect(zr.headers.get("content-type")).toBe("application/zip");
+    const zfiles = Object.keys(unzipSync(new Uint8Array(await zr.arrayBuffer())));
+    expect(zfiles).toEqual(expect.arrayContaining(["00_obsah.html", "02_pripravenost_na_audit.docx", "02_pripravenost_na_audit.html", "manifest.csv"]));
+    // další krok v souhrnu jen při změně, jinak jednou týdně
+    const { guideStepsFresh } = await import("../src/modules/notifications/service");
+    const item = { key: `guide_step:${co.id}:risks`, kind: "guide_step", title: "Řízení rizik: Vlastníci rizik", detail: "2 rizika bez vlastníka", companyId: co.id, due: null, urgency: "soon", link: "/risks", ownerPositionId: null, ownerName: null } as any;
+    const now = new Date("2026-11-09T08:00:00Z");
+    const f1 = await guideStepsFresh(db as any, [item], "garant@test.cz", now);
+    expect(f1.items).toHaveLength(1);
+    await f1.commit();
+    expect((await guideStepsFresh(db as any, [item], "garant@test.cz", now)).items).toHaveLength(0);
+    expect((await guideStepsFresh(db as any, [{ ...item, detail: "1 riziko bez vlastníka" }], "garant@test.cz", now)).items).toHaveLength(1);
+    expect((await guideStepsFresh(db as any, [item], "garant@test.cz", new Date("2026-11-17T08:00:00Z"))).items).toHaveLength(1);
+    // barva horní lišty společnosti v /auth/me
+    await admin.json(`/api/companies/${co.id}`, { method: "PATCH", json: { overrides: { topbarColor: "red" } } });
+    expect((await admin.json("/api/auth/me")).body.companies.find((x: any) => x.id === co.id).topbarColor).toBe("red");
+    expect((await admin.json(`/api/companies/${co.id}`, { method: "PATCH", json: { overrides: { topbarColor: "pink" } } })).status).toBe(400);
+    // skupina: řádek za tuto společnost
+    const grp = (await admin.json("/api/guides/group")).body as any[];
+    const row = grp.find((r) => r.companyId === co.id);
+    expect(row.guides.dora).toBeDefined();
+    // přehled skupiny do Excelu (v1.48)
+    const gx = await admin.req("/api/guides/group.xlsx");
+    expect(gx.headers.get("content-type")).toContain("spreadsheetml");
+    const { readTable: rt } = await import("../src/modules/import/table");
+    const gxt = rt(new Uint8Array(await gx.arrayBuffer()), "g.xlsx");
+    expect(gxt.sheets).toEqual(["Přehled skupiny", "Cesta k souladu"]);
+    expect(gxt.headers.slice(0, 5)).toEqual(["Společnost", "Režim", "Hlavní předpis", "Míra shody (%)", "Cesta k souladu (%)"]);
+    expect(row.summary.progress).toBeGreaterThanOrEqual(0);
+  });
+
+  test("víc Wazuhů (v1.49): stejné ID agenta ve dvou Wazuzích, skupina agentů → společnost, smazání připojení", async () => {
+    // druhý Wazuh: agenti 001 a 002 jako v prvním, ale jiné stroje
+    const wazuhB = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const u = new URL(req.url);
+        const auth = req.headers.get("authorization") ?? "";
+        if (u.pathname === "/security/user/authenticate") return auth === `Basic ${btoa("contix-ro:wazuh-b")}` ? Response.json({ data: { token: "tokb" } }) : new Response("no", { status: 401 });
+        if (auth !== "Bearer tokb") return new Response("no", { status: 401 });
+        const items = (x: unknown[]) => Response.json({ data: { affected_items: x, total_affected_items: x.length } });
+        if (u.pathname === "/agents")
+          return items([
+            { id: "001", name: "web-b1", ip: "10.20.0.1", status: "active", group: ["zakaznik-b"], os: { name: "Debian", platform: "debian" } },
+            { id: "002", name: "pc-b2", ip: "10.20.0.2", status: "active", group: ["default"], os: { name: "Microsoft Windows 11 Pro", platform: "windows" } },
+          ]);
+        const m = u.pathname.match(/^\/syscollector\/(\d+)\/(\w+)$/);
+        if (m) return m[2] === "hardware" ? items([{ board_serial: `B-SER-${m[1]}` }]) : items([]);
+        return new Response("nf", { status: 404 });
+      },
+    });
+    try {
+      const coB = (await admin.json("/api/companies", { method: "POST", json: { name: "Zákazník B (Wazuh) s.r.o." } })).body;
+      const before = (await admin.json("/api/admin/connections")).body.wazuh as any[];
+      expect(before).toHaveLength(1);
+      expect(before[0]).toMatchObject({ primary: true });
+      const form = { name: "Wazuh B", url: `http://localhost:${wazuhB.port}`, user: "contix-ro", password: "wazuh-b", vulnEnabled: false, autoSyncHours: 0, companyId: null, groupMap: [{ group: "zakaznik-b", companyId: coB.id }] };
+      expect((await admin.json("/api/admin/connections/wazuh", { method: "POST", json: { ...form, password: "" } })).status).toBe(400);
+      expect((await admin.json("/api/admin/connections/wazuh", { method: "POST", json: { ...form, groupMap: [{ group: "x", companyId: "00000000-0000-4000-8000-0000000000ff" }] } })).status).toBe(400);
+      expect((await admin.json("/api/admin/connections/wazuh/test", { method: "POST", json: form })).body).toMatchObject({ ok: true });
+      const created = await admin.json("/api/admin/connections/wazuh", { method: "POST", json: form });
+      expect(created.status).toBe(201);
+      const idB = created.body.id;
+      expect(JSON.stringify(created.body)).not.toContain("wazuh-b");
+      expect(created.body.wazuh.find((w: any) => w.id === idB)).toMatchObject({ primary: false, hasPassword: true, groupMap: form.groupMap });
+      // Discovery nabízí obě připojení; synchronizace jen Wazuhu B
+      expect((await admin.json("/api/discovery/connectors")).body.find((x: any) => x.id === "wazuh").connections).toHaveLength(2);
+      const start = await admin.json("/api/discovery/wazuh", { method: "POST", json: { connectionId: idB } });
+      expect(start.status).toBe(202);
+      const run = await waitRun(start.body.runId);
+      expect(run).toMatchObject({ status: "succeeded", connectionId: idB });
+      expect(run.stats).toMatchObject({ discovered: 2, created: 2, updated: 0 });
+      // stejné ID agenta 001 ve dvou Wazuzích = dvě různá aktiva
+      const refs = await db.select().from(schema.assetSources).where(eq(schema.assetSources.sourceRef, "001"));
+      expect(new Set(refs.map((r) => r.connectionId)).size).toBe(2);
+      expect(new Set(refs.map((r) => r.assetId)).size).toBe(2);
+      const web = (await admin.json("/api/assets?q=web-b1")).body.items[0];
+      expect(web.companyId).toBe(coB.id);
+      // opakovaná synchronizace páruje podle připojení + agenta
+      const again = await waitRun((await admin.json("/api/discovery/wazuh", { method: "POST", json: { connectionId: idB } })).body.runId);
+      expect(again.stats).toMatchObject({ created: 0, updated: 2 });
+      const listed = (await admin.json("/api/admin/connections")).body.wazuh.find((w: any) => w.id === idB);
+      expect(listed).toMatchObject({ agents: 2, lastSyncStatus: "succeeded" });
+      // starší rozhraní dál pracuje s primárním Wazuhem
+      expect((await admin.json("/api/admin/connectors")).body.wazuh.url).toBe(`http://localhost:${wazuh.port}`);
+      // smazání: vazby agentů zaniknou, aktiva zůstanou
+      expect((await admin.req(`/api/admin/connections/wazuh/${idB}`, { method: "DELETE" })).status).toBe(200);
+      expect(await db.select().from(schema.assetSources).where(eq(schema.assetSources.connectionId, idB))).toHaveLength(0);
+      expect((await admin.json(`/api/assets/${web.id}`)).status).toBe(200);
+      expect((await admin.json("/api/admin/connections")).body.wazuh).toHaveLength(1);
+      // převod ze starší verze (jednou při startu): vazby agentů bez připojení dostanou primární Wazuh
+      const { ensureWazuhConnections } = await import("../src/modules/connections/wazuh");
+      await db.insert(schema.assetSources).values({ assetId: web.id, sourceType: "wazuh", sourceRef: "777" });
+      const primaryId = before[0].id;
+      expect(await ensureWazuhConnections(db as any, config)).toBe(primaryId);
+      expect((await db.select().from(schema.assetSources).where(eq(schema.assetSources.sourceRef, "777")))[0]!.connectionId).toBe(primaryId);
+      expect(await ensureWazuhConnections(db as any, config)).toBeNull();
+      await db.delete(schema.assetSources).where(eq(schema.assetSources.sourceRef, "777"));
+    } finally {
+      wazuhB.stop(true);
+    }
+  });
+
+  test("sběrač ze serverů (v1.51): token připojení, inventář → aktivum, nálezy shody, nový token, smazání", async () => {
+    const created = await admin.json("/api/admin/connections/collector", { method: "POST", json: { name: "Linux servery", companyId: null } });
+    expect(created.status).toBe(201);
+    const token = created.body.token as string;
+    expect(token).toMatch(/^ctxh_/);
+    expect(JSON.stringify(created.body.collectors)).not.toContain(token);
+    expect((await admin.req("/api/admin/connections/collector/script")).headers.get("content-disposition")).toContain("contix-collect.py");
+    // instalátor (v1.54): jeden skript s tokenem, CA a /etc/hosts; nastavení se zapamatuje
+    const pem = "-----BEGIN CERTIFICATE-----\nMIIBtest\n-----END CERTIFICATE-----";
+    const inst = await admin.req(`/api/admin/connections/collector/${created.body.id}/installer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: "https://contix.firma.local", hostsIp: "192.0.2.247", caPem: pem, everyHours: 6 }) });
+    expect(inst.status).toBe(200);
+    expect(inst.headers.get("content-disposition")).toContain("install-contix-collect.sh");
+    const sh = await inst.text();
+    expect(sh).toContain(`CONTIX_TOKEN=${token}`);
+    expect(sh).toContain("CONTIX_URL='https://contix.firma.local'");
+    expect(sh).toContain("HOSTS_IP='192.0.2.247'");
+    expect(sh).toContain("MIIBtest");
+    expect(sh).toContain("def main():");
+    expect((await admin.json("/api/admin/connections")).body.collectors[0]).toMatchObject({ installerReady: true, hostsIp: "192.0.2.247", caPem: pem });
+    expect((await admin.req(`/api/admin/connections/collector/${created.body.id}/installer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ hostsIp: "není-ip" }) })).status).toBe(400);
+    await db.update(schema.connections).set({ secrets: {} }).where(eq(schema.connections.id, created.body.id));
+    expect((await admin.req(`/api/admin/connections/collector/${created.body.id}/installer`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })).status).toBe(409);
+    const inv = {
+      collectorVersion: "1.0",
+      collectedAt: new Date().toISOString(),
+      host: { hostname: "app-linux-01", fqdn: "app-linux-01.firma.local", machineId: "0f1e2d3c4b5a69788796a5b4c3d2e1f0", os: "Ubuntu 24.04 LTS", kernel: "6.8.0", ips: ["10.30.0.11"] },
+      users: [
+        { name: "root", uid: 0, shell: "/bin/bash", home: "/root", sudo: false, locked: true },
+        { name: "toor", uid: 0, shell: "/bin/bash", home: "/home/toor", sudo: false, locked: false },
+        { name: "jan", uid: 1000, shell: "/bin/bash", home: "/home/jan", sudo: true, locked: false },
+      ],
+      sshKeys: [
+        { user: "jan", type: "ssh-ed25519", bits: 256, fingerprint: "SHA256:aaa", comment: "jan@notebook", options: [] },
+        { user: "root", type: "ssh-rsa", bits: 2048, fingerprint: "SHA256:bbb", comment: "", options: ['from="10.0.0.0/8"'] },
+      ],
+      containers: [
+        { name: "web", image: "nginx:1.27", status: "Up 3 days", privileged: false, user: "101", ports: ["0.0.0.0:443->443/tcp"], project: "shop" },
+        { name: "agent", image: "monitor:latest", status: "Up", privileged: true, user: "", ports: [] },
+      ],
+      images: [{ repo: "nginx", tag: "1.27", id: "abc" }],
+      services: [{ name: "ssh.service", state: "running", enabled: true }],
+      listening: [{ proto: "tcp", address: "0.0.0.0", port: 22, process: "sshd" }],
+      firewall: { tool: "nftables", rulesHash: "a".repeat(64), savedHash: null, defaultInput: "drop", ruleCount: 12 },
+    };
+    const post = (tok: string, body: unknown) => admin.req("/api/public/hosts/inventory", { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    expect((await post("ctxh_spatny", inv)).status).toBe(401);
+    expect((await post(token, { ...inv, host: {} })).status).toBe(400);
+    const r1 = await post(token, inv);
+    expect(r1.status).toBe(200);
+    const res = (await r1.json()) as any;
+    expect(res).toMatchObject({ action: "created" });
+    const asset = (await admin.json(`/api/assets/${res.assetId}`)).body;
+    expect(asset).toMatchObject({ name: "app-linux-01", assetType: "server" });
+    expect(asset.sources.map((x: any) => x.sourceType)).toContain("collector");
+    const hosts = (await admin.json(`/api/hosts/by-asset/${res.assetId}`)).body as any[];
+    const codes = hosts[0].findings.map((f: any) => f.code).sort();
+    expect(codes).toEqual(["container_privileged", "fw_not_persistent", "ssh_key_root", "ssh_key_unlabeled", "ssh_key_weak", "uid0_user"]);
+    expect(hosts[0].data.sshKeys[0].fingerprint).toBe("SHA256:aaa");
+    // opakované hlášení = stejné aktivum, stejný záznam inventáře
+    const r2 = (await (await post(token, { ...inv, firewall: { ...inv.firewall, savedHash: "a".repeat(64) } })).json()) as any;
+    expect(r2).toMatchObject({ action: "updated", assetId: res.assetId });
+    // detail serveru a historie změn (v1.55)
+    const later = new Date(Date.now() + 60_000).toISOString();
+    await post(token, { ...inv, collectedAt: later, users: [...inv.users, { name: "novak", uid: 1001, shell: "/bin/bash", home: "/home/novak", sudo: true, locked: false }], sshd: { permitRootLogin: "yes", passwordAuthentication: true }, system: { updatesPending: 3, securityUpdates: 1, autoUpdates: false, updates: [{ name: "openssl", version: "3.0.13", security: true }] } });
+    const hostId = ((await admin.json("/api/hosts")).body as any[]).find((h) => h.assetId === res.assetId).id;
+    const det = (await admin.json(`/api/hosts/${hostId}`)).body;
+    expect(det.data.sshd.permitRootLogin).toBe("yes");
+    expect(det.findings.map((f: any) => f.code)).toEqual(expect.arrayContaining(["sshd_root_login", "sshd_password_auth", "updates_security", "no_auto_updates"]));
+    const kinds = det.changes[0].changes.map((x: any) => x.kind);
+    expect(kinds).toEqual(expect.arrayContaining(["user_added", "finding_new"]));
+    expect(det.changes[0].changes).toContainEqual({ kind: "user_added", subject: "novak" });
+    expect((await admin.req("/api/hosts/00000000-0000-4000-8000-000000000000")).status).toBe(404);
+    const sum = ((await admin.json("/api/hosts")).body as any[]).find((h) => h.assetId === res.assetId);
+    expect(sum).toMatchObject({ hostname: "app-linux-01", os: "Ubuntu 24.04 LTS", users: 4, sshKeys: 2, containers: 2, high: 3 });
+    // nový token: starý přestane platit
+    const rot = await admin.json(`/api/admin/connections/collector/${created.body.id}/token`, { method: "POST" });
+    expect((await post(token, inv)).status).toBe(401);
+    expect((await post(rot.body.token, inv)).status).toBe(200);
+    expect((await admin.json("/api/admin/connections")).body.collectors[0]).toMatchObject({ hosts: 1, name: "Linux servery" });
+    // vypnuté připojení nepřijímá
+    await admin.json(`/api/admin/connections/collector/${created.body.id}`, { method: "PUT", json: { name: "Linux servery", enabled: false, companyId: null } });
+    expect((await post(rot.body.token, inv)).status).toBe(401);
+    expect((await admin.req(`/api/admin/connections/collector/${created.body.id}`, { method: "DELETE" })).status).toBe(200);
+    expect(((await admin.json("/api/hosts")).body as any[]).some((h) => h.assetId === res.assetId)).toBe(false);
+  });
+
+  test("bezpečnostní testy (v1.56): rozsah se schválením, úloha pro sondu, výsledek nmap, nálezy, import, AI", async () => {
+    const probe = await admin.json("/api/admin/connections/probe", { method: "POST", json: { name: "Kali", companyId: null } });
+    expect(probe.status).toBe(201);
+    const ptok = probe.body.token as string;
+    expect(ptok).toMatch(/^ctxp_/);
+    const inst = await admin.req(`/api/admin/connections/probe/${probe.body.id}/installer`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url: "https://contix.firma.local" }) });
+    expect(inst.status).toBe(200);
+    const instText = await inst.text();
+    expect(instText).toContain(`CONTIX_TOKEN=${ptok}`);
+    expect(instText).toContain("User=contix-probe");
+    const pub = (path: string, body: unknown, tok = ptok) => admin.req(`/api/public/probe/${path}`, { method: "POST", headers: { authorization: `Bearer ${tok}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    expect((await pub("poll", {}, "ctxp_spatny")).status).toBe(401);
+    expect(await (await pub("poll", { version: "1.0", hostname: "kali", tools: { nmap: true } })).json()).toBeNull();
+    // rozsah – bez schválení nelze testovat
+    const scope = await admin.json("/api/security-tests/scopes", { method: "POST", json: { name: "Interní síť", targets: ["10.20.0.0/24", "*.firma.local"], exclusions: ["10.20.0.1"], validFrom: "2026-01-01", validTo: "2099-12-31", authorization: "Objednávka 2026/11" } });
+    expect(scope.status).toBe(201);
+    expect(scope.body.status).toBe("draft");
+    expect((await admin.json("/api/security-tests/scopes", { method: "POST", json: { name: "x", targets: ["-oX"], validFrom: "2026-01-01", validTo: "2026-02-01", authorization: "abc" } })).status).toBe(400);
+    const run0 = await admin.json("/api/security-tests/runs", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", targets: ["10.20.0.5"] } });
+    expect(run0.status).toBe(400);
+    expect(run0.body.error).toContain("není schválen");
+    expect((await admin.json(`/api/security-tests/scopes/${scope.body.id}/approve`, { method: "POST" })).body.status).toBe("approved");
+    expect((await admin.json("/api/security-tests/runs", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", targets: ["10.30.0.5"] } })).body.error).toContain("mimo schválený rozsah");
+    expect((await admin.json("/api/security-tests/runs", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", targets: ["10.20.0.1"] } })).body.error).toContain("výjimky");
+    expect((await admin.json("/api/security-tests/runs", { method: "POST", json: { scopeId: scope.body.id, testId: "web.headers", targets: ["10.20.0.5"] } })).status).toBe(400);
+    const asset = (await admin.json("/api/assets", { method: "POST", json: { name: "srv-telnet", assetType: "server", ipAddresses: ["10.20.0.5"] } })).body;
+    const run = await admin.json("/api/security-tests/runs", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", targets: ["10.20.0.5"] } });
+    expect(run.status).toBe(201);
+    expect(run.body.status).toBe("queued");
+    // sonda převezme úlohu
+    const job = await (await pub("poll", { version: "1.0", hostname: "kali", tools: { nmap: true, testssl: false } })).json();
+    expect(job).toMatchObject({ runId: run.body.id, testId: "net.ports", targets: ["10.20.0.5"] });
+    expect(await (await pub("poll", { version: "1.0", hostname: "kali", tools: { nmap: true, testssl: false } })).json()).toBeNull();
+    const xml = (ports: number[]) => `<?xml version="1.0"?><nmaprun><host><address addr="10.20.0.5" addrtype="ipv4"/><hostnames><hostname name="srv-telnet.firma.local"/></hostnames><ports>${ports.map((p) => `<port protocol="tcp" portid="${p}"><state state="open"/><service name="${p === 23 ? "telnet" : "ssh"}" product="x"/></port>`).join("")}</ports></host></nmaprun>`;
+    const res = await pub("result", { runId: run.body.id, outputs: [{ target: "10.20.0.5", stdout: xml([22, 23, 6379]), exitCode: 0 }] });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ findings: 2, high: 2, hosts: 1 });
+    expect((await pub("result", { runId: run.body.id, outputs: [] })).status).toBe(409);
+    const detail = (await admin.json(`/api/security-tests/runs/${run.body.id}`)).body;
+    expect(detail).toMatchObject({ status: "done", probeName: "Kali" });
+    expect(detail.facts[0].ports.map((p: any) => p.port)).toEqual([22, 23, 6379]);
+    const findings = (await admin.json("/api/security-tests/findings")).body as any[];
+    const telnet = findings.find((f) => f.code === "port.telnet");
+    expect(telnet).toMatchObject({ severity: "high", host: "10.20.0.5", port: 23, assetId: asset.id, status: "open" });
+    expect((await admin.json(`/api/security-tests/asset/${asset.id}`)).body.length).toBe(2);
+    expect(((await admin.json("/api/security-tests/probes")).body as any[])[0]).toMatchObject({ hostname: "kali", tools: { nmap: true, testssl: false } });
+    // AI rozbor – bez IP serveru, opatření ověřená proti katalogu
+    await admin.json("/api/ai/settings", { method: "PATCH", json: { enabled: true, provider: "openai", baseUrl: AI_URL, model: "gpt-oss:20b", apiKey: "owui-key" } });
+    await admin.json("/api/controls", { method: "POST", json: { name: "Bezpečná konfigurace serverů", category: "technical" } });
+    const n0 = aiCalls.length;
+    const adv = await admin.json(`/api/security-tests/findings/${telnet.id}/advice`, { method: "POST" });
+    expect(adv.status).toBe(200);
+    expect(adv.body.advice).toMatchObject({ summary: "Telnet posílá hesla nešifrovaně.", nextTests: ["ssh.audit"], remediation: ["Vypněte telnetd.", "Používejte SSH."] });
+    expect(adv.body.advice.controlIds).toHaveLength(1);
+    expect(JSON.stringify(aiCalls.slice(n0))).not.toContain("10.20.0.5");
+    const sum = await admin.json(`/api/security-tests/runs/${run.body.id}/summary`, { method: "POST" });
+    expect(sum.body.summary).toMatchObject({ management: "Ve sítí je dostupný Telnet.", nextTests: ["net.services"] });
+    expect(JSON.stringify(aiCalls.slice(n0))).not.toContain("10.20.0.5");
+    // opakovaný běh bez Telnetu → nález opraven; Redis zůstává
+    const run2 = await admin.json("/api/security-tests/runs", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", targets: ["10.20.0.5"], probeId: probe.body.id } });
+    await pub("poll", {});
+    await pub("result", { runId: run2.body.id, outputs: [{ target: "10.20.0.5", stdout: xml([22, 6379]) }] });
+    const after = (await admin.json("/api/security-tests/findings")).body as any[];
+    expect(after.find((f) => f.code === "port.telnet").status).toBe("fixed");
+    expect(after.find((f) => f.code === "port.redis").status).toBe("open");
+    // ruční import testssl + změna stavu
+    const imp = await admin.json("/api/security-tests/import", {
+      method: "POST",
+      json: { scopeId: scope.body.id, testId: "tls.testssl", fileName: "t.json", content: JSON.stringify([{ id: "TLS1", ip: "web.firma.local/10.20.0.7", port: "443", severity: "LOW", finding: "offered (deprecated)" }, { id: "cert_expirationStatus", ip: "web.firma.local/10.20.0.7", port: "443", severity: "OK", finding: "60 days" }]) },
+    });
+    expect(imp.status).toBe(201);
+    expect(imp.body).toMatchObject({ source: "import", status: "done", stats: { findings: 1, low: 1 } });
+    const tls = ((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.code === "tls.TLS1");
+    expect(tls).toMatchObject({ title: "Povolen zastaralý TLS 1.0", host: "web.firma.local", port: 443 });
+    expect((await admin.json(`/api/security-tests/findings/${tls.id}`, { method: "PATCH", json: { status: "accepted", note: "Starý klient" } })).body.status).toBe("accepted");
+    expect((await admin.json("/api/security-tests/import", { method: "POST", json: { scopeId: scope.body.id, testId: "win.null", target: "10.99.0.1", content: "x" } })).status).toBe(400);
+    // úprava rozsahu ruší schválení
+    const upd = await admin.json(`/api/security-tests/scopes/${scope.body.id}`, { method: "PUT", json: { name: "Interní síť", targets: ["10.20.0.0/24"], validFrom: "2026-01-01", validTo: "2099-12-31", authorization: "Objednávka 2026/11" } });
+    expect(upd.body.status).toBe("draft");
+    const run3 = await admin.json("/api/security-tests/runs", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", targets: ["10.20.0.5"] } });
+    expect(run3.status).toBe(400);
+    expect((await admin.req(`/api/admin/connections/probe/${probe.body.id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await pub("poll", {})).status).toBe(401);
+  });
+
+  test("sady testů (v1.56.1): víc testů najednou, navazující testy, automatická AI, přiřazení k aktivu", async () => {
+    const probe = await admin.json("/api/admin/connections/probe", { method: "POST", json: { name: "Kali sada", companyId: null } });
+    const pub = (path: string, body: unknown) => admin.req(`/api/public/probe/${path}`, { method: "POST", headers: { authorization: `Bearer ${probe.body.token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    const info = { version: "1.0", hostname: "kali", tools: { nmap: true } };
+    const scope = await admin.json("/api/security-tests/scopes", { method: "POST", json: { name: "Sada", targets: ["10.40.0.0/24"], validFrom: "2026-01-01", validTo: "2099-12-31", authorization: "Objednávka" } });
+    await admin.json(`/api/security-tests/scopes/${scope.body.id}/approve`, { method: "POST" });
+    await admin.json("/api/ai/settings", { method: "PATCH", json: { enabled: true, provider: "openai", baseUrl: AI_URL, model: "gpt-oss:20b", apiKey: "owui-key" } });
+    // mimo rozsah → celá sada odmítnuta
+    expect((await admin.json("/api/security-tests/batches", { method: "POST", json: { scopeId: scope.body.id, testIds: ["net.ports"], targets: ["10.41.0.1"] } })).status).toBe(400);
+    const b = await admin.json("/api/security-tests/batches", { method: "POST", json: { scopeId: scope.body.id, name: "Server 10.40.0.8", testIds: ["web.headers", "net.ports"], targets: ["10.40.0.8"], probeId: probe.body.id, autoFollow: true, autoAi: true } });
+    expect(b.status).toBe(201);
+    expect(b.body.runs.map((r: any) => [r.testId, r.targets])).toEqual([["net.ports", ["10.40.0.8"]], ["web.headers", ["https://10.40.0.8/"]]]);
+    // sonda dostane nejdřív průzkum portů
+    const j1 = (await (await pub("poll", info)).json()) as any;
+    expect(j1.testId).toBe("net.ports");
+    const xml = `<nmaprun><host><address addr="10.40.0.8" addrtype="ipv4"/><ports><port protocol="tcp" portid="22"><state state="open"/><service name="ssh"/></port><port protocol="tcp" portid="443"><state state="open"/><service name="https"/></port><port protocol="tcp" portid="23"><state state="open"/><service name="telnet"/></port></ports></host></nmaprun>`;
+    await pub("result", { runId: j1.runId, outputs: [{ target: "10.40.0.8", stdout: xml }] });
+    await Promise.all(background);
+    const bd = (await admin.json(`/api/security-tests/batches/${b.body.id}`)).body;
+    const follow = bd.runs.filter((r: any) => r.parentRunId === j1.runId).map((r: any) => [r.testId, r.targets, r.ports]);
+    // HTTPS hlavičky už v sadě jsou → bez duplicity; SSH a TLS přibyly na nalezených portech
+    expect(follow.sort()).toEqual([["ssh.audit", ["10.40.0.8"], [22]], ["tls.testssl", ["10.40.0.8"], [443]], ["web.paths", ["https://10.40.0.8/"], []]]);
+    expect(bd.status).toBe("running");
+    // automatická AI: rozbor závažného nálezu (Telnet), shrnutí běhu; sada ještě neskončila
+    const tel = bd.findings.find((f: any) => f.code === "port.telnet");
+    expect(tel.advice).toMatchObject({ summary: "Telnet posílá hesla nešifrovaně." });
+    expect(bd.runs.find((r: any) => r.id === j1.runId).summary).toMatchObject({ management: "Ve sítí je dostupný Telnet." });
+    expect(bd.summary).toBeNull();
+    // zbytek sady (hlavičky, SSH, TLS, citlivé cesty): sonda vrací prázdné výstupy → po posledním běhu shrnutí celé sady
+    for (let i = 0; i < 4; i++) {
+      const j = (await (await pub("poll", info)).json()) as any;
+      await pub("result", { runId: j.runId, outputs: [], error: j.testId === "ssh.audit" ? "Na sondě chybí nástroj ssh-audit" : null });
+    }
+    await Promise.all(background);
+    const done = (await admin.json(`/api/security-tests/batches/${b.body.id}`)).body;
+    expect(done.status).toBe("done");
+    expect(done.summary).toMatchObject({ nextTests: ["net.services"] });
+    // doporučené testy ze shrnutí na cíle sady
+    const nx = await admin.json(`/api/security-tests/batches/${b.body.id}/next`, { method: "POST", json: { testIds: done.summary.nextTests } });
+    expect(nx.body.runs.map((r: any) => [r.testId, r.targets])).toEqual([["net.services", ["10.40.0.8"]]]);
+    // navazující test z nálezu: SSH audit na port nálezu
+    const fol = await admin.json(`/api/security-tests/findings/${tel.id}/follow`, { method: "POST", json: { testIds: ["ssh.audit"] } });
+    expect(fol.body.runs[0]).toMatchObject({ testId: "ssh.audit", targets: ["10.40.0.8"], ports: [23] });
+    // ruční přiřazení k aktivu: všechny nálezy cíle + IP zapamatována
+    expect(tel.assetId).toBeNull();
+    const asset = (await admin.json("/api/assets", { method: "POST", json: { name: "srv-bez-ip", assetType: "server" } })).body;
+    const as = await admin.json(`/api/security-tests/findings/${tel.id}/asset`, { method: "PATCH", json: { assetId: asset.id } });
+    expect(as.body).toMatchObject({ updated: 1, remembered: true, finding: { assetId: asset.id } });
+    expect((await admin.json(`/api/assets/${asset.id}`)).body.ipAddresses).toContain("10.40.0.8");
+    expect((await admin.json(`/api/security-tests/asset/${asset.id}`)).body.length).toBe(1);
+    // nový běh: nález se spáruje sám a přiřazení zůstává
+    const j5 = await admin.json("/api/security-tests/runs", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", targets: ["10.40.0.8"], probeId: probe.body.id } });
+    let job = (await (await pub("poll", info)).json()) as any;
+    while (job && job.runId !== j5.body.id) {
+      await pub("result", { runId: job.runId, outputs: [] });
+      job = (await (await pub("poll", info)).json()) as any;
+    }
+    await pub("result", { runId: j5.body.id, outputs: [{ target: "10.40.0.8", stdout: xml }] });
+    expect(((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.id === tel.id).assetId).toBe(asset.id);
+    // souhrn pro Přehled (v1.57)
+    const sum = (await admin.json("/api/security-tests/summary")).body;
+    expect(sum.open.high).toBeGreaterThanOrEqual(1);
+    expect(sum.runs30d).toBeGreaterThanOrEqual(6);
+    expect(sum.probes.online).toBeGreaterThanOrEqual(1);
+    expect(sum.probes.total).toBeGreaterThanOrEqual(1);
+    expect(sum.scopesApproved).toBeGreaterThanOrEqual(1);
+    // zpráva pro vedení (v1.58): ukazatel bezpečnostních testů a semafor v tiskové podobě
+    const HRC = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
+    const mr = (await admin.json("/api/reports/management", { headers: HRC })).body;
+    expect(mr.kpis.find((x: any) => x.key === "sectests")).toMatchObject({ level: "warning", link: "/security-tests" });
+    const html = await (await admin.req("/api/reports/management.html", { headers: HRC })).text();
+    expect(html).toContain("Kritické a vysoké nálezy bezpečnostních testů");
+    expect(html.indexOf("Vyžaduje rozhodnutí") === -1 || html.indexOf("Vyžaduje rozhodnutí") < html.lastIndexOf("V pořádku")).toBe(true);
+    await admin.req(`/api/admin/connections/probe/${probe.body.id}`, { method: "DELETE" });
+  });
+
+  test("vlastníci aktiv a úkoly z nálezů (v1.60): technický garant, úkoly z Kali, zjištění auditu na business vlastníka, eskalace", async () => {
+    const tech = await admin.json("/api/admin/users", { method: "POST", json: { email: "tech160@test.cz", displayName: "Tomáš Technik", authProvider: "oidc" } });
+    expect(tech.status).toBe(201);
+    const posTech = await admin.json("/api/org/positions", { method: "POST", json: { orgUnitId: ids.unitIt, name: "Správce serverů", holderIds: [tech.body.id] } });
+    expect(posTech.status).toBe(201);
+    // aktivum: business vlastník = Eva (Vedoucí OI), technický garant = Tomáš
+    const asset = await admin.json("/api/assets", { method: "POST", json: { name: "srv-160", assetType: "server", ipAddresses: ["10.60.0.5"], ownerUserId: ids.owner, technicalOwnerUserId: tech.body.id } });
+    expect(asset.status).toBe(201);
+    const det = (await admin.json(`/api/assets/${asset.body.id}`)).body;
+    expect(det).toMatchObject({ technicalOwnerUserId: tech.body.id, technicalOwner: { displayName: "Tomáš Technik" }, owner: { email: "owner@test.cz" }, technicalDeputy: null });
+    expect(((await admin.json(`/api/assets?responsibleUserId=${tech.body.id}`)).body.items as any[]).map((a) => a.id)).toEqual([asset.body.id]);
+    // nález z Kali → úkol technickému garantovi, termín podle závažnosti
+    const scope = await admin.json("/api/security-tests/scopes", { method: "POST", json: { name: "v1.60", targets: ["10.60.0.0/24"], validFrom: "2026-01-01", validTo: "2099-12-31", authorization: "Objednávka" } });
+    await admin.json(`/api/security-tests/scopes/${scope.body.id}/approve`, { method: "POST" });
+    const xml = (ports: number[]) => `<nmaprun><host><address addr="10.60.0.5" addrtype="ipv4"/><ports>${ports.map((p) => `<port protocol="tcp" portid="${p}"><state state="open"/><service name="x"/></port>`).join("")}</ports></host></nmaprun>`;
+    const imp = await admin.json("/api/security-tests/import", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", fileName: "n.xml", content: xml([23, 22]) } });
+    expect(imp.status).toBe(201);
+    const fd = ((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.host === "10.60.0.5" && f.code === "port.telnet");
+    expect(fd).toMatchObject({ assetId: asset.body.id, task: null });
+    const mk = await admin.json("/api/security-tests/findings/tasks", { method: "POST", json: { ids: [fd.id] } });
+    expect(mk.status).toBe(200);
+    expect(mk.body).toMatchObject({ created: 1, existing: 0, unassigned: 0 });
+    expect((await admin.json("/api/security-tests/findings/tasks", { method: "POST", json: { ids: [fd.id] } })).body).toMatchObject({ created: 0, existing: 1 });
+    const withTask = ((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.id === fd.id);
+    expect(withTask.task).toMatchObject({ status: "open", ownerPositionId: posTech.body.id, ownerName: "Správce serverů" });
+    const due = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+    expect(withTask.task.dueDate).toBe(due);
+    const task = (await admin.json(`/api/actions/tasks/${withTask.task.id}`)).body;
+    expect(task).toMatchObject({ sourceKind: "sectest_finding", priority: "high" });
+    expect(task.sourceLabel).toContain("10.60.0.5:23");
+    // opakovaný test bez Telnetu → nález opraven a úkol se uzavře sám
+    await admin.json("/api/security-tests/import", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", fileName: "n2.xml", content: xml([22]) } });
+    expect((await admin.json(`/api/actions/tasks/${withTask.task.id}`)).body).toMatchObject({ status: "done" });
+    expect((await admin.json(`/api/actions/tasks/${withTask.task.id}`)).body.completionNote).toContain("opakovaným testem");
+    // automatické úkoly po běhu sady
+    const probe = await admin.json("/api/admin/connections/probe", { method: "POST", json: { name: "Kali 160", companyId: null } });
+    const pub = (path: string, body: unknown) => admin.req(`/api/public/probe/${path}`, { method: "POST", headers: { authorization: `Bearer ${probe.body.token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    const b = await admin.json("/api/security-tests/batches", { method: "POST", json: { scopeId: scope.body.id, testIds: ["net.ports"], targets: ["10.60.0.5"], probeId: probe.body.id, autoFollow: false, autoTasks: true } });
+    expect(b.body.autoTasks).toBe(true);
+    const job = (await (await pub("poll", { version: "1.1", hostname: "kali", tools: { nmap: true } })).json()) as any;
+    await pub("result", { runId: job.runId, outputs: [{ target: "10.60.0.5", stdout: xml([22, 23, 6379]) }] });
+    const auto = ((await admin.json("/api/security-tests/findings")).body as any[]).filter((f) => f.host === "10.60.0.5" && f.status === "open");
+    expect(auto.map((f) => [f.code, f.task?.status, f.task?.ownerName]).sort()).toEqual([
+      ["port.redis", "open", "Správce serverů"],
+      ["port.telnet", "open", "Správce serverů"],
+    ]);
+    // přijetí nálezu → úkol zrušen
+    const redis = auto.find((f) => f.code === "port.redis");
+    await admin.json(`/api/security-tests/findings/${redis.id}`, { method: "PATCH", json: { status: "accepted", note: "Interní síť" } });
+    expect((await admin.json(`/api/actions/tasks/${redis.task.id}`)).body.status).toBe("cancelled");
+    // zjištění auditu s aktivem → business vlastník (funkce Evy)
+    const au = await admin.json("/api/audits", { method: "POST", json: { title: "Audit serverů 160" } });
+    const fin = await admin.json(`/api/audits/${au.body.id}/findings`, { method: "POST", json: { title: "Chybí záloha konfigurace", severity: "minor", assetId: asset.body.id } });
+    expect(fin.status).toBe(201);
+    const af = (fin.body.findingList as any[]).find((f) => f.title === "Chybí záloha konfigurace");
+    expect(af).toMatchObject({ assetId: asset.body.id, assetName: "srv-160", ownerPositionId: ids.posHead });
+    // eskalace: úkol Správce serverů 10 dní po termínu vidí vedoucí útvaru (Eva)
+    const late = new Date(Date.now() - 10 * 86_400_000).toISOString().slice(0, 10);
+    const lt = await admin.json("/api/actions/tasks", { method: "POST", json: { title: "Záplata OpenSSH 160", ownerPositionId: posTech.body.id, dueDate: late } });
+    expect(lt.status).toBe(201);
+    const fresh = await admin.json("/api/actions/tasks", { method: "POST", json: { title: "Čerstvě po termínu 160", ownerPositionId: posTech.body.id, dueDate: new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10) } });
+    const owner = browser();
+    await owner.login("owner@test.cz", "Nove-Heslo-2026!!");
+    const mine = (await owner.json("/api/notifications/mine")).body as any[];
+    const esc = mine.find((o) => o.link === `/actions?task=${lt.body.id}`);
+    expect(esc).toMatchObject({ urgency: "overdue", escalation: { level: 1, daysOverdue: 10 }, ownerName: "Správce serverů", action: null });
+    expect(mine.some((o) => o.link === `/actions?task=${fresh.body.id}`)).toBe(false);
+    // v1.62: úkol přímo osobě bez funkčního místa, odpovědné osoby u nálezu, přesun při změně garanta
+    const nof = await admin.json("/api/admin/users", { method: "POST", json: { email: "bezfunkce162@test.cz", displayName: "Petr Bezfunkce", password: PW, roleIds: [await roleId("asset_owner")] } });
+    const a2 = await admin.json("/api/assets", { method: "POST", json: { name: "srv-162", assetType: "server", ipAddresses: ["10.60.0.6"], ownerUserId: ids.owner, technicalOwnerUserId: nof.body.id } });
+    await admin.json("/api/security-tests/import", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", fileName: "n3.xml", content: xml([23]).replace("10.60.0.5", "10.60.0.6") } });
+    const f162 = ((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.host === "10.60.0.6" && f.code === "port.telnet");
+    expect(f162.owners).toEqual({ business: "Eva Vlastník", technical: "Petr Bezfunkce", deputy: null });
+    expect((await admin.json("/api/security-tests/findings/tasks", { method: "POST", json: { ids: [f162.id] } })).body).toMatchObject({ created: 1, unassigned: 0 });
+    const t162 = ((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.id === f162.id).task;
+    // osoba bez funkce: úkol osobě, funkce business vlastníka pro přehled a eskalaci
+    expect(t162).toMatchObject({ assigneeName: "Petr Bezfunkce", ownerPositionId: ids.posHead });
+    const pb = browser();
+    await pb.login("bezfunkce162@test.cz");
+    await pb.json("/api/auth/password", { method: "POST", json: { currentPassword: PW, newPassword: "Nove-Heslo-2026!!" } });
+    expect(((await pb.json("/api/notifications/mine")).body as any[]).some((o) => o.link === `/actions?task=${t162.id}`)).toBe(true);
+    expect((await pb.json(`/api/actions/tasks/${t162.id}`)).body).toMatchObject({ assigneeName: "Petr Bezfunkce", canEdit: true });
+    expect((await pb.json(`/api/actions/tasks/${t162.id}`, { method: "PATCH", json: { status: "in_progress" } })).status).toBe(200);
+    await pb.json(`/api/actions/tasks/${t162.id}`, { method: "PATCH", json: { status: "open" } });
+    // změna garanta v kartě aktiva → otevřený úkol přejde na nového garanta
+    await admin.json(`/api/assets/${a2.body.id}`, { method: "PATCH", json: { technicalOwnerUserId: tech.body.id } });
+    expect(((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.id === f162.id).task).toMatchObject({ assigneeName: "Tomáš Technik", ownerPositionId: posTech.body.id });
+  });
+
+  test("určení regulace (v1.61): RES z ARES, návrh služeb, velikost, režim, zápis do profilu, dodavatel", async () => {
+    const res = await admin.json("/api/ares/res/27074358");
+    expect(res.status).toBe(200);
+    expect(res.body.subject).toMatchObject({ primaryNace: "62", employeeClass: "340", employeeClassLabel: "500–999", sizeEstimate: "large", esaSector: "11003" });
+    const sug = (res.body.suggestions as any[]).map((x) => x.code);
+    expect(sug).toEqual(expect.arrayContaining(["7.1", "16.13", "16.8"]));
+    expect((res.body.suggestions as any[]).find((x) => x.code === "16.13").primary).toBe(true);
+    expect((await admin.json("/api/ares/res/12345678")).status).toBe(400);
+    expect((await admin.json("/api/ares/res/25672541")).status).toBe(404);
+    // vlastní společnost v holdingu s českým balíčkem
+    const sub = await admin.json("/api/companies", { method: "POST", json: { name: "Regulace 161 s.r.o.", ico: "27074358", parentId: "00000000-0000-4000-8000-000000000001", regime: "none", pack: "cz" } });
+    expect(sub.status).toBe(201);
+    // MSP (16.13) jako střední podnik (odhad z RES se přebije vlastními čísly) → nižší; výroba v oddílu 26 → nižší
+    const a1 = await admin.json("/api/regulation/assessments", {
+      method: "POST",
+      json: { subjectKind: "company", subjectId: sub.body.id, ico: "27074358", staff: 180, turnoverMCzk: 900, balanceMCzk: 700, eurRate: 25, services: [{ code: "16.13", conds: {} }, { code: "7.1", conds: {} }], apply: true, res: res.body },
+    });
+    expect(a1.status).toBe(201);
+    expect(a1.body).toMatchObject({ size: "medium", sizeBasis: "full", applied: true, result: { regime: "lower" } });
+    const co = ((await admin.json("/api/companies")).body as any[]).find((c) => c.id === sub.body.id);
+    expect(co.regime).toBe("lower");
+    expect(co.regulatedServices).toContain("16.13 Poskytování řízené služby");
+    // obrat nad 50 mil. EUR a bilance nad 43 mil. EUR → velký podnik → vyšší (přednost vyšších povinností)
+    const a2 = await admin.json("/api/regulation/assessments", { method: "POST", json: { subjectKind: "company", subjectId: sub.body.id, staff: 180, turnoverMCzk: 2000, balanceMCzk: 1500, eurRate: 25, services: [{ code: "16.13", conds: {} }, { code: "7.1", conds: {} }] } });
+    expect(a2.body).toMatchObject({ size: "large", result: { regime: "higher" }, applied: false });
+    expect(((await admin.json("/api/companies")).body as any[]).find((c) => c.id === sub.body.id).regime).toBe("lower");
+    // odpady bez 5 % obratu nejsou regulované
+    const a3 = await admin.json("/api/regulation/assessments", { method: "POST", json: { subjectKind: "company", subjectId: sub.body.id, sizeOverride: "large", services: [{ code: "11.1", conds: { rev5: false } }] } });
+    expect(a3.body.result).toMatchObject({ regime: "none" });
+    expect(a3.body.result.services[0].reason).toContain("5 % obratu");
+    const hist = (await admin.json(`/api/regulation/assessments?subjectKind=company&subjectId=${sub.body.id}`)).body as any[];
+    expect(hist.map((x) => x.result.regime)).toEqual(["none", "higher", "lower"]);
+    expect((await admin.json("/api/regulation/assessments", { method: "POST", json: { subjectKind: "company", subjectId: sub.body.id, services: [{ code: "99.9", conds: {} }] } })).status).toBe(400);
+    // dodavatel: posouzení bez zápisu do profilu
+    const sup = await admin.json("/api/suppliers", { method: "POST", json: { name: "Datové centrum 161 a.s.", ico: "27074358" } });
+    const sa = await admin.json("/api/regulation/assessments", { method: "POST", json: { subjectKind: "supplier", subjectId: sup.body.id, resSize: "large", services: [{ code: "16.9", conds: {} }] } });
+    expect(sa.body).toMatchObject({ size: "large", sizeBasis: "res", result: { regime: "higher" } });
+    expect((await admin.json("/api/regulation/assessments", { method: "POST", json: { subjectKind: "supplier", subjectId: sup.body.id, services: [], apply: true } })).status).toBe(400);
+  });
+
+  test("v1.63: ověření opravy opakovaným testem, pravidelné testy, zpráva z testů, nález → opatření a riziko, ohlášení NÚKIB", async () => {
+    const tech = ((await admin.json("/api/admin/users")).body as any[]).find((u) => u.email === "tech160@test.cz");
+    const asset = await admin.json("/api/assets", { method: "POST", json: { name: "srv-163", assetType: "server", ipAddresses: ["10.63.0.5"], ownerUserId: ids.owner, technicalOwnerUserId: tech.id } });
+    const scope = await admin.json("/api/security-tests/scopes", { method: "POST", json: { name: "v1.63", targets: ["10.63.0.0/24"], validFrom: "2026-01-01", validTo: "2099-12-31", authorization: "Smlouva 163" } });
+    await admin.json(`/api/security-tests/scopes/${scope.body.id}/approve`, { method: "POST" });
+    const probe = await admin.json("/api/admin/connections/probe", { method: "POST", json: { name: "Kali 163", companyId: null } });
+    const pub = (path: string, body: unknown) => admin.req(`/api/public/probe/${path}`, { method: "POST", headers: { authorization: `Bearer ${probe.body.token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    const info = { version: "1.1", hostname: "kali", tools: { nmap: true } };
+    const xml = (ports: number[]) => `<nmaprun><host><address addr="10.63.0.5" addrtype="ipv4"/><ports>${ports.map((p) => `<port protocol="tcp" portid="${p}"><state state="open"/><service name="x"/></port>`).join("")}</ports></host></nmaprun>`;
+    // vyprázdnit frontu sondy (úlohy z dřívějších testů)
+    for (let j = (await (await pub("poll", info)).json()) as any; j; j = (await (await pub("poll", info)).json()) as any) await pub("result", { runId: j.runId, outputs: [] });
+    // pravidelný test: plán → spustit nyní → sada se scheduleId; sonda vrátí Telnet + Redis
+    const sch = await admin.json("/api/security-tests/schedules", { method: "POST", json: { scopeId: scope.body.id, name: "Týdenní servery", testIds: ["net.ports"], targets: ["10.63.0.5"], probeId: probe.body.id, intervalDays: 7, autoFollow: false, autoTasks: true, firstRunAt: "2099-01-01T00:00:00Z" } });
+    expect(sch.status).toBe(201);
+    expect(sch.body).toMatchObject({ intervalDays: 7, enabled: true, lastBatch: null });
+    expect((await admin.json("/api/security-tests/schedules", { method: "POST", json: { scopeId: scope.body.id, name: "Mimo", testIds: ["net.ports"], targets: ["10.99.0.5"] } })).status).toBe(400);
+    const ran = await admin.json(`/api/security-tests/schedules/${sch.body.id}/run`, { method: "POST" });
+    expect(ran.body.lastBatch).toMatchObject({ status: "running" });
+    expect(new Date(ran.body.nextRunAt).getTime()).toBeGreaterThan(Date.now() + 6 * 86_400_000);
+    const j1 = (await (await pub("poll", info)).json()) as any;
+    expect(j1.testId).toBe("net.ports");
+    await pub("result", { runId: j1.runId, outputs: [{ target: "10.63.0.5", stdout: xml([23, 6379]) }] });
+    const sl = ((await admin.json("/api/security-tests/schedules")).body as any[]).find((x) => x.id === sch.body.id);
+    expect(sl.lastBatch).toMatchObject({ status: "done", diff: { new: 2, newHigh: 2, fixed: 0 } });
+    // zpráva z testů (PDF/HTML a Word)
+    const rep = await (await admin.req(`/api/security-tests/report.html?batchIds=${sl.lastBatch.id}`)).text();
+    expect(rep).toContain("Zpráva z bezpečnostních testů");
+    expect(rep).toContain("Telnet dostupný ze sítě");
+    expect(rep).toContain("Smlouva 163");
+    expect(rep).toContain("Tomáš Technik");
+    const docx = await admin.req(`/api/security-tests/report.docx?batchIds=${sl.lastBatch.id}`);
+    expect(docx.status).toBe(200);
+    expect(docx.headers.get("content-type")).toContain("wordprocessingml");
+    // nález → opatření; riziko aktiva dostane podnět
+    const fs = (await admin.json("/api/security-tests/findings")).body as any[];
+    const tel = fs.find((f) => f.host === "10.63.0.5" && f.code === "port.telnet");
+    const redis = fs.find((f) => f.host === "10.63.0.5" && f.code === "port.redis");
+    const ctl = await admin.json("/api/controls", { method: "POST", json: { name: "Zabezpečení služeb serverů 163", category: "technical" } });
+    const fc = await admin.json(`/api/security-tests/findings/${tel.id}/control`, { method: "PATCH", json: { controlId: ctl.body.id } });
+    expect(fc.body).toMatchObject({ controlId: ctl.body.id, controlLabel: expect.stringContaining("Zabezpečení služeb serverů 163") });
+    expect(((await admin.json(`/api/security-tests/by-control/${ctl.body.id}`)).body as any[]).map((f) => f.id)).toEqual([tel.id]);
+    const rk = (await admin.json("/api/risks", { method: "POST", json: { name: "Kompromitace serveru 163", assetIds: [asset.body.id], impact: 2, threatLevel: 2, vulnLevel: 2 } })).body;
+    const re = (await admin.json(`/api/risks/${rk.id}/reassessment`)).body;
+    expect(re.triggers).toEqual([]); // nálezy jsou starší než hodnocení rizika
+    // ověření opravy: úkol splněn → opakovaný test; nález trvá → úkol zpět
+    const task = tel.task;
+    expect(task).toMatchObject({ status: "open", assigneeName: "Tomáš Technik" });
+    const done = await admin.json(`/api/actions/tasks/${task.id}`, { method: "PATCH", json: { status: "done", completionNote: "Telnet vypnut" } });
+    expect(done.body.status).toBe("in_progress");
+    expect(done.body.completionNote).toContain("Ověřuje se opakovaným testem");
+    const j2 = (await (await pub("poll", info)).json()) as any;
+    expect(j2).toMatchObject({ testId: "net.ports", targets: ["10.63.0.5"] });
+    expect(((await admin.json("/api/security-tests/runs")).body as any[]).find((r) => r.id === j2.runId).retestFindingId).toBe(tel.id);
+    await pub("result", { runId: j2.runId, outputs: [{ target: "10.63.0.5", stdout: xml([23, 6379]) }] });
+    const back = (await admin.json(`/api/actions/tasks/${task.id}`)).body;
+    expect(back.status).toBe("open");
+    expect(back.completionNote).toContain("stále nachází");
+    // druhý pokus: oprava potvrzena → úkol splněn, nález opraven
+    await admin.json(`/api/actions/tasks/${task.id}`, { method: "PATCH", json: { status: "done" } });
+    const j3 = (await (await pub("poll", info)).json()) as any;
+    await pub("result", { runId: j3.runId, outputs: [{ target: "10.63.0.5", stdout: xml([6379]) }] });
+    expect((await admin.json(`/api/actions/tasks/${task.id}`)).body.status).toBe("done");
+    expect(((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.id === tel.id).status).toBe("fixed");
+    // úkol bez sondy / mimo rozsah zůstane splněný s poznámkou: Redis přes import bez sondy společnosti nelze – sonda je globální, tedy jde
+    expect(redis.task).toMatchObject({ status: "open" });
+    // podnět k přehodnocení rizika z nového nálezu (po hodnocení rizika)
+    await admin.json("/api/security-tests/import", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", fileName: "n.xml", content: xml([6379, 3389, 2375]) } });
+    const re2 = (await admin.json(`/api/risks/${rk.id}/reassessment`)).body;
+    expect(re2.triggers.find((t: any) => t.kind === "sectest")).toMatchObject({ strong: true });
+    expect(re2.suggestion.some((s: any) => s.field === "vulnLevel")).toBe(true);
+    // ohlášení NÚKIB: společnost s posouzením zapsaným do profilu (v1.61) → k ohlášení s lhůtou 60 dní
+    const co = ((await admin.json("/api/companies")).body as any[]).find((c) => c.name === "Regulace 161 s.r.o.");
+    const r0 = (await admin.json(`/api/regulation/registration/${co.id}`)).body;
+    expect(r0).toMatchObject({ status: "to_notify", regime: "lower", missing: expect.arrayContaining(["Statutární orgán"]) });
+    expect(r0.services.map((x: any) => x.code).sort()).toEqual(["16.13", "7.1"]);
+    const due = new Date(new Date(r0.assessedAt).getTime() + 60 * 86_400_000).toISOString().slice(0, 10);
+    expect(r0.due).toBe(due);
+    const r1 = await admin.json(`/api/regulation/registration/${co.id}`, { method: "PUT", json: { statutoryBody: "Jan Novák, jednatel", contactEmail: "kb@regulace.example", kbName: "Eva Vlastník", responsiblePositionId: ids.posHead } });
+    expect(r1.body.missing).toEqual([]);
+    const eva = browser();
+    await eva.login("owner@test.cz", "Nove-Heslo-2026!!");
+    expect(((await eva.json("/api/notifications/mine")).body as any[]).find((o) => o.key === `nukib_notice:${co.id}`)).toMatchObject({ kind: "nukib_notice", due });
+    const pr = await (await admin.req(`/api/regulation/registration/${co.id}/print.html`)).text();
+    expect(pr).toContain("Podklad pro ohlášení regulované služby");
+    expect(pr).toContain("16.13");
+    const n1 = await admin.json(`/api/regulation/registration/${co.id}/notified`, { method: "POST", json: { notifiedAt: "2026-11-12", notifiedRef: "NÚKIB-2026-1" } });
+    expect(n1.body).toMatchObject({ status: "notified", notifiedRef: "NÚKIB-2026-1", changes: [] });
+    // změna údajů → změny k ohlášení se lhůtou 30 dní
+    const n2 = await admin.json(`/api/regulation/registration/${co.id}`, { method: "PUT", json: { ...r1.body.data, kbName: "Tomáš Technik" } });
+    expect(n2.body.status).toBe("changes_pending");
+    expect(n2.body.changes).toEqual([{ field: "kbName", label: "Pověřená osoba pro KB", before: "Eva Vlastník", after: "Tomáš Technik" }]);
+    expect(n2.body.due).toBe(new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10));
+    // vrácení údajů ruší změnu
+    expect((await admin.json(`/api/regulation/registration/${co.id}`, { method: "PUT", json: { ...r1.body.data } })).body.status).toBe("notified");
+    // v1.64: přijatý nález testu je ve Výjimkách a přijatých rizicích; po termínu ho další test znovu otevře
+    expect((await admin.json(`/api/security-tests/findings/${redis.id}`, { method: "PATCH", json: { status: "accepted", note: "x" } })).status).toBe(400);
+    const acc = await admin.json(`/api/security-tests/findings/${redis.id}`, { method: "PATCH", json: { status: "accepted", note: "Jen interní síť, obnova 2027", until: "2099-12-31" } });
+    expect(acc.body).toMatchObject({ status: "accepted", acceptedByName: expect.any(String), acceptedUntil: "2099-12-31" });
+    const ex = (await admin.json("/api/exceptions?kind=sectest_finding")).body as any;
+    const exItem = (ex.items ?? ex).find((e: any) => e.id === redis.id);
+    expect(exItem).toMatchObject({ kind: "sectest_finding", reason: "Jen interní síť, obnova 2027", until: "2099-12-31", state: "valid", link: `/security-tests?finding=${redis.id}` });
+    expect((await admin.json(`/api/actions/tasks/${redis.task.id}`)).body.status).toBe("cancelled");
+    await admin.json(`/api/security-tests/findings/${redis.id}`, { method: "PATCH", json: { status: "accepted", note: "Jen interní síť, obnova 2027", until: "2020-01-01" } });
+    await admin.json("/api/security-tests/import", { method: "POST", json: { scopeId: scope.body.id, testId: "net.ports", fileName: "n4.xml", content: xml([6379]) } });
+    expect(((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.id === redis.id).status).toBe("open");
+  });
+
+  test("v1.65: jednotné nálezy, nálezy serveru s životním cyklem, semafor, přesun aktiva, předání odpovědností, režim ohlášení z profilu", async () => {
+    const tech = ((await admin.json("/api/admin/users")).body as any[]).find((u) => u.email === "tech160@test.cz");
+    // semafor aktiva zahrnuje otevřené nálezy testů (srv-163 má znovu otevřený vysoký nález Redis 6379)
+    const [a163] = await db.select().from(schema.assets).where(eq(schema.assets.name, "srv-163"));
+    const h163 = (await admin.json(`/api/assets/${a163!.id}`)).body;
+    expect(h163.healthStatus).toBe("orange");
+    expect(h163.healthReasons.some((r: any) => r.code === "test_finding" && r.level === "orange")).toBe(true);
+    // jednotný přehled: test na aktivu s odpovědnou osobou a úkolem, souhrn otevřených
+    const f163 = (await admin.json(`/api/findings?assetId=${a163!.id}`)).body;
+    expect(f163.sources).toEqual(expect.arrayContaining(["sectest", "host", "vulnerability", "audit"]));
+    const redis = f163.items.find((x: any) => x.source === "sectest" && x.detail === "10.63.0.5:6379");
+    expect(redis).toMatchObject({ severity: "high", status: "open", assetName: "srv-163", ownerName: "Tomáš Technik" });
+    expect(f163.open.sectest.high).toBeGreaterThanOrEqual(1);
+    expect(f163.items.some((x: any) => x.detail === "10.63.0.5:2375")).toBe(false);
+    expect((await admin.json(`/api/findings?assetId=${a163!.id}&status=fixed`)).body.items.some((x: any) => x.detail === "10.63.0.5:2375")).toBe(true);
+    expect(((await admin.json("/api/findings?status=accepted&source=sectest")).body.items as any[]).every((x: any) => x.status === "accepted" && x.source === "sectest")).toBe(true);
+    const aud = (await admin.json("/api/findings?source=audit&status=all")).body.items as any[];
+    expect(aud.length).toBeGreaterThan(0);
+    expect(aud.every((x: any) => x.source === "audit" && ["high", "medium", "low", "info"].includes(x.severity))).toBe(true);
+    // sběrač: nové aktivum bez odpovědných → nálezy bez automatických úkolů
+    const conn = await admin.json("/api/admin/connections/collector", { method: "POST", json: { name: "Sběrač 165", companyId: null } });
+    const post = (body: unknown) => admin.req("/api/public/hosts/inventory", { method: "POST", headers: { authorization: `Bearer ${conn.body.token}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+    const inv = {
+      collectorVersion: "1.0",
+      collectedAt: new Date().toISOString(),
+      host: { hostname: "srv-165", fqdn: "srv-165.firma.local", machineId: "165165165165165165165165165165ab", os: "Debian 12", kernel: "6.1", ips: ["10.65.0.5"] },
+      users: [{ name: "toor", uid: 0, shell: "/bin/bash", home: "/home/toor", sudo: false, locked: false }],
+      sshKeys: [],
+      containers: [{ name: "agent", image: "x:1", status: "Up", privileged: true, user: "", ports: [] }],
+      images: [],
+      services: [],
+      listening: [],
+      firewall: { tool: "nftables", rulesHash: "b".repeat(64), savedHash: "b".repeat(64), defaultInput: "drop", ruleCount: 3 },
+    };
+    const r1 = (await (await post(inv)).json()) as any;
+    expect(r1.findings).toBe(2);
+    const aid = r1.assetId as string;
+    let hf = (await admin.json(`/api/findings?source=host&assetId=${aid}`)).body.items as any[];
+    expect(hf.length).toBe(2);
+    expect(hf.some((x: any) => x.title.includes("agent")) && hf.some((x: any) => x.title.includes("toor"))).toBe(true);
+    expect(hf.every((x: any) => x.status === "open" && x.task === null && x.severity === "high")).toBe(true);
+    // garant aktiva → další hlášení založí úkoly k vysokým nálezům automaticky
+    await admin.json(`/api/assets/${aid}`, { method: "PATCH", json: { ownerUserId: ids.owner, technicalOwnerUserId: tech.id } });
+    await post({ ...inv, collectedAt: new Date(Date.now() + 1000).toISOString() });
+    hf = (await admin.json(`/api/findings?source=host&assetId=${aid}`)).body.items as any[];
+    expect(hf.every((x: any) => x.task?.status === "open" && x.ownerName === "Tomáš Technik")).toBe(true);
+    const toor = hf.find((x: any) => x.title.includes("toor"));
+    const agent = hf.find((x: any) => x.title.includes("agent"));
+    const toorTask = (await admin.json(`/api/actions/tasks/${toor.task.id}`)).body;
+    expect(toorTask).toMatchObject({ sourceKind: "host_finding", priority: "high", assigneeUserId: tech.id, sourceLink: `/findings?source=host&focus=${toor.id}` });
+    expect(toorTask.sourceLabel).toContain("srv-165");
+    expect((await admin.json("/api/hosts/findings/tasks", { method: "POST", json: { ids: [toor.id] } })).body).toMatchObject({ created: 0, existing: 1 });
+    // semafor: vysoké nálezy serveru = oranžová
+    const h165 = (await admin.json(`/api/assets/${aid}`)).body;
+    expect(h165.healthReasons.some((r: any) => r.code === "host_finding")).toBe(true);
+    // oprava: uživatel s UID 0 zmizel → nález opraven, úkol splněn
+    await post({ ...inv, users: [], collectedAt: new Date(Date.now() + 2000).toISOString() });
+    expect((await admin.json(`/api/actions/tasks/${toor.task.id}`)).body).toMatchObject({ status: "done" });
+    expect(((await admin.json(`/api/findings?source=host&assetId=${aid}&status=fixed`)).body.items as any[]).map((x: any) => x.id)).toEqual([toor.id]);
+    // přijetí rizika → Výjimky, úkol zrušen; zdůvodnění povinné
+    expect((await admin.json(`/api/hosts/findings/${agent.id}`, { method: "PATCH", json: { status: "accepted", note: "x" } })).status).toBe(400);
+    expect((await admin.json(`/api/hosts/findings/${agent.id}`, { method: "PATCH", json: { status: "accepted", note: "Monitoring vyžaduje privilegia", until: "2099-12-31" } })).status).toBe(200);
+    expect((await admin.json(`/api/actions/tasks/${agent.task.id}`)).body.status).toBe("cancelled");
+    const ex = (await admin.json("/api/exceptions")).body as any;
+    expect((ex.items as any[]).find((e) => e.id === agent.id)).toMatchObject({ kind: "host_finding", until: "2099-12-31", state: "valid", reason: "Monitoring vyžaduje privilegia" });
+    expect((await admin.json(`/api/assets/${aid}`)).body.healthReasons.some((r: any) => r.code === "host_finding")).toBe(false);
+    // znovu nalezený opravený nález se otevře
+    await post({ ...inv, collectedAt: new Date(Date.now() + 3000).toISOString() });
+    const reo = ((await admin.json(`/api/findings?source=host&assetId=${aid}`)).body.items as any[]).find((x: any) => x.id === toor.id);
+    expect(reo).toMatchObject({ status: "open", task: { status: "open" } });
+    // odpovědnosti uživatele a předání jinému (úkoly z nálezů se přepočítají)
+    const resp = (await admin.json(`/api/admin/users/${tech.id}/responsibilities`)).body;
+    expect(resp.counts.asset_technical).toBeGreaterThanOrEqual(3);
+    expect(resp.counts.task).toBeGreaterThanOrEqual(1);
+    expect(resp.assets.find((a: any) => a.id === aid).roles).toEqual(["asset_technical"]);
+    const tech2 = await admin.json("/api/admin/users", { method: "POST", json: { email: "tech165@test.cz", displayName: "Petr Nástupce", authProvider: "oidc" } });
+    expect((await admin.json(`/api/admin/users/${tech.id}/handover`, { method: "POST", json: { toUserId: tech.id, kinds: ["asset_technical"] } })).status).toBe(400);
+    const ho = await admin.json(`/api/admin/users/${tech.id}/handover`, { method: "POST", json: { toUserId: tech2.body.id, kinds: ["asset_technical"] } });
+    expect(ho.status).toBe(200);
+    expect(ho.body.moved.asset_technical).toBe(resp.counts.asset_technical);
+    expect((await admin.json(`/api/assets/${aid}`)).body.technicalOwnerUserId).toBe(tech2.body.id);
+    expect((await admin.json(`/api/actions/tasks/${reo.task.id}`)).body.assigneeUserId).toBe(tech2.body.id);
+    expect((await admin.json(`/api/admin/users/${tech.id}/responsibilities`)).body.counts.asset_technical).toBe(0);
+    // přesun aktiva do jiné společnosti: nálezy serveru a jejich úkoly jdou s ním
+    const other = await admin.json("/api/companies", { method: "POST", json: { name: "Přesun 165 s.r.o.", regime: "lower" } });
+    const otherId = other.body.id ?? ((await admin.json("/api/companies")).body as any[]).find((c) => c.name === "Přesun 165 s.r.o.").id;
+    const tr = await admin.json("/api/companies/transfer", { method: "POST", json: { entity: "assets", ids: [aid], targetCompanyId: otherId, force: true } });
+    expect(tr.status).toBe(200);
+    const [moved] = await db.select().from(schema.hostFindings).where(eq(schema.hostFindings.id, toor.id));
+    expect(moved!.companyId).toBe(otherId);
+    expect((await admin.json(`/api/actions/tasks/${reo.task.id}`)).body.companyId).toBe(otherId);
+    // ohlášení NÚKIB: režim z regulatorního profilu, nesoulad s posouzením; odpovědné místo v evidenci funkčních míst
+    const co = ((await admin.json("/api/companies")).body as any[]).find((c) => c.name === "Regulace 161 s.r.o.");
+    await admin.json(`/api/companies/${co.id}`, { method: "PATCH", json: { regime: "higher" } });
+    const reg = (await admin.json(`/api/regulation/registration/${co.id}`)).body;
+    expect(reg).toMatchObject({ regime: "higher", assessmentRegime: "lower", regimeMismatch: true });
+    expect(reg.data.responsiblePositionId).toBe(ids.posHead);
+    const pd = (await admin.json(`/api/org/positions/${ids.posHead}/detail`)).body;
+    expect(pd.groups.find((g: any) => g.kind === "nukib_registration").items[0]).toMatchObject({ id: co.id, link: "/admin/companies" });
+    await admin.json(`/api/companies/${co.id}`, { method: "PATCH", json: { regime: "lower" } });
+    expect((await admin.json(`/api/regulation/registration/${co.id}`)).body.regimeMismatch).toBe(false);
+    await admin.req(`/api/admin/connections/collector/${conn.body.id}`, { method: "DELETE" });
+  });
+
+  test("v1.66: nálezy v ekosystému – rychlé hledání, AI nástroje, trendy, průvodce, balíček pro auditora", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const H = { "x-contix-company": ROOT };
+    // rychlé hledání: nález testu podle IP
+    const qs = (await admin.json("/api/search/quick?q=10.63.0.5", { headers: H })).body as any[];
+    const hit = qs.find((x) => x.kind === "sectest_finding");
+    expect(hit).toMatchObject({ sub: expect.stringContaining("10.63.0.5"), link: expect.stringMatching(/^\/security-tests\?finding=/) });
+    // AI / MCP nástroje nad nálezy (jen čtení, s oprávněními)
+    const tools = ((await admin.json("/api/ai/tools")).body as any[]).map((x) => x.name);
+    expect(tools).toEqual(expect.arrayContaining(["security_test_findings", "server_findings"]));
+    const { runTool } = await import("../src/modules/ai/tools");
+    const me = (await admin.json("/api/auth/me")).body;
+    const perms = new Set<any>(me.permissions);
+    const ctx = { db, companyIds: [ROOT], byCompany: new Map([[ROOT, perms]]), enabledModules: (await (await import("../src/auth/service")).getSettings(db as any)).enabledModules as string[] };
+    const st = await runTool(ctx as any, "security_test_findings", { q: "10.63.0.5" });
+    expect(st.columns).toEqual(["Nález", "Cíl", "Aktivum", "Závažnost", "Odpovědná osoba", "Úkol"]);
+    expect(st.rows.some((r) => r.cells[1] === "10.63.0.5:6379" && r.cells[2] === "srv-163")).toBe(true);
+    expect((await runTool(ctx as any, "server_findings", {})).columns[1]).toBe("Server");
+    // trendy: nové ukazatele
+    const { computeTrendValues } = await import("../src/modules/trends/service");
+    const tv = (await computeTrendValues(db, ROOT)).values;
+    expect(tv.sectest_critical_high).toBeGreaterThanOrEqual(1);
+    expect(typeof tv.server_findings_high).toBe("number");
+    expect(typeof tv.finding_tasks_overdue).toBe("number");
+    // průvodce bezpečnostními testy
+    const g = (await admin.json("/api/guides/sectests", { headers: H })).body;
+    expect(g.steps.find((x: any) => x.key === "scope").state).toBe("done");
+    expect(g.steps.find((x: any) => x.key === "run").state).toBe("done");
+    expect(g.steps.find((x: any) => x.key === "schedule").state).toBe("done");
+    expect(g.steps.map((x: any) => x.key)).toEqual(["scope", "run", "schedule", "owners", "tasks", "overdue"]);
+    // balíček pro auditora obsahuje zprávu z bezpečnostních testů
+    const res = await admin.req("/api/assurance/package.zip?framework=iso27001&files=0", { headers: H });
+    expect(res.status).toBe(200);
+    const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
+    expect(Object.keys(files)).toEqual(expect.arrayContaining(["03_bezpecnostni_testy.html", "03_bezpecnostni_testy.docx"]));
+    expect(strFromU8(files["03_bezpecnostni_testy.html"]!)).toContain("10.63.0.5");
+    expect(strFromU8(files["00_obsah.html"]!)).toContain("03_bezpecnostni_testy.html");
+  });
+
+  test("v1.67: nálezy v účinnosti opatření, CVE z testů v zranitelnostech, TLS test → inventář certifikátů", async () => {
+    const tech = ((await admin.json("/api/admin/users")).body as any[]).find((u) => u.email === "tech165@test.cz");
+    const asset = await admin.json("/api/assets", { method: "POST", json: { name: "srv-167", assetType: "server", ipAddresses: ["10.67.0.5"], ownerUserId: ids.owner, technicalOwnerUserId: tech.id } });
+    const scope = await admin.json("/api/security-tests/scopes", { method: "POST", json: { name: "v1.67", targets: ["10.67.0.0/24"], validFrom: "2026-01-01", validTo: "2099-12-31", authorization: "Objednávka 167" } });
+    await admin.json(`/api/security-tests/scopes/${scope.body.id}/approve`, { method: "POST" });
+    const tls = [
+      { id: "heartbleed", ip: "10.67.0.5/10.67.0.5", port: "443", severity: "CRITICAL", finding: "VULNERABLE", cve: "CVE-2014-0160", cwe: "CWE-119" },
+      { id: "TLS1", ip: "10.67.0.5/10.67.0.5", port: "443", severity: "LOW", finding: "offered (deprecated)" },
+    ];
+    expect((await admin.json("/api/security-tests/import", { method: "POST", json: { scopeId: scope.body.id, testId: "tls.testssl", fileName: "t.json", content: JSON.stringify(tls) } })).status).toBe(201);
+    const hb = ((await admin.json("/api/security-tests/findings")).body as any[]).find((f) => f.host === "10.67.0.5" && f.code === "tls.heartbleed");
+    expect(hb).toMatchObject({ severity: "critical", assetId: asset.body.id });
+    // CVE z testu = zranitelnost aktiva (skener sectest)
+    const vulns = async () => db.select().from(schema.assetVulnerabilities).where(eq(schema.assetVulnerabilities.assetId, asset.body.id));
+    let v = (await vulns()).find((x) => x.cveId === "CVE-2014-0160");
+    expect(v).toMatchObject({ scanner: "sectest", status: "open", severity: "critical", endpoint: "10.67.0.5:443" });
+    expect((await vulns()).length).toBe(1);
+    // TLS cíl v inventáři certifikátů
+    const [ep] = await db.select().from(schema.tlsEndpoints).where(eq(schema.tlsEndpoints.host, "10.67.0.5"));
+    expect(ep).toMatchObject({ port: 443, assetId: asset.body.id, enabled: true });
+    // nález → opatření: neúčinné pro zbytkové riziko, mezera v pokrytí, návrh akce
+    const ctl = await admin.json("/api/controls", { method: "POST", json: { name: "Šifrování přenosu 167", status: "implemented", effectiveness: "effective" } });
+    await admin.json(`/api/security-tests/findings/${hb.id}/control`, { method: "PATCH", json: { controlId: ctl.body.id } });
+    const cl = ((await admin.json("/api/controls")).body as any[]).find((c) => c.id === ctl.body.id);
+    expect(cl.findings).toEqual({ serious: 1, other: 0 });
+    const rr = await admin.json("/api/risks", { method: "POST", json: { name: "Odposlech 167", impact: 4, threatLevel: 3, vulnLevel: 4, controlIds: [ctl.body.id] } });
+    expect(rr.body.residualSuggestion).toMatchObject({ reduction: 0 });
+    expect(rr.body.residualSuggestion.basis.join()).toContain("závažný nález");
+    // jiný zdroj hlásí stejnou CVE → zrcadlo testu je duplicita; po vyřešení zdroje znovu otevřené
+    const [nv] = await db.insert(schema.assetVulnerabilities).values({ assetId: asset.body.id, cveId: "CVE-2014-0160", severity: "critical", sourceType: "import", scanner: "nessus", findingKey: "n1" }).returning();
+    const { mirrorSecTestCves } = await import("../src/modules/sectests/cves");
+    await mirrorSecTestCves(db as any, hb.companyId);
+    v = (await vulns()).find((x) => x.scanner === "sectest");
+    expect(v).toMatchObject({ status: "duplicate", duplicateOfId: nv!.id });
+    await db.update(schema.assetVulnerabilities).set({ status: "resolved" }).where(eq(schema.assetVulnerabilities.id, nv!.id));
+    await mirrorSecTestCves(db as any, hb.companyId);
+    expect((await vulns()).find((x) => x.scanner === "sectest")!.status).toBe("open");
+    // falešný nález → zranitelnost falešně pozitivní, opatření bez nálezu
+    await admin.json(`/api/security-tests/findings/${hb.id}`, { method: "PATCH", json: { status: "false_positive", note: "Ověřeno ručně – OpenSSL opravený" } });
+    expect((await vulns()).find((x) => x.scanner === "sectest")!.status).toBe("false_positive");
+    expect(((await admin.json("/api/controls")).body as any[]).find((c) => c.id === ctl.body.id).findings).toEqual({ serious: 0, other: 0 });
+    // stav nálezů serveru podle inventáře (filtr hostId)
+    expect((await admin.json("/api/findings?hostId=00000000-0000-4000-8000-000000000000")).body.items).toEqual([]);
+  });
+
+  test("v1.69: náprava nálezů, moje nálezy a tým, týdenní souhrn garantům, zpráva pro vedení, přesun rozsahu testů, logo ve výstupech", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const H = { "x-contix-company": ROOT };
+    // náprava: opravené nálezy testů (srv-163 Telnet, 3389, 2375) se počítají s dobou opravy a podílem v termínu
+    const rem = (await admin.json("/api/findings/remediation", { headers: H })).body;
+    expect(rem.sources).toEqual(expect.arrayContaining(["sectest", "host", "vulnerability", "audit"]));
+    expect(rem.bySource.sectest.fixed).toBeGreaterThanOrEqual(3);
+    expect(rem.bySource.sectest.onTimePct).toBe(100);
+    expect(rem.bySource.sectest.avgDays).toBeGreaterThanOrEqual(0);
+    expect(rem.total.open).toBeGreaterThan(0);
+    expect(rem.total.bySeverity.critical).toMatchObject({ open: expect.any(Number) });
+    expect((await admin.json("/api/findings/remediation?from=2026-12-31&to=2026-01-01", { headers: H })).status).toBe(400);
+    // moje nálezy: technik (garant srv-163) vidí nález Redis, administrátor (bez aktiv) nic ze sběrače ani testů
+    const tech = ((await admin.json("/api/admin/users")).body as any[]).find((u) => u.email === "tech160@test.cz");
+    const { responsibility } = await import("../src/modules/findings/routes");
+    const r = await responsibility(db as any, tech.id, "mine");
+    expect(r.users.has(tech.id)).toBe(true);
+    const mineAdmin = (await admin.json("/api/findings?who=mine&source=sectest", { headers: H })).body;
+    expect(mineAdmin.items.every((x: any) => x.ownerName !== "Tomáš Technik")).toBe(true);
+    const team = (await admin.json("/api/findings?who=team", { headers: H })).body;
+    expect(Array.isArray(team.items)).toBe(true);
+    // zpráva pro vedení: ukazatel a oddíl nálezů
+    const mr = (await admin.json("/api/reports/management", { headers: H })).body;
+    expect(mr.kpis.some((k: any) => k.key === "findings")).toBe(true);
+    expect(mr.findings.bySource.sectest.fixed).toBeGreaterThanOrEqual(3);
+    const mh = await (await admin.req("/api/reports/management.html", { headers: H })).text();
+    expect(mh).toContain("Nálezy a jejich náprava");
+    // výchozí vzhled výstupu: logo CONTIX (společnost bez vlastního vzhledu)
+    expect(mh).toContain('class="contixbar"');
+    // týdenní souhrn garantům (vynucený běh)
+    const before = sentMails.length;
+    await admin.json("/api/notifications/run", { method: "POST" });
+    const mail = sentMails.slice(before).find((m) => m.subject.includes("na vašich aktivech"));
+    expect(mail).toBeTruthy();
+    expect(mail!.html).toContain("/findings?who=mine");
+    // přesun rozsahu testů: plán pravidelných testů jde s ním, schválení se ruší (s upozorněním)
+    const scope = (await admin.json("/api/security-tests/scopes")).body.find((x: any) => x.name === "v1.63");
+    const other = ((await admin.json("/api/companies")).body as any[]).find((c) => c.name === "Přesun 165 s.r.o.");
+    const t1 = await admin.json("/api/companies/transfer", { method: "POST", json: { entity: "sectest_scopes", ids: [scope.id], targetCompanyId: other.id } });
+    expect(t1.body).toMatchObject({ moved: 0, needsConfirmation: true });
+    expect(t1.body.warnings.join()).toContain("schválit znovu");
+    const t2 = await admin.json("/api/companies/transfer", { method: "POST", json: { entity: "sectest_scopes", ids: [scope.id], targetCompanyId: other.id, force: true } });
+    expect(t2.body.moved).toBe(1);
+    const [sc] = await db.select().from(schema.secTestScopes).where(eq(schema.secTestScopes.id, scope.id));
+    expect(sc).toMatchObject({ companyId: other.id, approvedAt: null });
+    const sch = await db.select().from(schema.secTestSchedules).where(eq(schema.secTestSchedules.scopeId, scope.id));
+    expect(sch.length).toBeGreaterThan(0);
+    expect(sch.every((x) => x.companyId === other.id)).toBe(true);
+  });
+
+  test("v1.70: priorita nálezů, plán oprav AI bez IP a názvů, kvalita dat s hromadnou opravou", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const H = { "x-contix-company": ROOT };
+    // priorita: seznam seřazený sestupně, každá položka ji má
+    const list = (await admin.json("/api/findings?status=active", { headers: H })).body.items as any[];
+    expect(list.length).toBeGreaterThan(1);
+    expect(list.every((x, i) => i === 0 || list[i - 1].priority >= x.priority)).toBe(true);
+    // plán oprav: bez AI 400, s AI kroky s ověřenými odkazy; do modelu nejde IP
+    await admin.json("/api/ai/settings", { method: "PATCH", json: { enabled: false } });
+    expect((await admin.json("/api/findings/plan", { method: "POST", headers: H })).status).toBe(400);
+    expect((await admin.json("/api/findings/plan", { headers: H })).body).toBeNull();
+    await admin.json("/api/ai/settings", { method: "PATCH", json: { enabled: true, provider: "openai", baseUrl: AI_URL, model: "gpt-oss:20b", apiKey: "owui-key" } });
+    const plan = await admin.json("/api/findings/plan", { method: "POST", headers: H });
+    expect(plan.status).toBe(200);
+    expect(plan.body.summary).toBe("Nejdřív opravte závažné nálezy na serveru H1.");
+    expect(plan.body.steps).toHaveLength(1);
+    expect(plan.body.steps[0]).toMatchObject({ title: "Zakázat zbytečné služby", effort: "low" });
+    const mine = list.filter((x) => x.companyId === ROOT);
+    expect(plan.body.steps[0].items.map((x: any) => x.key)).toEqual([mine[0].key, mine[1].key]);
+    expect((await admin.json("/api/findings/plan", { headers: H })).body.steps[0].items).toHaveLength(2);
+    await admin.json("/api/ai/settings", { method: "PATCH", json: { enabled: false } });
+    // kvalita dat: kontroly s počty, hromadné nastavení vlastníka rizika (funkce ze stejné společnosti)
+    const q = (await admin.json("/api/quality", { headers: H })).body;
+    expect(q.score).toEqual(expect.any(Number));
+    const rk = q.checks.find((c: any) => c.key === "risks_no_owner");
+    expect(rk).toMatchObject({ canFix: true });
+    expect(rk.count).toBeGreaterThan(0);
+    const id = rk.items[0].id;
+    expect((await admin.json("/api/quality/fix", { method: "POST", json: { check: "risks_no_owner", ids: [id], userId: ids.owner } })).status).toBe(400);
+    expect((await admin.json("/api/quality/fix", { method: "POST", json: { check: "primary_unrated", ids: [id], positionId: ids.posHead } })).status).toBe(400);
+    const fx = await admin.json("/api/quality/fix", { method: "POST", json: { check: "risks_no_owner", ids: [id], positionId: ids.posHead } });
+    expect(fx.status).toBe(200);
+    expect((await admin.json(`/api/risks/${id}`)).body.ownerPositionId).toBe(ids.posHead);
+    const q2 = (await admin.json("/api/quality", { headers: H })).body;
+    expect(q2.checks.find((c: any) => c.key === "risks_no_owner").items.some((x: any) => x.id === id)).toBe(false);
+    // technický garant hromadně → úkoly z nálezů jdou jemu
+    const tg = q2.checks.find((c: any) => c.key === "assets_findings_no_tech");
+    if (tg?.count) {
+      const tech = ((await admin.json("/api/admin/users")).body as any[]).find((u) => u.email === "tech160@test.cz");
+      expect((await admin.json("/api/quality/fix", { method: "POST", json: { check: "assets_findings_no_tech", ids: [tg.items[0].id], userId: tech.id } })).status).toBe(200);
+      expect((await admin.json(`/api/assets/${tg.items[0].id}`)).body.technicalOwnerUserId).toBe(tech.id);
+    }
+  });
+
+  test("v1.71: úkoly z plánu oprav a plnění, lhůty a eskalace nálezů, kvalita dat v trendech a v týdenním souhrnu", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const H = { "x-contix-company": ROOT };
+    // plán z v1.70: plnění, úkol z kroku (jednou), opakování přeskočí
+    const p0 = (await admin.json("/api/findings/plan", { headers: H })).body;
+    expect(p0.progress).toMatchObject({ steps: 1, withTask: 0 });
+    expect(p0.steps[0]).toMatchObject({ task: null, done: false });
+    expect((await admin.json("/api/findings/plan/tasks", { method: "POST", headers: H, json: { steps: [] } })).status).toBe(400);
+    const mk = await admin.json("/api/findings/plan/tasks", { method: "POST", headers: H, json: { steps: [0, 7] } });
+    expect(mk.status).toBe(200);
+    expect(mk.body).toMatchObject({ created: 1, skipped: 1 });
+    const p1 = (await admin.json("/api/findings/plan", { headers: H })).body;
+    expect(p1.progress.withTask).toBe(1);
+    expect(p1.steps[0].task).toMatchObject({ status: "open" });
+    const [task] = await db.select().from(schema.tasks).where(eq(schema.tasks.id, p1.steps[0].task.id));
+    expect(task!.title).toBe("Plán oprav: Zakázat zbytečné služby");
+    expect(task!.description).toContain(p1.steps[0].items[0].link);
+    expect(task!.assigneeUserId).toBeTruthy();
+    expect((await admin.json("/api/findings/plan/tasks", { method: "POST", headers: H, json: { steps: [0] } })).body).toMatchObject({ created: 0, skipped: 1 });
+    // splněný úkol = splněný krok
+    await db.update(schema.tasks).set({ status: "done" }).where(eq(schema.tasks.id, task!.id));
+    const p2 = (await admin.json("/api/findings/plan", { headers: H })).body;
+    expect(p2.steps[0].done).toBe(true);
+    expect(p2.progress.done).toBe(1);
+
+    // lhůty: nález bez úkolu má termín podle závažnosti
+    const all = (await admin.json("/api/findings?status=active", { headers: H })).body.items as any[];
+    const noTask = all.find((x) => (x.source === "sectest" || x.source === "host") && !x.task && x.status === "open");
+    if (noTask) expect(noTask).toMatchObject({ dueFromSla: true, dueDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+
+    // eskalace: garant (funkce v odboru) má zranitelnost 60 dní po termínu → vedoucí odboru (owner@test.cz)
+    const tech = ((await admin.json("/api/admin/users")).body as any[]).find((u) => u.email === "tech160@test.cz");
+    const pos = await admin.json("/api/org/positions", { method: "POST", json: { orgUnitId: ids.unitIt, name: "Správce serverů E171", holderIds: [tech.id] } });
+    expect(pos.status).toBe(201);
+    const asset = (await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "Server E171", assetType: "server", technicalOwnerUserId: tech.id } })).body;
+    await db.execute(sql`insert into asset_vulnerabilities (asset_id, cve_id, severity, status, first_seen_at) values (${asset.id}, 'CVE-2020-0171', 'critical', 'open', now() - interval '400 days')`);
+    const { findingEscalations, escalationsFor } = await import("../src/modules/findings/escalation");
+    const esc = await findingEscalations(db as any, [ROOT]);
+    const row = esc.find((e) => e.assetId === asset.id);
+    expect(row).toMatchObject({ guarantorName: "Tomáš Technik", overdue: 1, level: 1 });
+    expect(row!.managerUserIds).toContain(ids.owner!);
+    expect(row!.managerUserIds).not.toContain(tech.id);
+    expect(escalationsFor(esc, ids.owner!).some((e) => e.assetId === asset.id)).toBe(true);
+    const b = browser();
+    await b.login("owner@test.cz", "Nove-Heslo-2026!!");
+    const mine = await b.json("/api/findings/escalations", { headers: H });
+    expect(mine.status).toBe(200);
+    expect((mine.body as any[]).some((e) => e.assetId === asset.id)).toBe(true);
+    expect(((await admin.json("/api/findings/escalations", { headers: H })).body as any[]).some((e) => e.assetId === asset.id)).toBe(false);
+    // náprava: eskalované po termínu ve zprávě pro vedení
+    const rem = (await admin.json("/api/findings/remediation", { headers: H })).body;
+    expect(rem.total.escalated).toBeGreaterThanOrEqual(1);
+    expect(rem.total.escalated).toBeLessThanOrEqual(rem.total.overdue);
+    expect(await (await admin.req("/api/reports/management.html", { headers: H })).text()).toContain("Eskalováno");
+
+    // kvalita dat v trendech a historie na stránce kvality
+    const snap = await takeTrendSnapshot(db as any, ROOT);
+    expect(snap.values.quality_score).toEqual(expect.any(Number));
+    expect(snap.values.quality_issues).toEqual(expect.any(Number));
+    expect(snap.values.findings_escalated).toBeGreaterThanOrEqual(1);
+    const qh = (await admin.json("/api/quality", { headers: H })).body;
+    expect(qh.history.at(-1)).toMatchObject({ score: snap.values.quality_score });
+
+    // týdenní souhrn: vedoucí dostane eskalaci, vlastník aktiva bez hodnocení své chybějící údaje
+    const prim = (await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "Agenda E171", assetType: "information_asset", assetClass: "primary", ownerUserId: ids.owner } })).body;
+    expect(prim.id).toBeTruthy();
+    const before = sentMails.length;
+    await admin.json("/api/notifications/run", { method: "POST" });
+    const toOwner = sentMails.slice(before).find((m) => m.to === "owner@test.cz" && m.html.includes("Nálezy po termínu ve vašem týmu"));
+    expect(toOwner).toBeTruthy();
+    expect(toOwner!.html).toContain("Server E171");
+    expect(toOwner!.html).toContain("Vaše chybějící údaje");
+    expect(toOwner!.html).toContain("Agenda E171");
+  });
+
+  test("v1.72: oprávnění nových rout, omezení velikosti požadavku, stránkování nálezů, spojení bez JIT", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const H = { "x-contix-company": ROOT };
+    // garant aktiva (čtení) nesmí měnit nálezy, plán, kvalitu ani předávat odpovědnosti
+    const u = await admin.json("/api/admin/users", { method: "POST", json: { email: "perm172@test.cz", displayName: "Garant 172", password: PW, roleIds: [await roleId("asset_owner")] } });
+    expect(u.status).toBe(201);
+    const b = browser();
+    expect((await b.login("perm172@test.cz")).status).toBe(200);
+    expect((await b.json("/api/auth/password", { method: "POST", json: { currentPassword: PW, newPassword: "Garant-172-Heslo!!" } })).status).toBe(200);
+    expect((await b.json("/api/findings/plan", { method: "POST", headers: H })).status).toBe(403);
+    expect((await b.json("/api/findings/plan/tasks", { method: "POST", headers: H, json: { steps: [0] } })).status).toBe(403);
+    expect((await b.json("/api/quality/fix", { method: "POST", json: { check: "risks_no_owner", ids: [ROOT], positionId: ids.posHead } })).status).toBe(403);
+    expect((await b.json(`/api/admin/users/${ids.owner}/handover`, { method: "POST", json: { toUserId: ids.owner } })).status).toBe(403);
+    expect((await b.json("/api/findings/escalations", { headers: H })).status).toBe(200);
+    expect((await b.json("/api/findings/plan", { headers: H })).status).toBe(200);
+    // příliš velké tělo požadavku → 413 dřív, než se čte
+    const big = await admin.req("/api/risks", { method: "POST", headers: { "content-type": "application/json", "content-length": String(40 * 1024 * 1024) }, body: "{}" });
+    expect(big.status).toBe(413);
+    // stránkování: limit vrací prvních N podle priority a celkový počet
+    const all = (await admin.json("/api/findings?status=all", { headers: H })).body;
+    const page = (await admin.json("/api/findings?status=all&limit=50", { headers: H })).body;
+    expect(page.items.length).toBe(Math.min(50, all.items.length));
+    expect(page.total).toBe(all.total);
+    expect(page.truncated).toBe(all.items.length > 50);
+    expect((await admin.json("/api/findings?limit=5", { headers: H })).status).toBe(400);
+    // spojení API vypíná JIT (přehledy s mnoha poddotazy)
+    const { PG_CONNECTION } = await import("../src/db/client");
+    expect(PG_CONNECTION.jit).toBe("off");
+  });
+
+  test("v1.73: průvodce prvním nastavením – stav kroků z dat, dokončení a znovuotevření, jen správce", async () => {
+    const w = await admin.json("/api/setup/wizard");
+    expect(w.status).toBe(200);
+    expect(w.body.steps.map((s: any) => s.key)).toEqual(["organization", "users", "structure", "ranges", "assets"]);
+    const st = Object.fromEntries(w.body.steps.map((s: any) => [s.key, s]));
+    expect(st.users).toMatchObject({ done: true });
+    expect(st.users.count).toBeGreaterThan(1);
+    expect(st.structure.done).toBe(true);
+    expect(st.assets.done).toBe(true);
+    expect(w.body.total).toBe(w.body.steps.filter((s: any) => !s.skipped).length);
+    expect(w.body.finishedAt).toBeNull();
+    expect(w.body.company).toMatchObject({ id: expect.any(String) });
+    // organizace: výchozí název = nehotovo, po vyplnění hotovo
+    const s0 = (await admin.json("/api/admin/settings")).body.settings;
+    await admin.json("/api/admin/settings", { method: "PATCH", json: { organizationName: "Moje organizace" } });
+    expect((await admin.json("/api/setup/wizard")).body.steps[0].done).toBe(false);
+    await admin.json("/api/admin/settings", { method: "PATCH", json: { organizationName: "Město Průvodce", organizationIco: "00064581" } });
+    const w2 = (await admin.json("/api/setup/wizard")).body;
+    expect(w2.steps[0].done).toBe(true);
+    expect(w2.organizationName).toBe("Město Průvodce");
+    expect(w2.company).toMatchObject({ ico: "00064581" });
+    await admin.json("/api/admin/settings", { method: "PATCH", json: { organizationName: s0.organizationName, organizationIco: s0.organizationIco ?? "" } });
+    // dokončení se pamatuje, znovuotevření ho zruší; garant aktiva nesmí
+    const f = await admin.json("/api/setup/wizard/finish", { method: "POST" });
+    expect(f.body.finishedAt).toEqual(expect.any(String));
+    expect((await admin.json("/api/setup/wizard")).body.finishedAt).toBe(f.body.finishedAt);
+    expect((await admin.json("/api/setup/wizard/reopen", { method: "POST" })).body.finishedAt).toBeNull();
+    const b = browser();
+    await b.login("perm172@test.cz", "Garant-172-Heslo!!");
+    expect((await b.json("/api/setup/wizard")).status).toBe(403);
+    expect((await b.json("/api/setup/wizard/finish", { method: "POST" })).status).toBe(403);
+    // dočasné heslo z průvodce splní pravidla hesla
+    const { temporaryPassword } = await import("@contix/shared");
+    const pw = temporaryPassword((n) => crypto.getRandomValues(new Uint8Array(n)));
+    const u = await admin.json("/api/admin/users", { method: "POST", json: { email: "wiz173@test.cz", displayName: "Průvodce 173", password: pw } });
+    expect(u.status).toBe(201);
+    expect((await browser().login("wiz173@test.cz", pw)).status).toBe(200);
+  });
+
+  test("v1.74: odpovědný útvar aktiva, štítky z katalogu, filtry seznamu, zpětné vazby aktiva", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const H = { "x-contix-company": ROOT };
+    // útvar a podřízený útvar ve společnosti
+    const top = (await admin.json("/api/org/units", { method: "POST", headers: H, json: { name: "Odbor provozu 174" } })).body;
+    const sub = (await admin.json("/api/org/units", { method: "POST", headers: H, json: { name: "Oddělení sítí 174", parentId: top.id } })).body;
+    const a1 = await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "Router 174", assetType: "network_device", ownerUnitId: sub.id, tags: ["nis2", "Síť 174"] } });
+    expect(a1.status).toBe(201);
+    expect(a1.body.ownerUnitId).toBe(sub.id);
+    // štítky: existující v pravopisu katalogu, nový se založí v katalogu
+    const cat = ((await admin.json("/api/tags")).body as any[]).map((x) => x.name);
+    expect(cat).toContain("Síť 174");
+    const nis = cat.find((x) => x.toLowerCase() === "nis2");
+    expect(a1.body.tags).toEqual([nis, "Síť 174"]);
+    // starší text útvaru se jednoznačně přiřadí
+    const a2 = (await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "Switch 174", assetType: "network_device", ownerName: "odbor provozu 174 " } })).body;
+    expect(a2.ownerUnitId).toBe(top.id);
+    // útvar jiné společnosti nelze
+    const other = ((await admin.json("/api/companies")).body as any[]).find((c) => c.id !== ROOT && c.kind === "company");
+    const foreign = (await admin.json("/api/org/units", { method: "POST", json: { name: "Cizí útvar 174", companyId: other.id } })).body;
+    expect((await admin.json(`/api/assets/${a2.id}`, { method: "PATCH", json: { ownerUnitId: foreign.id } })).status).toBe(400);
+    // filtr útvaru včetně podřízených, filtr štítku (bez ohledu na velikost písmen), název útvaru v seznamu
+    const byTop = (await admin.json(`/api/assets?ownerUnitId=${top.id}&limit=50`, { headers: H })).body;
+    expect(byTop.items.map((x: any) => x.name).sort()).toEqual(["Router 174", "Switch 174"]);
+    expect(byTop.items.find((x: any) => x.name === "Router 174").ownerUnitName).toBe("Oddělení sítí 174");
+    const bySub = (await admin.json(`/api/assets?ownerUnitId=${sub.id}`, { headers: H })).body;
+    expect(bySub.items.map((x: any) => x.name)).toEqual(["Router 174"]);
+    expect((await admin.json(`/api/assets?tag=${encodeURIComponent("SÍŤ 174")}`, { headers: H })).body.items.map((x: any) => x.name)).toEqual(["Router 174"]);
+    // detail: název útvaru; organizace: počet aktiv útvaru
+    expect((await admin.json(`/api/assets/${a1.body.id}`)).body.ownerUnitName).toBe("Oddělení sítí 174");
+    const org = (await admin.json("/api/org", { headers: H })).body as any[];
+    expect(org.find((u) => u.id === sub.id).assetCount).toBe(1);
+    // zpětné vazby aktiva: certifikát (TLS)
+    await db.insert(schema.tlsEndpoints).values({ companyId: ROOT, host: "router174.firma.local", port: 443, assetId: a1.body.id });
+    const bl = (await admin.json(`/api/links/asset/${a1.body.id}`)).body;
+    expect(bl.groups.find((g: any) => g.kind === "tls_endpoint").items[0]).toMatchObject({ label: "router174.firma.local:443", link: "/assets/certificates" });
+  });
+
+  test("v1.75: hromadné úpravy aktiv, rizik a opatření, nové zpětné vazby", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const H = { "x-contix-company": ROOT };
+    const unit = (await admin.json("/api/org/units", { method: "POST", headers: H, json: { name: "Útvar 175" } })).body;
+    const pos = (await admin.json("/api/org/positions", { method: "POST", json: { orgUnitId: unit.id, name: "Garant 175" } })).body;
+    const mk = async (name: string) => (await admin.json("/api/assets", { method: "POST", headers: H, json: { name, assetType: "server", tags: ["Staré 175"] } })).body;
+    const [a1, a2] = [await mk("Server A 175"), await mk("Server B 175")];
+    const other = ((await admin.json("/api/companies")).body as any[]).find((c) => c.id !== ROOT && c.kind === "company");
+    const a3 = (await admin.json("/api/assets", { method: "POST", json: { name: "Cizí 175", assetType: "server", companyId: other.id } })).body;
+    // nic ke změně → 400; útvar jen ze společnosti záznamu (cizí se přeskočí s důvodem)
+    expect((await admin.json("/api/bulk/assets", { method: "POST", json: { ids: [a1.id], set: {} } })).status).toBe(400);
+    const r1 = await admin.json("/api/bulk/assets", { method: "POST", json: { ids: [a1.id, a2.id, a3.id], set: { ownerUnitId: unit.id, criticality: "high" } } });
+    expect(r1.status).toBe(200);
+    expect(r1.body.updated).toBe(2);
+    expect(r1.body.skipped).toEqual([{ id: a3.id, reason: "Útvar nepatří do společnosti záznamu" }]);
+    const b1 = (await admin.json(`/api/assets/${a1.id}`)).body;
+    expect(b1).toMatchObject({ ownerUnitId: unit.id, criticality: "high" });
+    // štítky: přidat (do katalogu) a odebrat
+    const r2 = (await admin.json("/api/bulk/assets", { method: "POST", json: { ids: [a1.id, a2.id], addTags: ["Nové 175"], removeTags: ["staré 175"] } })).body;
+    expect(r2.updated).toBe(2);
+    expect((await admin.json(`/api/assets/${a2.id}`)).body.tags).toEqual(["Nové 175"]);
+    // rizika: vlastník (funkce) a štítky v katalogu
+    const risk = (await admin.json("/api/risks", { method: "POST", headers: H, json: { name: "Riziko 175" } })).body;
+    const r3 = (await admin.json("/api/bulk/risks", { method: "POST", json: { ids: [risk.id], set: { ownerPositionId: pos.id }, addTags: ["Nové 175"] } })).body;
+    expect(r3.updated).toBe(1);
+    expect((await admin.json(`/api/risks/${risk.id}`)).body.ownerPositionId).toBe(pos.id);
+    expect((await admin.json(`/api/tags/of/risk/${risk.id}`)).body).toEqual(["Nové 175"]);
+    // opatření: stav (ne „nepoužitelné“) a vlastník
+    const ctl = (await admin.json("/api/controls", { method: "POST", headers: H, json: { name: "Opatření 175", status: "planned" } })).body;
+    expect((await admin.json("/api/bulk/controls", { method: "POST", json: { ids: [ctl.id], set: { status: "not_applicable" } } })).status).toBe(400);
+    expect((await admin.json("/api/bulk/controls", { method: "POST", json: { ids: [ctl.id], set: { status: "implemented", ownerPositionId: pos.id } } })).body.updated).toBe(1);
+    expect((await admin.json(`/api/controls/${ctl.id}`)).body).toMatchObject({ status: "implemented", ownerPositionId: pos.id });
+    // bez oprávnění k zápisu (garant aktiva) → 403
+    const g = browser();
+    await g.login("perm172@test.cz", "Garant-172-Heslo!!");
+    expect((await g.json("/api/bulk/assets", { method: "POST", json: { ids: [a1.id], set: { criticality: "low" } } })).status).toBe(403);
+    // audit po záznamech
+    const log = (await admin.json("/api/admin/audit-log?limit=50")).body as any[];
+    expect(log.filter((x) => x.action === "asset.bulk_updated" && x.entityId === a1.id).length).toBeGreaterThanOrEqual(2);
+    // nové zpětné vazby: podproces, umístění dat dodavatele
+    const parent = (await admin.json("/api/processes", { method: "POST", headers: H, json: { name: "Proces 175" } })).body;
+    const child = (await admin.json("/api/processes", { method: "POST", headers: H, json: { name: "Podproces 175", parentId: parent.id } })).body;
+    expect((await admin.json(`/api/links/process/${parent.id}`)).body.groups.find((x: any) => x.kind === "subprocess").items[0]).toMatchObject({ id: child.id, label: "Podproces 175" });
+    const sup = (await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "Dodavatel 175" } })).body;
+    await admin.json("/api/data-locations", { method: "POST", headers: H, json: { name: "Cloud 175", supplierId: sup.id, country: "DE" } });
+    const sl = (await admin.json(`/api/links/supplier/${sup.id}`)).body;
+    expect(sl.groups.find((x: any) => x.kind === "data_location")?.items[0]?.label).toBe("Cloud 175");
+  });
+
+  test("v1.79: hromadné úpravy procesů, dodavatelů a úkolů (priorita, odpovědná osoba)", async () => {
+    const ROOT = "00000000-0000-4000-8000-000000000001";
+    const H = { "x-contix-company": ROOT };
+    const unit = (await admin.json("/api/org/units", { method: "POST", headers: H, json: { name: "Útvar 179" } })).body;
+    const pos = (await admin.json("/api/org/positions", { method: "POST", json: { orgUnitId: unit.id, name: "Vlastník 179" } })).body;
+    const other = ((await admin.json("/api/companies")).body as any[]).find((c) => c.id !== ROOT && c.kind === "company");
+    const p1 = (await admin.json("/api/processes", { method: "POST", headers: H, json: { name: "Proces A 179" } })).body;
+    const p2 = (await admin.json("/api/processes", { method: "POST", json: { name: "Proces cizí 179", companyId: other.id } })).body;
+    const r1 = await admin.json("/api/bulk/processes", { method: "POST", json: { ids: [p1.id, p2.id], set: { orgUnitId: unit.id, ownerPositionId: pos.id, criticality: "high", processType: "support" }, addTags: ["Proces 179"] } });
+    expect(r1.status).toBe(200);
+    expect(r1.body.updated).toBe(1);
+    expect(r1.body.skipped).toEqual([{ id: p2.id, reason: "Funkční místo nepatří do společnosti záznamu" }]);
+    expect((await admin.json(`/api/processes/${p1.id}`)).body).toMatchObject({ orgUnitId: unit.id, ownerPositionId: pos.id, criticality: "high", processType: "support" });
+    expect((await admin.json(`/api/tags/of/process/${p1.id}`)).body).toEqual(["Proces 179"]);
+    // stav procesu se hromadně nemění (schvalování verzí)
+    expect((await admin.json("/api/bulk/processes", { method: "POST", json: { ids: [p1.id], set: { status: "active" } } })).status).toBe(400);
+    // dodavatelé
+    const s1 = (await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "Dodavatel A 179" } })).body;
+    const s2 = (await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "Dodavatel B 179", significant: true } })).body;
+    const r2 = (await admin.json("/api/bulk/suppliers", { method: "POST", json: { ids: [s1.id, s2.id], set: { significant: true, dataOutsideCz: true, lastReviewAt: "2026-11-01", reviewIntervalMonths: 6 }, addTags: ["Cloud 179"] } })).body;
+    expect(r2.updated).toBe(2);
+    expect((await admin.json(`/api/suppliers/${s1.id}`)).body).toMatchObject({ significant: true, dataOutsideCz: true, lastReviewAt: "2026-11-01", reviewIntervalMonths: 6 });
+    expect((await admin.json("/api/bulk/suppliers", { method: "POST", json: { ids: [s2.id], set: { status: "ended" }, removeTags: ["cloud 179"] } })).body.updated).toBe(1);
+    expect((await admin.json(`/api/suppliers/${s2.id}`)).body.status).toBe("ended");
+    expect((await admin.json(`/api/tags/of/supplier/${s2.id}`)).body).toEqual([]);
+    expect((await admin.json("/api/bulk/suppliers", { method: "POST", json: { ids: [s1.id], set: { reviewIntervalMonths: 99 } } })).status).toBe(400);
+    // úkoly: priorita a odpovědná osoba (aktivní uživatel)
+    const tk = (await admin.json("/api/actions/tasks", { method: "POST", headers: H, json: { title: "Úkol 179" } })).body;
+    const me = (await admin.json("/api/auth/me")).body.user.id;
+    const tb = await admin.json("/api/actions/tasks/bulk", { method: "POST", json: { ids: [tk.id], priority: "high", assigneeUserId: me } });
+    expect(tb.body).toEqual({ updated: 1, skipped: [] });
+    expect((await admin.json(`/api/actions/tasks/${tk.id}`)).body).toMatchObject({ priority: "high", assigneeUserId: me });
+    expect((await admin.json("/api/actions/tasks/bulk", { method: "POST", json: { ids: [tk.id], assigneeUserId: "00000000-0000-4000-8000-0000000000ff" } })).status).toBe(400);
+    const log = (await admin.json("/api/admin/audit-log?limit=80")).body as any[];
+    expect(log.some((x) => x.action === "supplier.bulk_updated" && x.entityId === s1.id)).toBe(true);
+    expect(log.some((x) => x.action === "process.bulk_updated" && x.entityId === p1.id)).toBe(true);
+  });
+
+  test("v1.80: odpovědný útvar dodavatele a dokumentu, filtry, přehled útvaru, hromadně a importem", async () => {
+    const co = (await admin.json("/api/companies", { method: "POST", json: { name: "Útvarová 180 s.r.o.", parentId: "00000000-0000-4000-8000-000000000001", kind: "company" } })).body;
+    const H = { "x-contix-company": co.id };
+    const top = (await admin.json("/api/org/units", { method: "POST", headers: H, json: { name: "Nákup 180" } })).body;
+    const sub = (await admin.json("/api/org/units", { method: "POST", headers: H, json: { name: "Nákup IT 180", parentId: top.id } })).body;
+    const pos = (await admin.json("/api/org/positions", { method: "POST", json: { orgUnitId: sub.id, name: "Gestor 180" } })).body;
+    const foreign = (await admin.json("/api/org/units", { method: "POST", json: { name: "Cizí 180" } })).body;
+    // dodavatel: útvar ze společnosti, cizí odmítnut, filtr podle útvaru včetně podřízených
+    const s1 = await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "Dodavatel 180", ownerUnitId: sub.id } });
+    expect(s1.status).toBe(201);
+    expect(s1.body).toMatchObject({ ownerUnitId: sub.id, ownerUnitName: "Nákup IT 180" });
+    expect((await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "Špatný 180", ownerUnitId: foreign.id } })).status).toBe(400);
+    expect((await admin.json(`/api/suppliers/${s1.body.id}`, { method: "PATCH", json: { ownerUnitId: foreign.id } })).status).toBe(400);
+    await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "Bez útvaru 180" } });
+    expect(((await admin.json(`/api/suppliers?unit=${top.id}`, { headers: H })).body as any[]).map((x) => x.name)).toEqual(["Dodavatel 180"]);
+    // dokument: bez volby útvar gestora, filtr podle útvaru, cizí útvar odmítnut
+    const d1 = await admin.json("/api/policies", { method: "POST", headers: H, json: { title: "Směrnice nákupu 180", ownerPositionId: pos.id } });
+    expect(d1.status).toBe(201);
+    expect(d1.body).toMatchObject({ ownerUnitId: sub.id, ownerUnitName: "Nákup IT 180" });
+    expect((await admin.json(`/api/policies/${d1.body.id}`, { method: "PATCH", json: { ownerUnitId: foreign.id } })).status).toBe(400);
+    expect(((await admin.json(`/api/policies?unit=${top.id}`, { headers: H })).body as any[]).map((x) => x.title)).toEqual(["Směrnice nákupu 180"]);
+    expect((await admin.json("/api/policies?unit=nesmysl")).status).toBe(400);
+    // přehled útvaru: dodavatelé a dokumenty (včetně podřízených)
+    expect((await admin.json(`/api/org/units/${top.id}/overview`)).body).toMatchObject({ suppliers: 1, documents: 1 });
+    // hromadně: útvar dodavatele jen ze společnosti záznamu
+    const s2 = (await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "Dodavatel B 180" } })).body;
+    const b = (await admin.json("/api/bulk/suppliers", { method: "POST", json: { ids: [s2.id], set: { ownerUnitId: top.id } } })).body;
+    expect(b.updated).toBe(1);
+    expect((await admin.json("/api/bulk/suppliers", { method: "POST", json: { ids: [s2.id], set: { ownerUnitId: foreign.id } } })).body.skipped[0].reason).toBe("Útvar nepatří do společnosti záznamu");
+    expect((await admin.json(`/api/org/units/${top.id}/overview`)).body.suppliers).toBe(2);
+    // import dodavatelů se sloupcem Útvar
+    const f = new FormData();
+    f.set("entity", "suppliers");
+    f.set("companyId", co.id);
+    f.set("file", new Blob(["Název dodavatele;Útvar\r\nImportovaný 180;Nákup 180\r\n"]), "d.csv");
+    const im = await admin.json("/api/import/commit", { method: "POST", body: f });
+    expect(im.body).toMatchObject({ created: 1, failed: [] });
+    const imp = ((await admin.json("/api/suppliers?q=Importovaný 180", { headers: H })).body as any[])[0];
+    expect(imp.ownerUnitId).toBe(top.id);
+  });
+
+  test("v1.76: útvar jako centrum, filtry podle útvaru, tým hodnocení, lokality, kontrola dat po nasazení", async () => {
+    const co = (await admin.json("/api/companies", { method: "POST", json: { name: "Útvarová 176 s.r.o.", parentId: "00000000-0000-4000-8000-000000000001", kind: "company" } })).body;
+    const H = { "x-contix-company": co.id };
+    const top = (await admin.json("/api/org/units", { method: "POST", headers: H, json: { name: "Provoz 176" } })).body;
+    const sub = (await admin.json("/api/org/units", { method: "POST", headers: H, json: { name: "Sítě 176", parentId: top.id } })).body;
+    const pos = (await admin.json("/api/org/positions", { method: "POST", json: { orgUnitId: sub.id, name: "Správce sítí 176", holderIds: [ids.owner] } })).body;
+    await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "Switch 176", assetType: "network_device", ownerUnitId: sub.id, location: "Brno › Budova A" } });
+    await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "Text 176", assetType: "server", ownerName: "Neexistující odbor 176", tags: [] } });
+    const risk = (await admin.json("/api/risks", { method: "POST", headers: H, json: { name: "Výpadek sítě 176", ownerPositionId: pos.id } })).body;
+    const ctl = (await admin.json("/api/controls", { method: "POST", headers: H, json: { name: "Záloha konfigurace 176", ownerPositionId: pos.id } })).body;
+    const proc = (await admin.json("/api/processes", { method: "POST", headers: H, json: { name: "Správa sítě 176", orgUnitId: sub.id } })).body;
+    await admin.json("/api/actions/tasks", { method: "POST", headers: H, json: { title: "Úkol 176", ownerPositionId: pos.id, dueDate: "2020-01-01" } });
+    // přehled útvaru včetně podřízených
+    const ov = (await admin.json(`/api/org/units/${top.id}/overview`, { headers: H })).body;
+    expect(ov).toMatchObject({ assets: 1, processes: 1, risks: 1, controls: 1, tasks: { open: 1, overdue: 1 } });
+    // filtry seznamů podle útvaru (včetně podřízených)
+    expect(((await admin.json(`/api/risks?unit=${top.id}`, { headers: H })).body.items as any[]).map((x) => x.id)).toEqual([risk.id]);
+    expect(((await admin.json(`/api/controls?unit=${top.id}`, { headers: H })).body as any[]).map((x) => x.id)).toEqual([ctl.id]);
+    expect(((await admin.json(`/api/processes?unit=${top.id}`, { headers: H })).body as any[]).map((x) => x.id)).toEqual([proc.id]);
+    expect(((await admin.json(`/api/risks?unit=${sub.id}`, { headers: H })).body.items as any[]).length).toBe(1);
+    // tým hodnoticího cyklu z funkčních míst (jen ze společnosti cyklu)
+    const foreignPos = (await admin.json("/api/org/positions", { method: "POST", json: { orgUnitId: ids.unitIt, name: "Cizí 176" } })).body;
+    expect((await admin.json("/api/cycles", { method: "POST", headers: H, json: { kind: "risk", title: "Cyklus 176", teamPositionIds: [foreignPos.id] } })).status).toBe(400);
+    const cy = await admin.json("/api/cycles", { method: "POST", headers: H, json: { kind: "risk", title: "Cyklus 176", teamPositionIds: [pos.id], team: "externí konzultant" } });
+    expect(cy.status).toBe(201);
+    expect(cy.body.teamPositions).toEqual([{ id: pos.id, name: "Správce sítí 176", holders: ["Eva Vlastník"] }]);
+    // nabídka lokalit
+    expect((await admin.json("/api/assets/locations", { headers: H })).body).toContain("Brno › Budova A");
+    // kontrola dat po nasazení: útvar jen textem → oprava útvarem; štítek mimo katalog → sjednocení
+    const q = (await admin.json("/api/quality", { headers: H })).body;
+    const ut = q.checks.find((x: any) => x.key === "assets_unit_text");
+    expect(ut.items.map((x: any) => x.label)).toEqual(["Text 176 – „Neexistující odbor 176“"]);
+    expect((await admin.json("/api/quality/fix", { method: "POST", json: { check: "assets_unit_text", ids: [ut.items[0].id] } })).status).toBe(400);
+    expect((await admin.json("/api/quality/fix", { method: "POST", json: { check: "assets_unit_text", ids: [ut.items[0].id], unitId: top.id } })).status).toBe(200);
+    expect((await admin.json(`/api/assets/${ut.items[0].id}`)).body.ownerUnitId).toBe(top.id);
+    const asset = ((await admin.json("/api/assets?q=Switch 176", { headers: H })).body.items as any[])[0];
+    await db.update(schema.assets).set({ tags: ["nekatalog 176"] }).where(eq(schema.assets.id, asset.id));
+    const tg = (await admin.json("/api/quality", { headers: H })).body.checks.find((x: any) => x.key === "assets_tags_uncatalogued");
+    expect(tg.items.map((x: any) => x.id)).toEqual([asset.id]);
+    expect((await admin.json("/api/quality/fix", { method: "POST", json: { check: "assets_tags_uncatalogued", ids: [asset.id] } })).status).toBe(200);
+    expect(((await admin.json("/api/tags")).body as any[]).some((x) => x.name === "nekatalog 176")).toBe(true);
+    expect((await admin.json("/api/quality", { headers: H })).body.checks.find((x: any) => x.key === "assets_tags_uncatalogued").count).toBe(0);
+  });
+
+  test("vzhled výstupů (v1.59): logo, barva a zápatí v tisku i ve Wordu, dědění od nadřazené společnosti", async () => {
+    // 1×1 PNG
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const root = "00000000-0000-4000-8000-000000000001";
+    const HRC = { "x-contix-company": root };
+    expect((await admin.json(`/api/branding/${root}`, { method: "PUT", json: { logo: "data:image/gif;base64,AAAA" } })).status).toBe(400);
+    expect((await admin.json(`/api/branding/${root}`, { method: "PUT", json: { logo: "data:image/png;base64,AAAA" } })).status).toBe(400);
+    const put = await admin.json(`/api/branding/${root}`, { method: "PUT", json: { logo: png, accentColor: "#0e5ea0", footerText: "Interní – nešířit", showName: true } });
+    expect(put.status).toBe(200);
+    expect(put.body).toMatchObject({ own: true, logoWidth: 1, logoHeight: 1, accentColor: "#0e5ea0" });
+    const html = await (await admin.req("/api/reports/management.html", { headers: HRC })).text();
+    expect(html).toContain('class="brandbar"');
+    expect(html).toContain(png);
+    expect(html).toContain("Interní – nešířit");
+    expect(html).toContain("h1{color:#0e5ea0}");
+    const docx = Buffer.from(await (await admin.req("/api/reports/management.docx", { headers: HRC })).arrayBuffer());
+    const { unzipSync } = await import("fflate");
+    const files = unzipSync(new Uint8Array(docx));
+    expect(Object.keys(files).some((f) => f.startsWith("word/media/"))).toBe(true);
+    const footers = Object.entries(files).filter(([f]) => /word\/footer\d*\.xml/.test(f)).map(([, v]) => Buffer.from(v).toString("utf8")).join("");
+    expect(footers).toContain("Interní – nešířit");
+    // dceřiná společnost bez vlastního nastavení dědí
+    const sub = (await admin.json("/api/companies", { method: "POST", json: { name: "Dcera vzhled", parentId: root, kind: "company" } })).body;
+    const inh = (await admin.json(`/api/branding/${sub.id}`)).body;
+    expect(inh).toMatchObject({ own: false, sourceCompanyId: root, accentColor: "#0e5ea0" });
+    // zrušení
+    expect((await admin.json(`/api/branding/${root}`, { method: "DELETE" })).body.own).toBe(false);
+    expect(await (await admin.req("/api/reports/management.html", { headers: HRC })).text()).not.toContain('class="brandbar"');
+  });
+
+  test("štítky a umístění dat (v1.52): katalog, štítky aktiva i rizika, napříč evidencemi, pravidla podle země", async () => {
+    const asset = (await admin.json("/api/assets", { method: "POST", json: { name: "Webový portál štítky", assetType: "application" } })).body;
+    const risk = (await admin.json("/api/risks?limit=1")).body.items[0];
+    // aktivum: štítky se drží v textovém poli aktiva, katalog se doplní
+    expect((await admin.json(`/api/tags/of/asset/${asset.id}`, { method: "PUT", json: { names: ["Dostupné z internetu", "PCI"] } })).body).toEqual(["Dostupné z internetu", "PCI"]);
+    expect((await admin.json(`/api/assets/${asset.id}`)).body.tags).toEqual(["Dostupné z internetu", "PCI"]);
+    // riziko: stejný štítek (bez ohledu na velikost písmen) z katalogu
+    expect((await admin.json(`/api/tags/of/risk/${risk.id}`, { method: "PUT", json: { names: ["dostupné z internetu"] } })).body).toEqual(["Dostupné z internetu"]);
+    const cat = (await admin.json("/api/tags")).body as any[];
+    const inet = cat.find((t) => t.name === "Dostupné z internetu");
+    expect(inet.count).toBeGreaterThanOrEqual(2);
+    const objs = (await admin.json(`/api/tags/${inet.id}/objects`)).body as any[];
+    expect(objs.map((o) => o.entityType).sort()).toEqual(expect.arrayContaining(["asset", "risk"]));
+    // přejmenování přenese i textové štítky aktiv
+    expect((await admin.json(`/api/tags/${inet.id}`, { method: "PUT", json: { name: "Internet", color: "red" } })).status).toBe(200);
+    expect((await admin.json(`/api/assets/${asset.id}`)).body.tags).toContain("Internet");
+    expect((await admin.json("/api/tags", { method: "POST", json: { name: "internet" } })).status).toBe(409);
+    expect((await admin.json("/api/tags/of/nic/00000000-0000-4000-8000-000000000001")).status).toBe(404);
+    const auditor = browser();
+    await auditor.login("audit@test.cz", "Auditor-Heslo-2026!");
+    expect((await auditor.json(`/api/tags/of/risk/${risk.id}`, { method: "PUT", json: { names: ["x"] } })).status).toBe(403);
+
+    // umístění dat: EU, USA bez DPF, Čína se smlouvou SCC
+    const mk = (json: any) => admin.json("/api/data-locations", { method: "POST", json });
+    const eu = (await mk({ name: "Hosting Praha", country: "cz", dataCategories: ["personal"], dpaSigned: true })).body;
+    expect(eu.rules).toEqual([{ code: "gdpr_eu", level: "ok" }]);
+    const us = (await mk({ name: "SaaS CRM", country: "US", dataCategories: ["personal", "customer"] })).body;
+    expect(us.rules.map((r: any) => `${r.code}:${r.level}`)).toEqual(["gdpr_transfer_missing:error", "gdpr_dpa_missing:warning"]);
+    const us2 = (await admin.json(`/api/data-locations/${us.id}`, { method: "PUT", json: { name: "SaaS CRM", country: "US", dataCategories: ["personal"], transferMechanism: "dpf", dpaSigned: true } })).body;
+    expect(us2.rules).toEqual([{ code: "gdpr_dpf_check", level: "info" }]);
+    const cn = (await mk({ name: "Výroba – MES cloud", country: "CN", dataCategories: ["business"] })).body;
+    expect(cn.rules.map((r: any) => r.code)).toEqual(["supply_chain_risk"]);
+    expect((await mk({ name: "x", country: "Česko" })).status).toBe(400);
+    // štítek u umístění a v přehledu
+    await admin.json(`/api/tags/of/location/${cn.id}`, { method: "PUT", json: { names: ["Internet"] } });
+    expect(((await admin.json("/api/data-locations")).body as any[]).find((l) => l.id === cn.id).tags).toEqual(["Internet"]);
+    expect(((await admin.json(`/api/tags/${inet.id}/objects`)).body as any[]).some((o) => o.entityType === "location")).toBe(true);
+    expect((await admin.req(`/api/data-locations/${eu.id}`, { method: "DELETE" })).status).toBe(204);
+  });
+
+  test("NetBox a JIRA (v1.53): zařízení a VM → aktiva s tenantem, issue z úkolu, hotovo v JIRA uzavře úkol", async () => {
+    const jiraIssues: Record<string, { fields: any; status: string }> = {};
+    const nb = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const u = new URL(req.url);
+        if (req.headers.get("authorization") !== "Token nb-token") return new Response("no", { status: 403 });
+        const page = (results: unknown[]) => Response.json({ count: results.length, next: null, results });
+        if (u.pathname === "/api/status/") return Response.json({ "netbox-version": "4.3.1" });
+        if (u.pathname === "/api/dcim/devices/")
+          return page([
+            { id: 11, name: "core-sw-01", serial: "NB-SW-1", role: { slug: "core-switch" }, tenant: { slug: "zakaznik-c" }, site: { name: "DC Praha" }, device_type: { model: "C9300", manufacturer: { name: "Cisco" } }, primary_ip4: { address: "10.40.0.1/24" }, status: { value: "active" }, tags: [{ name: "páteř" }] },
+            { id: 12, name: "db-01", serial: "NB-DB-1", role: { slug: "server" }, tenant: null, site: { name: "DC Brno" }, device_type: { model: "R650", manufacturer: { name: "Dell" } }, status: { value: "active" }, tags: [] },
+          ]);
+        if (u.pathname === "/api/virtualization/virtual-machines/") return page([{ id: 7, name: "app-vm-07", tenant: { slug: "zakaznik-c" }, cluster: { name: "vSphere" }, platform: { name: "Ubuntu 24.04" }, primary_ip4: { address: "10.40.1.7/24" }, status: { value: "active" }, vcpus: 4, memory: 8192 }]);
+        return new Response("nf", { status: 404 });
+      },
+    });
+    const jira = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const u = new URL(req.url);
+        if (req.headers.get("authorization") !== `Basic ${btoa("sec@firma.cz:jira-token")}`) return new Response("{}", { status: 401 });
+        if (u.pathname === "/rest/api/2/myself") return Response.json({ displayName: "Security bot" });
+        if (u.pathname === "/rest/api/2/project/SEC") return Response.json({ key: "SEC", name: "Bezpečnost" });
+        if (u.pathname === "/rest/api/2/issue" && req.method === "POST") {
+          const body = (await req.json()) as any;
+          const key = `SEC-${Object.keys(jiraIssues).length + 1}`;
+          jiraIssues[key] = { fields: body.fields, status: "To Do" };
+          return Response.json({ id: "1", key }, { status: 201 });
+        }
+        const m = u.pathname.match(/^\/rest\/api\/2\/issue\/(SEC-\d+)$/);
+        if (m) return Response.json({ key: m[1], fields: { status: { name: jiraIssues[m[1]!]!.status } } });
+        return new Response("{}", { status: 404 });
+      },
+    });
+    try {
+      const coC = (await admin.json("/api/companies", { method: "POST", json: { name: "Zákazník C (NetBox) s.r.o." } })).body;
+      const nbForm = { name: "NetBox DC", url: `http://localhost:${nb.port}`, token: "nb-token", companyId: null, groupMap: [{ group: "zakaznik-c", companyId: coC.id }], autoSyncHours: 0 };
+      expect((await admin.json("/api/admin/connections/netbox/test", { method: "POST", json: nbForm })).body).toMatchObject({ ok: true, details: { version: "4.3.1", devices: 2, vms: 1 } });
+      expect((await admin.json("/api/admin/connections/netbox/test", { method: "POST", json: { ...nbForm, token: "spatny" } })).body.ok).toBe(false);
+      const nbId = (await admin.json("/api/admin/connections/netbox", { method: "POST", json: nbForm })).body.id;
+      const start = await admin.json("/api/discovery/netbox", { method: "POST", json: { connectionId: nbId } });
+      expect(start.status).toBe(202);
+      const run = await waitRun(start.body.runId);
+      expect(run).toMatchObject({ status: "succeeded", connector: "netbox" });
+      expect(run.stats).toMatchObject({ discovered: 3, created: 3 });
+      const sw = (await admin.json("/api/assets?q=core-sw-01")).body.items[0];
+      expect(sw).toMatchObject({ assetType: "network_device", companyId: coC.id });
+      expect((await admin.json(`/api/assets/${sw.id}`)).body).toMatchObject({ manufacturer: "Cisco", model: "C9300", serialNumber: "NB-SW-1", location: "DC Praha", tags: ["páteř"] });
+      expect((await admin.json("/api/assets?q=app-vm-07")).body.items[0]).toMatchObject({ assetType: "virtual_machine", companyId: coC.id });
+      expect((await admin.json("/api/admin/connections")).body.netbox[0]).toMatchObject({ assets: 3, hasToken: true });
+      expect(JSON.stringify((await admin.json("/api/admin/connections")).body)).not.toContain("nb-token");
+
+      // JIRA: úkol → issue, stav zpět
+      const jForm = { name: "JIRA bezpečnost", url: `http://localhost:${jira.port}`, deployment: "cloud", user: "sec@firma.cz", token: "jira-token", projectKey: "SEC", doneStatuses: ["Done"] };
+      expect((await admin.json("/api/admin/connections/jira/test", { method: "POST", json: jForm })).body).toMatchObject({ ok: true, details: { user: "Security bot", project: "Bezpečnost" } });
+      expect((await admin.json("/api/admin/connections/jira", { method: "POST", json: { ...jForm, projectKey: "sec" } })).status).toBe(400);
+      expect((await admin.json("/api/admin/connections/jira", { method: "POST", json: jForm })).status).toBe(201);
+      const { ROOT_COMPANY_ID } = await import("@contix/shared");
+      const task = (await admin.json("/api/actions/tasks", { method: "POST", json: { title: "Zavést MFA pro VPN", companyId: ROOT_COMPANY_ID, dueDate: "2026-12-31" } })).body;
+      const created = await admin.json("/api/jira/issues", { method: "POST", json: { entityType: "task", entityId: task.id } });
+      expect(created.status).toBe(201);
+      expect(created.body[0]).toMatchObject({ issueKey: "SEC-1", issueUrl: `http://localhost:${jira.port}/browse/SEC-1` });
+      expect(jiraIssues["SEC-1"]!.fields).toMatchObject({ project: { key: "SEC" }, summary: "Zavést MFA pro VPN", issuetype: { name: "Task" }, duedate: "2026-12-31" });
+      expect((await admin.json("/api/jira/issues", { method: "POST", json: { entityType: "task", entityId: task.id } })).status).toBe(409);
+      const { syncJiraIssues } = await import("../src/modules/connections/jira");
+      expect(await syncJiraIssues(db as any, config)).toMatchObject({ checked: 1, closed: 0 });
+      jiraIssues["SEC-1"]!.status = "Done";
+      expect(await syncJiraIssues(db as any, config, new Date(Date.now() + 2 * 3600_000))).toMatchObject({ closed: 1 });
+      expect((await admin.json(`/api/actions/tasks/${task.id}`)).body.status).toBe("done");
+      expect((await admin.json(`/api/jira/issues?entityType=task&entityId=${task.id}`)).body[0].status).toBe("Done");
+      // smazání připojení: vazby zaniknou, aktiva a úkoly zůstanou
+      expect((await admin.req(`/api/admin/connections/netbox/${nbId}`, { method: "DELETE" })).status).toBe(200);
+      expect((await admin.json(`/api/assets/${sw.id}`)).status).toBe(200);
+    } finally {
+      nb.stop(true);
+      jira.stop(true);
+    }
+  });
+
   test("ukázková data: fiktivní společnost přes API, opakované spuštění nic nepřidá (v1.15)", async () => {
     const call = (co?: string): DemoCall => async (method, path, body) => {
       const r = await admin.json(path, { method, json: body, headers: co ? { [COMPANY_HEADER]: co } : {} });
@@ -8209,6 +10676,28 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(list.filter((x) => x.companyId === r.companyId).map((x) => x.code).sort()).toEqual(["R-01", "R-02", "R-03", "R-04"]);
     const again = await seedDemo(call(), (co) => call(co));
     expect(again).toMatchObject({ created: false, companyId: r.companyId });
+    // v1.81: ukázka má útvary u aktiv, dodavatelů a dokumentů
+    const ov = (await admin.json(`/api/org/units/${((await admin.json("/api/org", { headers: H })).body as any[]).find((u) => u.code === "IT").id}/overview`)).body;
+    expect(ov.assets).toBeGreaterThanOrEqual(5);
+    expect(ov.suppliers).toBe(1);
+    // v1.81: Administrace – stav, odstranění (vše včetně vazeb), nové založení
+    const before = (await admin.json("/api/assets?limit=1")).body.total;
+    expect((await admin.json("/api/demo")).body).toMatchObject({ exists: true, companyId: r.companyId, counts: { assets: 9, risks: 4 } });
+    const del = await admin.json("/api/demo", { method: "DELETE" });
+    expect(del.status).toBe(200);
+    expect(del.body.exists).toBe(false);
+    expect(((await admin.json("/api/companies")).body as any[]).some((x) => x.id === r.companyId)).toBe(false);
+    expect(Number(((await db.execute(sql`select count(*)::int as n from assets where company_id = ${r.companyId}`)) as any)[0].n)).toBe(0);
+    expect((await admin.json("/api/assets?limit=1")).body.total).toBe(before - 9);
+    expect((await admin.json("/api/demo", { method: "DELETE" })).status).toBe(404);
+    const created = await admin.json("/api/demo", { method: "POST" });
+    expect(created.status).toBe(201);
+    expect(created.body).toMatchObject({ exists: true, counts: { assets: 9, risks: 4, processes: 4, suppliers: 2 } });
+    expect((await admin.json("/api/demo", { method: "POST" })).status).toBe(409);
+    const auditor = browser();
+    await auditor.login("audit@test.cz", "Auditor-Heslo-2026!");
+    expect((await auditor.json("/api/demo", { method: "DELETE" })).status).toBe(403);
+    expect((await admin.json("/api/demo", { method: "DELETE" })).body.exists).toBe(false);
   });
 
   test("oprávnění nových modulů doplněna do systémových rolí", async () => {

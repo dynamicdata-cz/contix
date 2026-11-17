@@ -1,3 +1,5 @@
+import { unitPositionsSql } from "../org/hierarchy";
+import { findingsOtherSql, findingsSeriousSql } from "./findings";
 import { profileOf, allRequirements,
   cisIgOf,
   frameworksInScope,
@@ -195,12 +197,14 @@ export function controlRoutes(db: Db) {
         ownerPositionName: positions.name,
         reqIds: sql<string[]>`coalesce((select array_agg(cr.requirement_id) from control_requirements cr where cr.control_id = ${controls.id}), '{}')`,
         riskCount: sql<number>`(select count(*)::int from risk_controls rc where rc.control_id = ${controls.id})`,
+        fSerious: findingsSeriousSql(controls.id),
+        fOther: findingsOtherSql(controls.id),
       })
       .from(controls)
       .leftJoin(positions, eq(positions.id, controls.ownerPositionId))
       .where(where)
       .orderBy(asc(controls.code), asc(controls.name));
-    return rows.map(({ c, ownerPositionName, reqIds, riskCount }) => ({
+    return rows.map(({ c, ownerPositionName, reqIds, riskCount, fSerious, fOther }) => ({
       id: c.id,
       companyId: c.companyId,
       code: c.code,
@@ -215,6 +219,7 @@ export function controlRoutes(db: Db) {
       riskCount,
       frameworks: [...new Set(reqIds.map((r) => r.split(":")[0] as FrameworkId))],
       updatedAt: c.updatedAt.toISOString(),
+      findings: { serious: Number(fSerious), other: Number(fOther) },
     }));
   }
 
@@ -378,7 +383,7 @@ export function controlRoutes(db: Db) {
         requirePerm("controls:read"),
         zValidator(
           "query",
-          z.object({ q: z.string().optional(), status: z.enum(CONTROL_STATUSES).optional(), framework: FrameworkParam.optional(), riskId: z.string().uuid().optional() }),
+          z.object({ q: z.string().optional(), status: z.enum(CONTROL_STATUSES).optional(), framework: FrameworkParam.optional(), riskId: z.string().uuid().optional(), unit: z.string().uuid().optional() }),
         ),
         async (c) => {
           const q = c.req.valid("query");
@@ -388,6 +393,7 @@ export function controlRoutes(db: Db) {
           if (q.status) where.push(eq(controls.status, q.status));
           if (q.framework) where.push(sql`exists (select 1 from control_requirements cr where cr.control_id = ${controls.id} and cr.requirement_id like ${`${q.framework}:%`})`);
           if (q.riskId) where.push(sql`exists (select 1 from risk_controls rc where rc.control_id = ${controls.id} and rc.risk_id = ${q.riskId})`);
+          if (q.unit) where.push(sql`${controls.ownerPositionId} in ${unitPositionsSql(q.unit)}`);
           return c.json(await listControls(where.length ? and(...where) : undefined));
         },
       )

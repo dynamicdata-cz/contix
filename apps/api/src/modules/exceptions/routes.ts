@@ -25,6 +25,8 @@ export const EXCEPTION_ACCESS: Record<ExceptionKind, { perm: Permission; module:
   risk_accepted: { perm: "risks:read", module: "risks" },
   requirement_na: { perm: "controls:read", module: "controls" },
   soc_suppression: { perm: "soc:read", module: "soc" },
+  sectest_finding: { perm: "sectests:read", module: "sectests" },
+  host_finding: { perm: "assets:read", module: "assets" },
 };
 const READ_PERMS = [...new Set(Object.values(EXCEPTION_ACCESS).map((a) => a.perm))];
 /** Oprávnění k zápisu kompenzačních opatření podle druhu výjimky (v1.11). */
@@ -35,6 +37,8 @@ export const EXCEPTION_WRITE: Record<ExceptionKind, Permission> = {
   risk_accepted: "risks:write",
   requirement_na: "controls:write",
   soc_suppression: "soc:write",
+  sectest_finding: "sectests:run",
+  host_finding: "assets:write",
 };
 const WRITE_PERMS = [...new Set(Object.values(EXCEPTION_WRITE))];
 const writer = (c: Context<AppEnv>) => (k: ExceptionKind, companyId: string) => hasPermIn(c, EXCEPTION_WRITE[k], companyId);

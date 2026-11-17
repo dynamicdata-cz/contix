@@ -29,7 +29,7 @@ import { getCompanies, riskPolicies } from "../../auth/scope";
 import { getSettings } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
-import { aiSystems, answerLibrary, appSettings, assets, assetVulnerabilities, auditFindings, audits, controls, craFindings, craProducts, incidents, knowledgeArticles, legalActs, legalChanges, legalReviews, processes, recordVectors, riskCatalog, risks, suppliers } from "../../db/schema";
+import { aiSystems, answerLibrary, appSettings, assets, assetVulnerabilities, auditFindings, audits, controls, craFindings, craProducts, incidents, secTestFindings, knowledgeArticles, legalActs, legalChanges, legalReviews, processes, recordVectors, riskCatalog, risks, suppliers } from "../../db/schema";
 import { clientFor, getAiSettings } from "../ai/service";
 import type { FetchLike } from "../discovery/connectors/wazuh";
 import { loadExceptions } from "../exceptions/service";
@@ -192,6 +192,23 @@ export async function collectRecordDocs(db: Db): Promise<RecordDoc[]> {
       });
     }
   }
+  // nálezy bezpečnostních testů (v1.66, ADR-159) – otevřené a přijaté (popis, doporučení, AI rozbor), bez důkazů
+  if (on("sectests")) {
+    const rows = await db.select({ f: secTestFindings, asset: assets.name }).from(secTestFindings).leftJoin(assets, eq(assets.id, secTestFindings.assetId)).where(inArray(secTestFindings.status, ["open", "accepted"]));
+    for (const { f, asset } of rows) {
+      const target = `${f.host}${f.port ? `:${f.port}` : ""}`;
+      const adv = (f.advice ?? {}) as { summary?: string; impact?: string; remediation?: string[] };
+      out.push({
+        kind: "sectest_finding",
+        refId: f.id,
+        companyId: f.companyId,
+        title: `${f.title} – ${asset ?? target}`,
+        text: join(`Nález bezpečnostního testu: ${f.title}`, line("Cíl", target), line("Aktivum", asset), line("Závažnost", f.severity), line("Popis", f.detail), line("Rozbor", adv.summary), line("Dopad", adv.impact), line("Náprava", adv.remediation?.join("; ")), line("Přijetí rizika", f.status === "accepted" ? f.note : null)),
+        link: `/security-tests?finding=${f.id}`,
+        meta: { status: f.status, severity: f.severity },
+      });
+    }
+  }
   /* ---------- v1.07 (ADR-103): opatření, aktiva, procesy, dodavatelé, legislativa, knihovna odpovědí, znalostní články ---------- */
   if (on("controls")) {
     for (const c of await db.select().from(controls)) {
@@ -297,7 +314,7 @@ export async function collectRecordDocs(db: Db): Promise<RecordDoc[]> {
     }
   }
   const exScope = Object.fromEntries(
-    EXCEPTION_KINDS.map((k) => [k, on({ identity_finding: "identity", sod_violation: "identity", vulnerability: "vulnerabilities", risk_accepted: "risks", requirement_na: "controls", soc_suppression: "soc" }[k]) ? companyIds : []]),
+    EXCEPTION_KINDS.map((k) => [k, on({ identity_finding: "identity", sod_violation: "identity", vulnerability: "vulnerabilities", risk_accepted: "risks", requirement_na: "controls", soc_suppression: "soc", sectest_finding: "sectests", host_finding: "assets" }[k]) ? companyIds : []]),
   );
   for (const e of await loadExceptions(db, exScope)) {
     out.push({

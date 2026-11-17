@@ -29,8 +29,7 @@ import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
 import { alertSuggestions, appSettings, assets, assetSources, threatIntel } from "../../db/schema";
 import { safeUnzip } from "../../lib/zip";
-import { getAlertSettings } from "../alerts/routes";
-import { getWazuhConfig } from "../connectors/config";
+import { alertsIndexer, alertsIndexPath, assetForAgent, indexersFor, type WazuhConn } from "../connections/wazuh";
 import type { FetchLike } from "../discovery/connectors/wazuh";
 import type { Mailer, TeamsPoster } from "../notifications/service";
 import { indexerCall } from "../vulnerabilities/sources";
@@ -218,15 +217,17 @@ export async function huntThreatIntel(d: Deps, now = new Date()) {
       .orderBy(sql`${threatIntel.firstSeen} desc nulls last`)
       .limit(HUNT_MAX_VALUES * 2);
     if (!ti.length) return null;
-    const w = await getWazuhConfig(d.db, d.config);
-    if (!w.indexerUrl || !w.indexerUser || !w.indexerPassword) throw new Error("Wazuh Indexer není nastaven.");
-    const al = await getAlertSettings(d.db);
+    // všechny Wazuhy s indexerem (ADR-146)
+    const conns = await indexersFor(d.db, d.config);
+    if (!conns.length) throw new Error("Wazuh Indexer není nastaven.");
     const ips = [...new Set(ti.filter((x) => x.type === "ip").map((x) => x.value))].slice(0, HUNT_MAX_VALUES);
     const domains = [...new Set(ti.filter((x) => x.type === "domain").map((x) => x.value))].slice(0, HUNT_MAX_VALUES);
     const should = [...(ips.length ? IP_FIELDS.map((f) => ({ terms: { [f]: ips } })) : []), ...(domains.length ? DOMAIN_FIELDS.map((f) => ({ terms: { [f]: domains } })) : [])];
-    const res = await indexerCall(
-      { url: w.indexerUrl, user: w.indexerUser, password: w.indexerPassword, verifyTls: w.indexerVerifyTls, indexPattern: al.alertsIndexPattern },
-      `/${encodeURIComponent(al.alertsIndexPattern).replace(/%2A/g, "*")}/_search`,
+    const hits: { h: any; w: WazuhConn }[] = [];
+    for (const w of conns) {
+      const res = await indexerCall(
+      alertsIndexer(w),
+      alertsIndexPath(w),
       {
         size: 1000,
         sort: [{ timestamp: { order: "asc" } }],
@@ -235,12 +236,13 @@ export async function huntThreatIntel(d: Deps, now = new Date()) {
       },
       d.fetchImpl ?? (fetch as FetchLike),
     );
-    const hits: any[] = res.hits?.hits ?? [];
+      for (const h of (res.hits?.hits ?? []) as any[]) hits.push({ h, w });
+    }
     result.hits = hits.length;
     const byVal = new Map(ti.map((x) => [`${x.type}|${x.value}`, x]));
-    type G = { type: SocIocType; value: string; agentId: string | null; agentName: string | null; first: Date; last: Date; n: number; rule: string; srcip: string | null; dstip: string | null; ti: (typeof ti)[number] };
+    type G = { type: SocIocType; value: string; connectionId: string; agentId: string | null; agentName: string | null; first: Date; last: Date; n: number; rule: string; srcip: string | null; dstip: string | null; ti: (typeof ti)[number] };
     const groups = new Map<string, G>();
-    for (const h of hits) {
+    for (const { h, w } of hits) {
       const a = h._source ?? {};
       const found: { type: SocIocType; value: string }[] = [];
       for (const f of IP_FIELDS) {
@@ -255,7 +257,8 @@ export async function huntThreatIntel(d: Deps, now = new Date()) {
       const ts = new Date(a.timestamp ?? now);
       const agentId = a.agent?.id != null ? String(a.agent.id) : null;
       for (const f of found) {
-        const key = `ti:${f.type}:${f.value}:${agentId ?? "-"}`.slice(0, 200);
+        // primární Wazuh drží klíč ze starších verzí; další připojení ho mají v klíči (stejné ID agenta = jiný stroj)
+        const key = `ti:${f.type}:${f.value}:${w.primary ? "" : `${w.id}:`}${agentId ?? "-"}`.slice(0, 200);
         const g = groups.get(key);
         if (g) {
           g.n++;
@@ -264,6 +267,7 @@ export async function huntThreatIntel(d: Deps, now = new Date()) {
         } else
           groups.set(key, {
             ...f,
+            connectionId: w.id,
             agentId,
             agentName: a.agent?.name ? String(a.agent.name).slice(0, 255) : null,
             first: ts,
@@ -279,13 +283,7 @@ export async function huntThreatIntel(d: Deps, now = new Date()) {
     const suppressions = await activeSuppressions(d.db, now);
     const ids: string[] = [];
     for (const [key, g] of groups) {
-      const [asset] = g.agentId
-        ? await d.db
-            .select({ id: assets.id, companyId: assets.companyId })
-            .from(assetSources)
-            .innerJoin(assets, eq(assets.id, assetSources.assetId))
-            .where(and(eq(assetSources.sourceType, "wazuh"), eq(assetSources.sourceRef, g.agentId)))
-        : [];
+      const asset = g.agentId ? await assetForAgent(d.db, g.connectionId, g.agentId) : null;
       const ruleId = `ti:${g.ti.source}`.slice(0, 50);
       if (suppressions.length && (await suppressGroup(d.db, suppressions, { companyId: asset?.companyId ?? null, ruleId, agentId: g.agentId, srcip: g.srcip, n: g.n, last: g.last }))) continue;
       const [open] = await d.db
@@ -308,6 +306,7 @@ export async function huntThreatIntel(d: Deps, now = new Date()) {
         .values({
           companyId: asset?.companyId ?? undefined,
           source: "threatintel",
+          connectionId: g.connectionId,
           groupKey: key,
           ruleId,
           ruleLevel: 12,

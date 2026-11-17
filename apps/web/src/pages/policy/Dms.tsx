@@ -218,7 +218,7 @@ export function VersionsCard({ p, onDone, onOpen, onReview }: { p: PolicyDetail;
                 )}
                 {v.can.edit && tpl.length > 0 && (
                   <select
-                    className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-brand-700"
+                    className="ctx-select rounded border border-slate-200 bg-white px-1.5 py-0.5 text-xs text-brand-700"
                     value=""
                     disabled={fromTemplate.isPending}
                     onChange={(e) => e.target.value && fromTemplate.mutate({ v, tid: e.target.value })}
@@ -403,7 +403,7 @@ function CompareModal({ p, v, onClose }: { p: PolicyDetail; v: PolicyVersionDto;
         {older.length > 1 && (
           <label className="flex items-center gap-2 text-sm text-slate-600">
             {t("dms.porovnatSVerzi")}
-            <select className="rounded border border-slate-300 px-2 py-1" value={base} onChange={(e) => setBase(e.target.value)}>
+            <select className="ctx-select rounded border border-slate-300 px-2 py-1" value={base} onChange={(e) => setBase(e.target.value)}>
               {older.map((o) => (
                 <option key={o.id} value={o.id}>
                   {o.version} ({t.lbl(POLICY_LABELS.versionStatus[o.status])})
@@ -463,7 +463,7 @@ function CheckinModal({ p, v, onClose, onDone }: { p: PolicyDetail; v: PolicyVer
         </Field>
         {file && v.files.length > 0 && (
           <Field label={t("dms.nahrazuje")} hint={t("dms.puvodniSouborZustaneVHistorii")}>
-            <select className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" value={replaceId} onChange={(e) => setReplaceId(e.target.value)}>
+            <select className="ctx-select w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" value={replaceId} onChange={(e) => setReplaceId(e.target.value)}>
               {v.files.map((f) => (
                 <option key={f.id} value={f.id}>
                   {t("dms.rev", { filename: f.filename, revision: f.revision })}

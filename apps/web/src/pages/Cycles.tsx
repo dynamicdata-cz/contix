@@ -1,9 +1,10 @@
+import { useRiskNav } from "@/components/riskNav";
 import { askConfirm } from "@/components/ui/overlay";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { useT } from "@/lib/i18n";
 import { CompanyCell, useGroupView } from "@/components/company";
 import { STATUS_COLORS } from "@/components/health";
-import { PositionSelect } from "@/components/pickers";
+import { PositionSelect, PositionMultiSelect } from "@/components/pickers";
 import { RiskLevelBadge } from "@/components/risk";
 import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -56,14 +57,18 @@ export function CyclesPage({ kind }: { kind: CycleKind }) {
   const [create, setCreate] = useState(false);
   const me = useMe();
   const nameOf = (id: string) => me.companies.find((c) => c.id === id)?.name ?? "";
+  const riskNav = useRiskNav();
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to={BACK[kind].to as never} className="hover:text-brand-700">
-          {t.lbl(BACK[kind].label)}
-        </Link>
-      </div>
+      {kind !== "risk" && (
+        <div className="mb-1 text-sm text-slate-500">
+          <Link to={BACK[kind].to as never} className="hover:text-brand-700">
+            {t.lbl(BACK[kind].label)}
+          </Link>
+        </div>
+      )}
       <PageHeader badge={<FrameworkBadge />}
+        nav={kind === "risk" ? riskNav : undefined}
         title={kind === "risk" ? t("cyc.pravidelneHodnoceniRizik") : t("cyc.pravidelnaAnalyzaDopaduBia")}
         subtitle={
           kind === "risk"
@@ -148,7 +153,7 @@ function CreateModal({ kind, onClose }: { kind: CycleKind; onClose: () => void }
   const nav = useNavigate();
   const qc = useQueryClient();
   const y = new Date().getFullYear();
-  const [f, setF] = useState({ title: `${kind === "risk" ? t("cyc.hodnoceniRizik") : t("cyc.analyzaDopadu")} ${y}`, reason: "regular" as CycleReason, dueDate: "", periodFrom: `${y}-01-01`, periodTo: `${y}-12-31`, leaderPositionId: null as string | null, team: "", scope: "" });
+  const [f, setF] = useState({ title: `${kind === "risk" ? t("cyc.hodnoceniRizik") : t("cyc.analyzaDopadu")} ${y}`, reason: "regular" as CycleReason, dueDate: "", periodFrom: `${y}-01-01`, periodTo: `${y}-12-31`, leaderPositionId: null as string | null, teamPositionIds: [] as string[], team: "", scope: "" });
   const m = useMutation({
     mutationFn: () => api.cycles.create({ kind, ...f, dueDate: f.dueDate || null, team: f.team || null, scope: f.scope || null }),
     onSuccess: (d) => {
@@ -205,7 +210,10 @@ function CreateModal({ kind, onClose }: { kind: CycleKind; onClose: () => void }
         <PositionSelect value={f.leaderPositionId} onChange={(v) => setF({ ...f, leaderPositionId: v })} />
       </Field>
       <Field label={t("cyc.tym")}>
-        <Input value={f.team} onChange={(e) => setF({ ...f, team: e.target.value })} placeholder={t("cyc.naprMkbGarantiAktivVlastnici")} />
+        <PositionMultiSelect value={f.teamPositionIds} onChange={(teamPositionIds) => setF({ ...f, teamPositionIds })} ariaLabel={t("cyc.tym")} />
+      </Field>
+      <Field label={t("cyc.teamNote")}>
+        <Input value={f.team} onChange={(e) => setF({ ...f, team: e.target.value })} placeholder={t("cyc.teamNotePh")} />
       </Field>
       <Field label={t("cyc.rozsahAVstupy")}>
         <Textarea rows={2} value={f.scope} onChange={(e) => setF({ ...f, scope: e.target.value })} />
@@ -304,6 +312,18 @@ function CycleView({ d }: { d: CycleDetail }) {
           </>
         }
       />
+      {(d.teamPositions?.length || d.team) && (
+        <div className="mb-4 flex flex-wrap items-center gap-1.5 text-sm" data-testid="cycle-team">
+          <span className="text-slate-500">{t("cyc.tym")}:</span>
+          {d.teamPositions?.map((p) => (
+            <span key={p.id} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700" title={p.holders.join(", ") || t("common.vacant")}>
+              {p.name}
+              {p.holders.length > 0 && <span className="text-slate-500"> · {p.holders.join(", ")}</span>}
+            </span>
+          ))}
+          {d.team && <span className="text-xs text-slate-600">{d.team}</span>}
+        </div>
+      )}
       <ErrorBox error={decide.error ?? submit.error ?? reopen.error ?? approve.error ?? cancel.error} />
       {d.approvedAt && (
         <div className="mb-4 flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">

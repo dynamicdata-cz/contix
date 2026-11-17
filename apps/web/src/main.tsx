@@ -40,6 +40,10 @@ const AdminSettingsPage = lazyRouteComponent(() => import("./pages/admin/Setting
 const DoraPage = lazyRouteComponent(() => import("./pages/Dora"), "DoraPage");
 const InfoServicePage = lazyRouteComponent(() => import("./pages/InfoService"), "InfoServicePage");
 const CertificatesPage = lazyRouteComponent(() => import("./pages/Certificates"), "CertificatesPage");
+const SiteMapsPage = lazyRouteComponent(() => import("./pages/SiteMaps"), "SiteMapsPage");
+const AccessPage = lazyRouteComponent(() => import("./pages/Access"), "AccessPage");
+const ProjectsPage = lazyRouteComponent(() => import("./pages/Projects"), "ProjectsPage");
+const ProjectDetailPage = lazyRouteComponent(() => import("./pages/Projects"), "ProjectDetailPage");
 const AdminCompaniesPage = lazyRouteComponent(() => import("./pages/admin/Companies"), "AdminCompaniesPage");
 const AdminLoginPage = lazyRouteComponent(() => import("./pages/admin/Login"), "AdminLoginPage");
 const FrameworkLibraryPage = lazyRouteComponent(() => import("./pages/FrameworkLibrary"), "FrameworkLibraryPage");
@@ -71,6 +75,10 @@ const AdminOpsPage = lazyRouteComponent(() => import("./pages/admin/Ops"), "Admi
 const MyPage = lazyRouteComponent(() => import("./pages/My"), "MyPage");
 const RiskQuantPage = lazyRouteComponent(() => import("./pages/RiskQuant"), "RiskQuantPage");
 const RiskScenariosPage = lazyRouteComponent(() => import("./pages/RiskScenarios"), "RiskScenariosPage");
+const AuditReadinessPage = lazyRouteComponent(() => import("./pages/AuditReadiness"), "AuditReadinessPage");
+const CompliancePathPage = lazyRouteComponent(() => import("./pages/CompliancePath"), "CompliancePathPage");
+const ThreatModelingPage = lazyRouteComponent(() => import("./pages/ThreatModeling"), "ThreatModelingPage");
+const ThreatModelPage = lazyRouteComponent(() => import("./pages/ThreatModeling"), "ThreatModelPage");
 const RiskAppetitePage = lazyRouteComponent(() => import("./pages/RiskAppetite"), "RiskAppetitePage");
 const PoliciesPage = lazyRouteComponent(() => import("./pages/Policies"), "PoliciesPage");
 const PolicyDetailPage = lazyRouteComponent(() => import("./pages/Policies"), "PolicyDetailPage");
@@ -82,13 +90,20 @@ const AwarenessPage = lazyRouteComponent(() => import("./pages/Awareness"), "Awa
 const CourseDetailPage = lazyRouteComponent(() => import("./pages/Awareness"), "CourseDetailPage");
 const CourseNewPage = lazyRouteComponent(() => import("./pages/Awareness"), "CourseNewPage");
 const GroupPage = lazyRouteComponent(() => import("./pages/Group"), "GroupPage");
+const TagsPage = lazyRouteComponent(() => import("./pages/Tags"), "TagsPage");
+const DataLocationsPage = lazyRouteComponent(() => import("./pages/DataLocations"), "DataLocationsPage");
 const IdentityPage = lazyRouteComponent(() => import("./pages/Identity"), "IdentityPage");
 const AccessReviewPage = lazyRouteComponent(() => import("./pages/IdentityGovernance"), "AccessReviewPage");
 const AdminUsersPage = lazyRouteComponent(() => import("./pages/admin/Users"), "AdminUsersPage");
 const AdminSetupPage = lazyRouteComponent(() => import("./pages/admin/Setup"), "AdminSetupPage");
+const SetupWizardPage = lazyRouteComponent(() => import("./pages/SetupWizard"), "SetupWizardPage");
 const AssetDetailPage = lazyRouteComponent(() => import("./pages/AssetDetail"), "AssetDetailPage");
 const AssetsPage = lazyRouteComponent(() => import("./pages/Assets"), "AssetsPage");
 const Dashboard = lazyRouteComponent(() => import("./pages/Dashboard"), "Dashboard");
+const SecurityTestsPage = lazyRouteComponent(() => import("./pages/SecurityTests"), "SecurityTestsPage");
+const SecurityTestRunPage = lazyRouteComponent(() => import("./pages/SecurityTests"), "SecurityTestRunPage");
+const SecurityTestBatchPage = lazyRouteComponent(() => import("./pages/SecurityTests"), "SecurityTestBatchPage");
+const HostDetailPage = lazyRouteComponent(() => import("./pages/HostDetail"), "HostDetailPage");
 const DiscoveryPage = lazyRouteComponent(() => import("./pages/Discovery"), "DiscoveryPage");
 const OrganizationPage = lazyRouteComponent(() => import("./pages/Organization"), "OrganizationPage");
 const ProcessDetailPage = lazyRouteComponent(() => import("./pages/ProcessDetail"), "ProcessDetailPage");
@@ -104,6 +119,8 @@ const ControlDetailPage = lazyRouteComponent(() => import("./pages/ControlDetail
 const ControlNewPage = lazyRouteComponent(() => import("./pages/ControlDetail"), "ControlNewPage");
 const SoaPage = lazyRouteComponent(() => import("./pages/Soa"), "SoaPage");
 const CoveragePage = lazyRouteComponent(() => import("./pages/Coverage"), "CoveragePage");
+const QualityPage = lazyRouteComponent(() => import("./pages/Quality"), "QualityPage");
+const FindingsPage = lazyRouteComponent(() => import("./pages/Findings"), "FindingsPage");
 const ExceptionsPage = lazyRouteComponent(() => import("./pages/Exceptions"), "ExceptionsPage");
 const BiaDetailPage = lazyRouteComponent(() => import("./pages/Bia"), "BiaDetailPage");
 const BiaListPage = lazyRouteComponent(() => import("./pages/Bia"), "BiaListPage");
@@ -251,12 +268,17 @@ const routeTree = root.addChildren([
     r("/assets/graph", AssetGraphPage),
     r("/assets/resilience", ResiliencePage),
     r("/assets/certificates", CertificatesPage),
+    r("/assets/maps", SiteMapsPage),
     r("/audit-portal", AuditPortalPage),
     r("/controls/sca", ScaPage),
     r("/controls/monitoring", MonitoringPage),
     r("/assets/$assetId", AssetDetailPage),
     r("/assets/$assetId/edit", () => <AssetFormPage mode="edit" />),
     r("/discovery", DiscoveryPage),
+    r("/discovery/hosts/$hostId", HostDetailPage),
+    r("/security-tests", SecurityTestsPage),
+    r("/security-tests/runs/$runId", SecurityTestRunPage),
+    r("/security-tests/batches/$batchId", SecurityTestBatchPage),
     r("/vulnerabilities", VulnerabilitiesPage),
     r("/vulnerabilities/cve/$cveId", VulnCvePage),
     r("/organization", OrganizationPage),
@@ -268,6 +290,10 @@ const routeTree = root.addChildren([
     r("/risks/plan", RiskPlanPage),
     r("/risks/quant", RiskQuantPage),
     r("/risks/scenarios", RiskScenariosPage),
+    r("/risks/modeling", ThreatModelingPage),
+    r("/compliance-path", CompliancePathPage),
+    r("/compliance-path/audit", AuditReadinessPage),
+    r("/risks/modeling/models/$modelId", ThreatModelPage),
     r("/risks/appetite", RiskAppetitePage),
     r("/risks/cycles", () => <CyclesPage kind="risk" />),
     r("/bia/cycles", () => <CyclesPage kind="bia" />),
@@ -302,6 +328,8 @@ const routeTree = root.addChildren([
     r("/audits/$auditId", AuditDetailPage),
     r("/suppliers", SuppliersPage),
     r("/suppliers/dora", DoraPage),
+    r("/suppliers/locations", DataLocationsPage),
+    r("/tags", TagsPage),
     r("/suppliers/new", SupplierNewPage),
     r("/suppliers/reports/$reportId", SupplierReportPage),
     r("/trust", TrustPage),
@@ -337,7 +365,13 @@ const routeTree = root.addChildren([
     r("/cra/$productId", CraProductPage),
     r("/soc2/$engagementId", Soc2DetailPage),
     r("/identity", IdentityPage),
+    r("/access", AccessPage),
+    r("/projects", ProjectsPage),
+    r("/projects/$projectId", ProjectDetailPage),
     r("/exceptions", ExceptionsPage),
+    r("/findings", FindingsPage),
+    r("/quality", QualityPage),
+    r("/setup-wizard", SetupWizardPage),
     r("/soc", SocPage),
     r("/soc/cases/$caseId", SocCasePage),
     r("/soc/hosts/$hostKey", SocHostPage),

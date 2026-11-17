@@ -41,7 +41,7 @@ import type { Config } from "../../config";
 import type { Db } from "../../db/client";
 import { alertSuggestions, assets, assetVulnerabilities, incidents, roles, socCases, socSuppressions, userRoles, users, riskAssets, risks } from "../../db/schema";
 import { getAiSettings } from "../ai/service";
-import { escalateAlert, getAlertSettings, syncAlerts } from "../alerts/routes";
+import { alertSyncSummary, escalateAlert, syncAlerts } from "../alerts/routes";
 import type { FetchLike } from "../discovery/connectors/wazuh";
 import { tFor } from "../i18n/service";
 import { adviseAlert, askAdvisor } from "./advisor";
@@ -208,7 +208,7 @@ export function socRoutes(deps: { db: Db; config: Config; fetchImpl?: FetchLike 
         .select({ status: alertSuggestions.status, verdict: alertSuggestions.verdict, tactics: alertSuggestions.mitreTactics, createdAt: alertSuggestions.createdAt, ack: alertSuggestions.acknowledgedAt, decidedAt: alertSuggestions.decidedAt })
         .from(alertSuggestions)
         .where(and(inSoc(c), gte(alertSuggestions.lastSeen, since))),
-      getAlertSettings(db),
+      alertSyncSummary(db),
     ]);
     const [late, [oc]] = await Promise.all([
       socSlaItems(db, socIds(c), 1),

@@ -304,6 +304,8 @@ export function evaluateScenario(
     alerts: number;
     /** Pokrytí technik šablony detekcí (v1.22, ADR-119); null = detekce se neměří. */
     detection?: { blind: number; total: number } | null;
+    /** Relevantní aktéři hrozeb pro odvětví (v1.40, ADR-137): +1 / −1 k úrovni hrozby. */
+    sector?: { delta: number; actors: string[] } | null;
   },
 ): ScenarioEvaluation {
   const n = ctx.levels;
@@ -322,6 +324,10 @@ export function evaluateScenario(
   if (ctx.hits.some((h) => (h.key === "kev_exposed" || h.key === "critical_exposed") && h.count > 0)) {
     threat++;
     reasons.push({ kind: "threat", text: "rsc.why.exposed" });
+  }
+  if (ctx.sector?.delta) {
+    threat += ctx.sector.delta;
+    reasons.push({ kind: "threat", text: ctx.sector.delta > 0 ? "rsc.why.sectorUp" : "rsc.why.sectorDown", params: { a: ctx.sector.actors.join(", ") || "–" } });
   }
   const threatLevel = clamp(threat, n);
 
@@ -592,7 +598,7 @@ export interface PlanSuggestionDto {
 }
 
 export interface PlanSuggestionInput {
-  controls: { id: string; code: string | null; name: string; status: string; effectiveness: string; lastTestResult?: string | null; monitorFailing?: boolean }[];
+  controls: { id: string; code: string | null; name: string; status: string; effectiveness: string; lastTestResult?: string | null; monitorFailing?: boolean; findingsSerious?: number }[];
   /** Schopnosti z přijatých / navázaných scénářů rizika (stav z posledního vyhodnocení). */
   capabilities: { key: CapabilityKey; status: CapabilityStatus }[];
   actions: { title: string; controlId: string | null; status: string }[];
@@ -607,9 +613,16 @@ export function planSuggestions(x: PlanSuggestionInput): PlanSuggestionDto[] {
     if (c.status !== "implemented") {
       const title = `Zavést opatření ${nm(c)}`;
       out.push({ key: `implement:${c.id}`, kind: "implement_control", title, objective: "Opatření je navázáno na riziko, ale není zavedeno – bez něj se zbytkové riziko nesníží.", controlId: c.id, capability: null, existing: has(title, c.id) });
-    } else if (c.lastTestResult === "ineffective" || c.monitorFailing || c.effectiveness === "ineffective") {
+    } else if (c.lastTestResult === "ineffective" || c.monitorFailing || (c.findingsSerious ?? 0) > 0 || c.effectiveness === "ineffective") {
       const title = `Obnovit účinnost opatření ${nm(c)}`;
-      const why = c.lastTestResult === "ineffective" ? "poslední test opatření byl neúčinný" : c.monitorFailing ? "průběžný monitor opatření je nesplněný" : "účinnost opatření je hodnocena jako neúčinná";
+      const why =
+        c.lastTestResult === "ineffective"
+          ? "poslední test opatření byl neúčinný"
+          : c.monitorFailing
+            ? "průběžný monitor opatření je nesplněný"
+            : (c.findingsSerious ?? 0) > 0
+              ? "k opatření je otevřený závažný nález testu nebo auditu"
+              : "účinnost opatření je hodnocena jako neúčinná";
       out.push({ key: `fix:${c.id}`, kind: "fix_control", title, objective: `Odstranit příčinu (${why}) a ověřit účinnost novým testem.`, controlId: c.id, capability: null, existing: has(title, c.id) });
     }
   }

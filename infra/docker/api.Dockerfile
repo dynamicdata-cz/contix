@@ -14,6 +14,8 @@ FROM oven/bun:1 AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends nmap openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
+# SBOM CONTIXu se skládá z bun.lock a licencí v node_modules (Administrace → Provoz, ADR-145)
+COPY bun.lock ./
 COPY packages/shared ./packages/shared
 COPY apps/api ./apps/api
 WORKDIR /app/apps/api

@@ -1,4 +1,5 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { ProcessGuide } from "@/components/processGuide";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { BiaChainCard } from "./Resilience";
 import { useT, lbl } from "@/lib/i18n";
@@ -48,6 +49,7 @@ export function BiaListPage() {
         title={t("bia.kontinuitaAnalyzaDopaduBia")}
         subtitle={t("bia.15VyhlC4092025")}
       />
+      <ProcessGuide id="continuity" />
       <ContinuityTabs active="bia" />
       <ErrorBox error={list.error ?? create.error} />
       <Card className="mb-6 overflow-hidden">

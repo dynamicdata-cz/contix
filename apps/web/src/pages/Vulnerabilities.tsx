@@ -1,4 +1,5 @@
 import { useT, lbl } from "@/lib/i18n";
+import { ProcessGuide } from "@/components/processGuide";
 import { ColumnChart, Legend, StackedBars } from "@/components/charts";
 import { HealthIndicator, SEVERITY_COLOR, SEVERITY_ORDER, SeverityBadge, SUPPORT_COLOR, SupportBadge } from "@/components/health";
 import { Button, Card, CardHeader, EmptyState, ErrorBox, PageHeader } from "@/components/ui";
@@ -64,6 +65,7 @@ export function VulnerabilitiesPage() {
           </>
         }
       />
+      <ProcessGuide id="vulnerabilities" />
       <ErrorBox error={sum.error ?? recompute.error} />
       {s && <PrioritySection s={s} onPick={(p) => focus(p === "kev" ? { kev: true } : p === "overdue" ? { overdue: true } : { priority: p })} />}
       <FixPlanCard onPackage={(pkg) => focus({ packageName: pkg })} />

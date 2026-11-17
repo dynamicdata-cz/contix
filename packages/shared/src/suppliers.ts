@@ -140,6 +140,8 @@ export const SupplierInput = z.object({
   reviewIntervalMonths: z.number().int().min(1).max(36).default(12),
   status: z.enum(["active", "ended"]).default("active"),
   notes: text(),
+  /** Útvar odpovědný za vztah s dodavatelem (v1.80). */
+  ownerUnitId: z.string().uuid().nullable().optional(),
   assetIds: z.array(z.string().uuid()).default([]),
   processIds: z.array(z.string().uuid()).default([]),
   riskIds: z.array(z.string().uuid()).default([]),
@@ -184,6 +186,8 @@ export interface SupplierListItem {
   id: string;
   companyId: string;
   name: string;
+  ownerUnitId: string | null;
+  ownerUnitName: string | null;
   ico: string | null;
   country: string | null;
   significant: boolean;

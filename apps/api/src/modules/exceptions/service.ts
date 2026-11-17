@@ -2,7 +2,8 @@ import { EXCEPTION_LABELS, exceptionState, FRAMEWORKS, IDENTITY_RULE_INFO, requi
 import { and, desc, eq, inArray, isNull, or } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "../../db/client";
-import { alertSuggestions, controls, exceptionControls, socSuppressions, assets, assetVulnerabilities, identityAccounts, identityFindings, positions, requirementAssessments, risks, sodRules, sodViolations, users } from "../../db/schema";
+import { hostFindings, hostInventories, secTestFindings, alertSuggestions, controls, exceptionControls, socSuppressions, assets, assetVulnerabilities, identityAccounts, identityFindings, positions, requirementAssessments, risks, sodRules, sodViolations, users } from "../../db/schema";
+import { hostFindingTitle } from "../collector/findings";
 
 /* ============================================================
  * Výjimky a přijatá rizika (ADR-039): sběr z modulů, nic se nepersistuje.
@@ -104,6 +105,63 @@ export async function loadExceptions(db: Db, scope: ExceptionScope, today = new 
                 acceptedById: r.v.acceptedBy,
                 until: r.v.acceptedUntil,
                 link: `/assets/${r.v.assetId}`,
+              }),
+            );
+        }),
+    );
+  // přijaté nálezy bezpečnostních testů (v1.64)
+  if (has("sectest_finding"))
+    jobs.push(
+      db
+        .select({ f: secTestFindings, asset: assets.name, by: accepter.displayName })
+        .from(secTestFindings)
+        .leftJoin(assets, eq(assets.id, secTestFindings.assetId))
+        .leftJoin(accepter, eq(accepter.id, secTestFindings.acceptedById))
+        .where(and(eq(secTestFindings.status, "accepted"), inArray(secTestFindings.companyId, scope.sectest_finding!)))
+        .then((rows) => {
+          for (const r of rows)
+            out.push(
+              mk({
+                kind: "sectest_finding",
+                id: r.f.id,
+                companyId: r.f.companyId,
+                title: `${r.f.title} – ${r.asset ?? `${r.f.host}${r.f.port ? `:${r.f.port}` : ""}`}`,
+                detail: `${r.f.host}${r.f.port ? `:${r.f.port}` : ""}`,
+                severity: r.f.severity,
+                reason: r.f.note,
+                acceptedByName: r.by,
+                acceptedById: r.f.acceptedById,
+                until: r.f.acceptedUntil,
+                link: `/security-tests?finding=${r.f.id}`,
+              }),
+            );
+        }),
+    );
+  // přijaté nálezy konfigurace serverů ze sběrače (v1.65)
+  if (has("host_finding"))
+    jobs.push(
+      db
+        .select({ f: hostFindings, host: hostInventories.hostname, asset: assets.name, by: accepter.displayName })
+        .from(hostFindings)
+        .innerJoin(hostInventories, eq(hostInventories.id, hostFindings.inventoryId))
+        .leftJoin(assets, eq(assets.id, hostFindings.assetId))
+        .leftJoin(accepter, eq(accepter.id, hostFindings.acceptedById))
+        .where(and(eq(hostFindings.status, "accepted"), inArray(hostFindings.companyId, scope.host_finding!)))
+        .then((rows) => {
+          for (const r of rows)
+            out.push(
+              mk({
+                kind: "host_finding",
+                id: r.f.id,
+                companyId: r.f.companyId,
+                title: `${hostFindingTitle(r.f.code, r.f.subject)} – ${r.asset ?? r.host}`,
+                detail: r.host,
+                severity: r.f.severity,
+                reason: r.f.note,
+                acceptedByName: r.by,
+                acceptedById: r.f.acceptedById,
+                until: r.f.acceptedUntil,
+                link: `/findings?source=host&focus=${r.f.id}`,
               }),
             );
         }),

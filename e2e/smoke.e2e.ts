@@ -1,4 +1,4 @@
-import { expect, request, test, type Page } from "@playwright/test";
+import { expect, request, test, type Locator, type Page } from "@playwright/test";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { ADMIN, CELLAR_PORT } from "./playwright.config";
@@ -8,6 +8,21 @@ test.describe.configure({ mode: "serial" });
 
 let page: Page;
 const errors: string[] = [];
+
+/** Výběr položky: nativní <select> podle popisku, výběr s vyhledáváním (v1.74) napsáním a klikem na položku. */
+async function choose(loc: Locator, label: string) {
+  if ((await loc.evaluate((e) => e.tagName)) === "SELECT") return void (await loc.selectOption({ label }));
+  const text = label.replace(/ \([^)]*\)$/, "");
+  await loc.click();
+  await loc.fill(text);
+  await page.getByRole("listbox").getByRole("option").filter({ hasText: text }).first().click();
+}
+/** První nabízená položka výběru s vyhledáváním. */
+async function chooseFirst(loc: Locator) {
+  if ((await loc.evaluate((e) => e.tagName)) === "SELECT") return void (await loc.selectOption({ index: 1 }));
+  await loc.click();
+  await page.getByRole("listbox").getByRole("option").first().click();
+}
 
 test.beforeAll(async ({ browser }) => {
   page = await browser.newPage();
@@ -46,8 +61,12 @@ test("nápověda k obrazovce a průvodce nastavením", async () => {
   // první téma k obrazovce Správa dokumentace se otevře rovnou
   await expect(page.getByRole("dialog", { name: "Nápověda" }).getByText(/Gestor|Správa dokumentace/).first()).toBeVisible();
   await page.keyboard.press("Escape");
+  // nová instalace (v1.73): Přehled nabízí průvodce prvním nastavením, z něj vede odkaz na kontrolní seznam
   await page.goto("/");
-  await page.getByRole("link", { name: /Pokračovat v průvodci/ }).click();
+  await page.getByTestId("dash-wizard").getByRole("link", { name: /Otevřít průvodce/ }).click();
+  await expect(page.getByTestId("wiz-steps")).toBeVisible();
+  await page.getByTestId("wiz-nav-finish").click();
+  await page.getByRole("link", { name: /Kontrolní seznam nastavení/ }).click();
   await expect(page.getByText("Kroky nastavení")).toBeVisible();
   await expect(page.getByText("Bezpečnostní politika a dokumentace").first()).toBeVisible();
 });
@@ -91,6 +110,10 @@ test("import aktiv z Excelu", async () => {
   await expect(page.getByText(/Import dokončen: nové 2/)).toBeVisible();
   await page.goto("/assets");
   await expect(page.getByText("Účetní systém Helios")).toBeVisible();
+  // útvary a funkční místa (v1.48)
+  await page.goto("/import");
+  await choose(page.getByRole("combobox").first(), "Útvary a funkční místa");
+  await expect(page.getByRole("link", { name: /Šablona/ })).toHaveAttribute("href", /template\/positions/);
 });
 
 test("dokumentace: schválení verze, portál a potvrzení seznámení", async () => {
@@ -316,7 +339,7 @@ test("identity a přístupy: připojení AD, synchronizace, výjimka (testovací
     await page.getByRole("button", { name: "Přezkum přístupů" }).click();
     await page.getByRole("button", { name: "Nový přezkum přístupů" }).click();
     const rd = page.getByRole("dialog");
-    await rd.getByLabel("Recenzent (funkční místo)").selectOption({ label: "Vlastník AD (Administrátor)" });
+    await choose(rd.getByLabel("Recenzent (funkční místo)"), "Vlastník AD (Administrátor)");
     await rd.getByRole("button", { name: "Zahájit přezkum" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByRole("link", { name: /Přezkum privilegovaných účtů/ }).click();
@@ -332,7 +355,7 @@ test("identity a přístupy: připojení AD, synchronizace, výjimka (testovací
     await page.evaluate(() => fetch("/api/controls", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "E2E řízení přístupu", status: "implemented" }) }));
     await page.goto("/identity?tab=automations");
     await page.getByRole("button", { name: "Automatický test opatření" }).click();
-    await page.getByRole("dialog").getByRole("combobox").first().selectOption({ label: "E2E řízení přístupu" });
+    await choose(page.getByRole("dialog").getByRole("combobox").first(), "E2E řízení přístupu");
     await page.getByRole("dialog").getByRole("button", { name: "Uložit" }).click();
     await page.getByRole("button", { name: "Spustit nyní" }).click();
     await expect(page.getByText(/^neúčinné$/)).toBeVisible();
@@ -344,6 +367,13 @@ test("identity a přístupy: připojení AD, synchronizace, výjimka (testovací
 test("všechny položky menu se otevřou bez chyby", async () => {
   await page.goto("/");
   await expect(page.getByRole("link", { name: "Přehled" })).toBeVisible();
+  await expect(page.getByTestId("today-card")).toContainText("Dnes pro vás");
+  // řídicí panel pro vedení (v1.38)
+  await page.goto("/management");
+  await expect(page.getByTestId("executive-panel")).toContainText("Stav kybernetické bezpečnosti");
+  await expect(page.getByTestId("mgmt-scorecard")).toBeVisible();
+  await expect(page.getByTestId("lamp-ok")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/management.png`, fullPage: true });
   const links = await page.locator("aside nav a").evaluateAll((as) => as.map((a) => (a as HTMLAnchorElement).getAttribute("href")!).filter(Boolean));
   expect(links.length).toBeGreaterThan(10);
   for (const href of links) {
@@ -446,6 +476,18 @@ test("dodavatel: bezpečnostní dotazník – odkaz, vyplnění dodavatelem bez 
   // trendy na přehledu
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Vývoj ukazatelů" })).toBeVisible();
+  // formát grafu (v1.39): typ, období, export CSV, pamatuje si prohlížeč
+  const tc = page.getByTestId("trends-dashboard");
+  await tc.getByRole("button", { name: "Sloupce" }).click();
+  await expect(tc.getByRole("button", { name: "Sloupce" })).toHaveAttribute("aria-pressed", "true");
+  await tc.getByLabel("Období grafu").selectOption("24");
+  await expect(tc).toContainText("24");
+  const dl = page.waitForEvent("download");
+  await tc.getByRole("button", { name: "Export" }).click();
+  await page.getByRole("menuitem", { name: "Data (CSV)" }).click();
+  expect((await dl).suggestedFilename()).toMatch(/\.csv$/);
+  await page.reload();
+  await expect(page.getByTestId("trends-dashboard").getByRole("button", { name: "Sloupce" })).toHaveAttribute("aria-pressed", "true");
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
@@ -493,6 +535,10 @@ test("moje práce a funkční místo: hromadné změny úkolů, předání odpov
   // Moje práce – záložky
   await page.goto("/my");
   await expect(page.getByRole("heading", { name: "Moje práce" })).toBeVisible();
+  // fronta (v1.37): filtry a skupiny podle naléhavosti
+  await expect(page.getByRole("heading", { name: "Fronta" })).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/my-queue.png`, fullPage: true });
+  await expect(page.getByRole("group", { name: "Filtry fronty" }).getByRole("button", { name: /^Vše/ })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("tab", { name: "Úkoly a akce" }).click();
   await expect(page).toHaveURL(/tab=actions/);
   // funkční místo: vše, co vlastní, a předání
@@ -501,7 +547,7 @@ test("moje práce a funkční místo: hromadné změny úkolů, předání odpov
   await expect(page.getByTestId("position-usage")).toContainText("Úkoly (2)");
   await page.getByRole("button", { name: "Předat odpovědnost" }).click();
   const dlg = page.getByRole("dialog", { name: "Předat odpovědnost" });
-  await dlg.getByRole("combobox", { name: "Cílové funkční místo" }).selectOption({ label: "E2E Nástupce (neobsazeno)" });
+  await choose(dlg.getByRole("combobox", { name: "Cílové funkční místo" }), "E2E Nástupce (neobsazeno)");
   await dlg.getByRole("button", { name: /^Předat \d+/ }).click();
   await expect(page.getByText("Předáno 2 položek.")).toBeVisible();
   await expect(page.getByText("Toto funkční místo zatím nic nevlastní.")).toBeVisible();
@@ -518,7 +564,7 @@ test("výjimky: kompenzační opatření a zpětná vazba u opatření (v1.11)",
   await expect(page.getByRole("columnheader", { name: "Kompenzační opatření" })).toBeVisible();
   await page.getByRole("button", { name: `Upravit kompenzační opatření: ${e.title}` }).click();
   const dlg = page.getByRole("dialog", { name: "Kompenzační opatření" });
-  await dlg.getByRole("combobox").first().selectOption({ label: "E2E-KOMP E2E kompenzační opatření" });
+  await choose(dlg.getByRole("combobox").first(), "E2E-KOMP E2E kompenzační opatření");
   await dlg.getByLabel(/Poznámka/).fill("Snižuje dopad");
   await dlg.getByRole("button", { name: "Uložit" }).click();
   await expect(page.getByText("Kompenzační opatření uložena.")).toBeVisible();
@@ -820,7 +866,8 @@ test("SOC XII: pohled na hostitele – seznam, aktivita, alerty, odkaz z aktiva"
   await expect(page.getByTestId("soc-host-activity")).toBeVisible();
   await expect(page.getByTestId("soc-host-alerts")).toContainText("E2E podezřelý proces na serveru");
   await page.goto(`/assets/${asset.id}`);
-  await page.getByRole("link", { name: "Pohled SOC na hostitele" }).click();
+  await page.getByRole("button", { name: "Další akce" }).click();
+  await page.getByRole("menuitem", { name: "Pohled SOC na hostitele" }).click();
   await expect(page.getByTestId("soc-host-alerts")).toContainText("E2E podezřelý proces na serveru");
   expect(errors, errors.join("\n")).toEqual([]);
 });
@@ -929,7 +976,7 @@ test("graf vazeb aktiv: vrstvy, detail uzlu, technická závislost, dopad výpad
   const panel = page.getByTestId("asset-graph-node");
   await expect(panel).toContainText("E2E Mzdová služba");
   await panel.getByLabel("Druh závislosti").selectOption("runs_on");
-  await panel.getByLabel("Cílové aktivum").selectOption({ label: "E2E Hypervisor" });
+  await choose(panel.getByLabel("Cílové aktivum"), "E2E Hypervisor");
   await panel.getByRole("button", { name: "Přidat závislost" }).click();
   await expect(panel.getByRole("button", { name: "E2E Hypervisor", exact: true })).toBeVisible();
   // dopad výpadku hypervizoru: aplikace i služba
@@ -1072,7 +1119,7 @@ test("portál externího auditora: požadavek, přidělení, nahrání, odeslán
   await expect(panel).toContainText("PBC-001");
   await panel.getByRole("button", { name: "Externí auditoři" }).click();
   const au = page.getByRole("dialog", { name: "Externí auditoři" });
-  await au.getByLabel("Vyberte auditora…").selectOption({ label: "E2E Auditor (e2e.auditor@cpa.test)" });
+  await choose(au.getByLabel("Vyberte auditora…"), "E2E Auditor (e2e.auditor@cpa.test)");
   await au.locator("button:has(svg.lucide-plus)").click();
   await au.getByRole("button", { name: "Uložit" }).click();
   await expect(panel).toContainText("E2E Auditor");
@@ -1276,10 +1323,10 @@ test("rizikový scénář s více hrozbami a zranitelnostmi", async () => {
   await page.goto("/risks/new");
   await page.getByLabel("Název rizika").fill("Únik dat z CRM");
   const more = page.getByTestId("more-threats");
-  await more.locator("select").selectOption({ index: 1 });
-  await more.locator("select").selectOption({ index: 1 });
+  await chooseFirst(more.getByRole("combobox"));
+  await chooseFirst(more.getByRole("combobox"));
   await expect(more.getByRole("button", { name: "Odebrat ze scénáře" })).toHaveCount(2);
-  await page.getByTestId("more-weaknesses").locator("select").selectOption({ index: 1 });
+  await chooseFirst(page.getByTestId("more-weaknesses").getByRole("combobox"));
   await page.getByRole("button", { name: "Založit riziko" }).click();
   await expect(page).toHaveURL(/\/risks\/[0-9a-f-]{36}$/);
   await expect(page.getByTestId("more-threats").getByRole("button", { name: "Odebrat ze scénáře" })).toHaveCount(2);
@@ -1399,6 +1446,15 @@ test("CRA: nový produkt, kategorie, požadavek a hlášení se lhůtami", async
   await expect(page.getByTestId("cra-report-text")).toContainText("Brána E2E");
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("cra-findings")).toBeVisible();
+  // dokumenty výrobce (v1.30): koncept prohlášení, údaje pro dokumenty
+  await expect(page.getByRole("heading", { name: "Dokumenty výrobce" })).toBeVisible();
+  await page.getByRole("button", { name: "Údaje pro dokumenty" }).click();
+  await page.getByRole("dialog").getByLabel("Adresa výrobce").fill("Testovací 1, Praha");
+  await page.getByRole("dialog").getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  const docHref = await page.getByRole("link", { name: "Zobrazit / PDF" }).first().getAttribute("href");
+  const doc = await page.request.get(docHref!);
+  expect(await doc.text()).toContain("Testovací 1, Praha");
   await page.goto("/cra");
   await page.getByRole("tab", { name: "Databáze OSV" }).click();
   await expect(page.getByTestId("cra-osv")).toContainText("Databáze je prázdná.");
@@ -1529,11 +1585,11 @@ test("průběžné monitorování: nový monitor, běh, historie", async () => {
   const headers = { origin: new URL(page.url()).origin };
   await page.request.post("/api/controls", { data: { name: "E2E Aktualizace systémů", status: "implemented" }, headers });
   await page.goto("/controls");
-  await page.getByRole("main").getByRole("link", { name: "Průběžné monitorování" }).click();
+  await page.getByRole("main").getByRole("link", { name: "Průběžné monitorování", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Průběžné monitorování", level: 1 })).toBeVisible();
   await page.getByRole("button", { name: "Nový monitor" }).click();
   const dlg = page.getByRole("dialog");
-  await dlg.getByRole("combobox", { name: "Opatření" }).selectOption({ label: "E2E Aktualizace systémů" });
+  await choose(dlg.getByRole("combobox", { name: "Opatření" }), "E2E Aktualizace systémů");
   await dlg.getByLabel("Co se kontroluje").selectOption("eol_assets");
   await dlg.getByRole("button", { name: "Uložit" }).click();
   await expect(dlg).toBeHidden();
@@ -1619,7 +1675,7 @@ test("vazby záznamů: klikací čip, Kde je záznam použit, vazby produktu CRA
   await page.goto(`/cra/${p.id}`);
   const card = page.getByTestId("cra-links");
   await card.getByPlaceholder(/Hledat aktivum/).fill("E2E-VAZBY");
-  await card.getByRole("button", { name: /E2E-VAZBY-SRV/ }).click();
+  await card.getByRole("option", { name: /E2E-VAZBY-SRV/ }).click();
   await card.getByRole("button", { name: "Uložit" }).click();
   await expect(card.getByRole("link", { name: "E2E-VAZBY-SRV" })).toBeVisible();
   await page.goto(`/assets/${asset.id}?tab=governance`);
@@ -1732,13 +1788,659 @@ test("jazyk ovládání: přepnutí do angličtiny v profilu a zpět", async () 
 });
 
 // náhledy vzhledu (v1.08) – jen na vyžádání: E2E_SHOTS=adresář
+test("mapy a půdorysy: nahrání, umístění aktiva, semafor (v1.25)", async () => {
+  await page.goto("/assets");
+  const headers = { origin: new URL(page.url()).origin };
+  const asset = await (await page.request.post("/api/assets", { data: { name: "E2E switch patro", assetType: "network_device" }, headers })).json();
+  await page.goto("/assets/maps");
+  await expect(page.getByRole("heading", { name: "Mapy a půdorysy", level: 1 })).toBeVisible();
+  // v menu je zvýrazněná jen položka Mapy (ne Aktiva)
+  await expect(page.locator("nav a.nav-active")).toHaveText(["Mapy a půdorysy"]);
+  await page.getByRole("button", { name: "Nahrát mapu" }).click();
+  const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
+  await page.locator('input[type="file"]').setInputFiles({ name: "patro.png", mimeType: "image/png", buffer: png });
+  await page.getByLabel("Název").fill("E2E 1. NP");
+  await page.getByLabel("Budova").fill("E2E budova");
+  await page.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByRole("heading", { name: "E2E 1. NP" })).toBeVisible();
+  await page.getByRole("button", { name: "Umísťovat aktiva" }).click();
+  await page.getByPlaceholder(/Hledat/).first().fill("E2E switch");
+  await page.getByRole("option", { name: /E2E switch patro/ }).first().click();
+  await page.getByTestId("map-viewport").locator("img").click({ position: { x: 40, y: 10 } });
+  await expect(page.getByTestId("marker-unknown")).toHaveCount(1);
+  await page.getByRole("button", { name: "Hotovo" }).click();
+  await page.getByTestId("marker-unknown").click();
+  await expect(page.getByRole("link", { name: "E2E switch patro" })).toBeVisible();
+  await page.goto(`/assets/${asset.id}?tab=governance`);
+  await expect(page.getByText("Na mapě")).toBeVisible();
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("žádosti o přístup: import osob, žádost, vyřízení (v1.26)", async () => {
+  await page.goto("/access");
+  await expect(page.getByRole("heading", { name: "Žádosti o přístup", level: 1 })).toBeVisible();
+  const headers = { origin: new URL(page.url()).origin };
+  await page.request.post("/api/access/resources", { data: { name: "E2E VPN", kind: "ad_group", approvalManager: false, approvalOwner: false, adGroup: "CN=VPN,OU=Groups,DC=e2e,DC=test" }, headers });
+  await page.getByRole("tab", { name: "Osoby" }).click();
+  await page.getByRole("button", { name: "Import z personalistiky" }).click();
+  const csv = "Osobní číslo;Příjmení;Jméno;E-mail;Útvar;Nadřízený\n900;Šéfová;Eva;sefova@e2e.test;IT;\n901;Technik;Tomáš;technik@e2e.test;IT;900\n";
+  await page.locator('input[type="file"]').setInputFiles({ name: "perm.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await expect(page.getByText("Nové: 2")).toBeVisible();
+  await page.getByRole("button", { name: "Importovat (2)" }).click();
+  await expect(page.getByRole("cell", { name: /Tomáš Technik/ })).toBeVisible();
+  await page.getByRole("button", { name: "Nová žádost" }).click();
+  const dlg = page.getByRole("dialog");
+  await choose(dlg.getByLabel("Osoba"), "Tomáš Technik (IT)");
+  await choose(dlg.getByLabel("Oprávnění"), "E2E VPN · Skupina AD");
+  await dlg.getByLabel("Zdůvodnění").fill("Práce na dálku");
+  await dlg.getByRole("button", { name: "Odeslat žádost" }).click();
+  await expect(page.getByRole("dialog").getByText("Schváleno – k vyřízení")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Přístup nastaven" }).click();
+  await expect(page.getByRole("dialog").getByText("Vyřízeno")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Přidělená oprávnění" }).click();
+  await expect(page.getByRole("cell", { name: "E2E VPN" })).toBeVisible();
+  // recertifikace (v1.27): správce rozhoduje tam, kde vlastník chybí
+  await page.getByRole("tab", { name: "Recertifikace" }).click();
+  await page.getByRole("button", { name: "Nová recertifikace" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Zahájit" }).click();
+  await expect(page.getByRole("dialog").getByText("Tomáš Technik")).toBeVisible();
+  await page.getByRole("dialog").getByRole("button", { name: "Ponechat" }).click();
+  await expect(page.getByRole("dialog").getByText("1/1")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  // soulad s AD (v1.28)
+  await page.getByRole("tab", { name: "Soulad s AD" }).click();
+  await expect(page.getByRole("heading", { name: "E2E VPN" })).toBeVisible();
+  // skupiny z AD (v1.33): okno výběru skupin podle OU
+  await page.getByRole("tab", { name: "Katalog oprávnění" }).click();
+  await page.getByRole("button", { name: "Načíst skupiny z AD" }).click();
+  await expect(page.getByRole("dialog")).toContainText(/Ze zdroje AD zatím nejsou načtené žádné skupiny|Založit oprávnění/);
+  await page.keyboard.press("Escape");
+  // IDM (v1.34): role, matice, detail osoby, průvodce nástupu, přehled
+  await page.getByRole("tab", { name: "Role", exact: true }).click();
+  await page.getByRole("button", { name: "Nová role" }).click();
+  let rd = page.getByRole("dialog");
+  await rd.getByLabel("Název").fill("E2E Technik");
+  await rd.getByLabel("Útvar").fill("IT");
+  await expect(rd.getByText(/Odpovídá 2 osoby/)).toBeVisible();
+  await rd.getByText("E2E VPN").click();
+  await rd.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByText("chybí 1 přidělení – doplnit")).toBeVisible();
+  await page.getByRole("tab", { name: "Matice" }).click();
+  await expect(page.getByText("2 osob × 1 oprávnění")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/idm-matrix.png`, fullPage: true });
+  await page.getByRole("button", { name: "Tomáš Technik" }).click();
+  rd = page.getByRole("dialog");
+  await expect(rd.getByText("Přidělená oprávnění")).toBeVisible();
+  await expect(rd.getByRole("cell", { name: "E2E VPN" })).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/idm-person.png`, fullPage: true });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Nástup / přesun / odchod" }).first().click();
+  rd = page.getByRole("dialog");
+  await choose(rd.getByLabel("Osoba"), "Eva Šéfová (IT)");
+  await rd.getByRole("button", { name: "Zobrazit návrh" }).click();
+  await expect(rd.getByText("z role E2E Technik")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/idm-jml.png` });
+  await rd.getByRole("button", { name: "Založit žádosti (1)" }).click();
+  // po založení žádostí se otevře detail osoby – počkat na něj, teprve pak zavřít
+  await expect(page.getByRole("dialog", { name: "Eva Šéfová" })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Eva Šéfová" }).getByText("Business role")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("tab", { name: "Přehled" }).click();
+  await expect(page.getByRole("heading", { name: "Tok žádostí" })).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/idm-overview.png`, fullPage: true });
+  // nastavení v AD (v1.29): výchozí režim vypnuto, náhled změn
+  await page.getByRole("tab", { name: "Nastavení v AD" }).click();
+  await expect(page.getByRole("heading", { name: "Náhled změn" })).toBeVisible();
+  await expect(page.getByLabel("Režim")).toHaveValue("off");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("projekty: založení ze šablony, dokument odkazem, fáze (v1.31)", async () => {
+  await page.goto("/projects");
+  await expect(page.getByRole("heading", { name: "Projekty", level: 1 })).toBeVisible();
+  await page.getByRole("button", { name: "Nový projekt" }).click();
+  const dlg = page.getByRole("dialog");
+  await dlg.getByLabel("Název").fill("E2E zavedení MFA");
+  await dlg.getByLabel("Šablona (fáze a dokumenty)").selectOption("security");
+  await dlg.getByRole("button", { name: "Založit" }).click();
+  await expect(page.getByRole("heading", { name: "E2E zavedení MFA", level: 1 })).toBeVisible();
+  // přehled (v1.35): stav z dat, tým
+  await expect(page.getByText("Stav projektu")).toBeVisible();
+  await expect(page.getByText("Tým projektu")).toBeVisible();
+  await page.getByRole("tab", { name: "Fáze a brány" }).click();
+  await expect(page.getByRole("list", { name: "Fáze projektu" })).toContainText("Analýza");
+  await page.getByRole("button", { name: "Odkaz na dokument" }).first().click();
+  await page.getByPlaceholder("https://…").fill("https://sharepoint.e2e.test/zadani");
+  await page.getByRole("button", { name: "Předložit" }).click();
+  await expect(page.getByText("Ke schválení").first()).toBeVisible();
+  // harmonogram a rozpočet (v1.32)
+  await page.getByLabel("Začátek fáze").first().fill("2026-11-01");
+  await page.getByLabel("Termín fáze").first().fill("2026-11-30");
+  await page.getByLabel("Termín fáze").first().blur();
+  await page.getByRole("tab", { name: "Harmonogram" }).click();
+  await expect(page.getByTestId("timeline")).toContainText("Analýza");
+  // milník (v1.35)
+  await page.getByRole("button", { name: "Nový milník" }).click();
+  let pd = page.getByRole("dialog");
+  await pd.getByLabel("Název").fill("Spuštění MFA");
+  await pd.getByLabel("Termín").fill("2026-12-15");
+  await pd.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByText("Spuštění MFA")).toBeVisible();
+  // úkoly na tabuli (v1.35)
+  await page.getByRole("tab", { name: /^Úkoly/ }).click();
+  await page.getByRole("button", { name: "Nový úkol" }).click();
+  pd = page.getByRole("dialog");
+  await pd.getByLabel("Název").fill("Vybrat tokeny");
+  await pd.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByTestId("col-todo")).toContainText("Vybrat tokeny");
+  await page.getByTestId("col-todo").getByText("Vybrat tokeny").hover();
+  await page.getByTestId("col-todo").getByRole("button", { name: "→ Probíhá" }).click();
+  await expect(page.getByTestId("col-doing")).toContainText("Vybrat tokeny");
+  // riziko projektu a hlášení stavu (v1.35)
+  await page.getByRole("tab", { name: /^Rizika a problémy/ }).click();
+  await page.getByRole("button", { name: "Nové riziko / problém" }).click();
+  pd = page.getByRole("dialog");
+  await pd.getByLabel("Název").fill("Uživatelé odmítnou MFA");
+  await pd.getByLabel("Dopad").selectOption("high");
+  await pd.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByRole("cell", { name: /Uživatelé odmítnou MFA/ })).toBeVisible();
+  await page.getByRole("tab", { name: "Hlášení a výstupy" }).click();
+  await page.getByRole("button", { name: "Nahlásit stav" }).click();
+  pd = page.getByRole("dialog");
+  await pd.getByLabel("Shrnutí pro vedení").fill("Pilot běží, riziko přijetí uživateli.");
+  await pd.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByText("Pilot běží, riziko přijetí uživateli.")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/project-status.png`, fullPage: true });
+  await page.getByRole("tab", { name: "Rozpočet" }).click();
+  await page.getByRole("button", { name: "Přidat náklad" }).click();
+  await page.getByLabel("Popis", { exact: true }).last().fill("Licence MFA");
+  await page.getByLabel("Částka (Kč)").fill("25000");
+  await page.getByRole("button", { name: "Přidat", exact: true }).last().click();
+  await expect(page.getByText("Licence MFA")).toBeVisible();
+  await page.getByRole("tab", { name: "Přehled" }).click();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/project-detail.png`, fullPage: true });
+  // portfolio (v1.35)
+  await page.goto("/projects");
+  await expect(page.getByRole("link", { name: /E2E zavedení MFA/ })).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/project-portfolio.png`, fullPage: true });
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("modelování hrozeb: útočná cesta, aktéři pro odvětví, threat model STRIDE (v1.40)", async () => {
+  const H = { origin: new URL(page.url()).origin };
+  const post = async (url: string, data: unknown) => (await page.request.post(url, { data, headers: H })).json();
+  const crown = await post("/api/assets", { name: "E2E Platební data", assetType: "information_asset", confidentiality: 4, integrity: 4, availability: 3, criticality: "critical" });
+  const portal = await post("/api/assets", { name: "E2E Platební brána", assetType: "application", internetFacing: true });
+  const pdb = await post("/api/assets", { name: "E2E Platební DB", assetType: "database" });
+  await post("/api/assets/links", { primaryId: crown.id, supportingId: pdb.id });
+  await post("/api/assets/dependencies", { fromId: portal.id, toId: pdb.id, kind: "uses" });
+  await page.goto("/risks/modeling");
+  await expect(page.getByRole("heading", { name: "Modelování hrozeb", level: 1 })).toBeVisible();
+  // postup a připravenost dat (v1.41)
+  await expect(page.getByTestId("tm-process").getByText("Jak postupovat")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/tm-process.png` });
+  await page.getByTestId("tm-step-data").click();
+  await expect(page.getByTestId("tm-readiness").getByText("Síťové segmenty", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("tm-guide")).toBeVisible();
+  await page.getByRole("button", { name: "Skrýt nápovědu" }).click();
+  await expect(page.getByRole("button", { name: "Jak na to?" })).toBeVisible();
+  await page.getByRole("button", { name: "Jak na to?" }).click();
+  const card = page.getByTestId("tm-path").filter({ hasText: "E2E Platební data" }).first();
+  await expect(card).toBeVisible();
+  await expect(card.getByText("E2E Platební brána").first()).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/tm-paths.png`, fullPage: true });
+  // aktéři pro odvětví
+  await page.getByRole("tab", { name: "Hrozby pro odvětví" }).click();
+  await page.getByLabel("Odvětví společnosti").selectOption("energy");
+  await expect(page.getByText("Profil hrozeb uložen")).toBeVisible();
+  await expect(page.getByTestId("actor-sandworm").getByText("cílí na vaše odvětví")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/tm-landscape.png`, fullPage: true });
+  // threat model z aktiva
+  await page.getByRole("tab", { name: "Threat modely" }).click();
+  await page.getByRole("button", { name: "Nový threat model" }).click();
+  const d = page.getByRole("dialog");
+  await d.getByLabel("Název", { exact: true }).fill("E2E Platební brána");
+  await d.getByPlaceholder(/Hledat aktivum/).fill("E2E Platební br");
+  await d.getByRole("option", { name: /E2E Platební brána/ }).click();
+  await d.getByRole("button", { name: "Vytvořit" }).click();
+  await expect(page.getByRole("heading", { name: "E2E Platební brána", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("tm-diagram").getByText("Uživatelé z internetu").first()).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/tm-elements.png`, fullPage: true });
+  await page.getByRole("button", { name: /Hrozby/ }).first().click();
+  const th = page.getByTestId("threat-f1:I");
+  await th.getByLabel(/Rozhodnutí/).selectOption("mitigate");
+  await page.getByRole("button", { name: "Uložit rozhodnutí" }).click();
+  await expect(page.getByText("Uloženo")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/tm-threats.png`, fullPage: true });
+  await page.getByRole("button", { name: /Výstupy/ }).click();
+  await expect(page.getByText(/Šifrovat tok/)).toBeVisible();
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("cesta k souladu a panel Jak postupovat v modulech (v1.42)", async () => {
+  await page.goto("/compliance-path");
+  await expect(page.getByRole("heading", { name: "Cesta k souladu", level: 1 })).toBeVisible();
+  const risks = page.getByTestId("path-risks");
+  await expect(risks).toBeVisible();
+  await expect(page.getByTestId("path-suppliers")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/compliance-path.png`, fullPage: true });
+  await risks.getByRole("link", { name: "Řízení rizik" }).click();
+  const g = page.getByTestId("guide-risks");
+  await expect(g.getByText("Jak postupovat")).toBeVisible();
+  await expect(g.getByTestId("guide-step-owners")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/guide-risks.png` });
+  // sbalení si pamatuje prohlížeč
+  await g.getByRole("button", { name: /Jak postupovat/ }).click();
+  await expect(g.getByTestId("guide-step-owners")).toBeHidden();
+  await page.reload();
+  await expect(page.getByTestId("guide-risks").getByTestId("guide-step-owners")).toBeHidden();
+  await page.getByTestId("guide-risks").getByRole("button", { name: /Jak postupovat/ }).click();
+  await expect(page.getByTestId("guide-risks").getByTestId("guide-step-owners")).toBeVisible();
+  await page.goto("/suppliers");
+  await expect(page.getByTestId("guide-suppliers").getByText("Jak postupovat")).toBeVisible();
+  for (const [url, id] of [["/assets", "assets"], ["/vulnerabilities", "vulnerabilities"], ["/policies", "policies"], ["/awareness", "awareness"], ["/identity", "identity"], ["/isms/changes", "changes"], ["/soc2", "soc2"], ["/trust", "trust"]]) {
+    await page.goto(url);
+    await expect(page.getByTestId(`guide-${id}`).getByText("Jak postupovat")).toBeVisible();
+  }
+  // garant postupu (v1.44)
+  await page.goto("/soc");
+  const og = page.getByTestId("guide-soc").getByTestId("guide-owner");
+  await expect(og.getByText("Bez garanta")).toBeVisible();
+  await og.getByRole("button", { name: "Určit garanta" }).click();
+  await expect(og.getByRole("combobox", { name: "Garant postupu" })).toBeVisible();
+  await page.goto("/access");
+  await expect(page.getByTestId("guide-access").getByText("Jak postupovat")).toBeVisible();
+  await page.goto("/compliance-path");
+  await expect(page.getByTestId("path-assets")).toBeVisible();
+  await expect(page.getByTestId("onboarding")).toBeVisible();
+  // startovací balíček v nabídce Další (v1.46.1)
+  await page.getByRole("button", { name: "Další akce" }).click();
+  await page.getByRole("menuitem", { name: "Startovací balíček" }).click();
+  await expect(page.getByRole("dialog").getByTestId("starter")).toBeVisible();
+  await page.keyboard.press("Escape");
+  // export / import nastavení průvodců (v1.47)
+  await page.getByRole("button", { name: "Další akce" }).click();
+  await expect(page.getByRole("menuitem", { name: "Exportovat nastavení průvodců" })).toHaveAttribute("href", /config\/export/);
+  await page.getByRole("menuitem", { name: "Importovat nastavení průvodců" }).click();
+  await page.getByLabel("Soubor s nastavením").setInputFiles({ name: "cfg.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify({ format: "contix-guides", version: 1, owners: [{ guide: "risks", position: "Neexistující místo", unit: null }], threatProfile: null })) });
+  await expect(page.getByTestId("import-result").getByText("místo nenalezeno")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/guide-import.png` });
+  await page.keyboard.press("Escape");
+  // příprava na audit (v1.45)
+  await page.getByRole("link", { name: "Příprava na audit" }).click();
+  await expect(page.getByRole("heading", { name: "Příprava na audit", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("audit-sections").locator("[data-testid^=audit-]").first()).toBeVisible();
+  await expect(page.getByRole("link", { name: "Balíček pro auditora" })).toHaveAttribute("href", /format=zip/);
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/audit-readiness.png`, fullPage: true });
+  // přehled skupiny do Excelu, CONTIX jako produkt (v1.48)
+  await page.goto("/group");
+  await expect(page.getByRole("link", { name: "Stáhnout do Excelu" })).toHaveAttribute("href", /group\.xlsx/);
+  await page.goto("/admin/ops");
+  await expect(page.getByTestId("ops-cra").getByRole("link", { name: /Stáhnout SBOM/ })).toHaveAttribute("href", "/api/ops/sbom");
+  await expect(page.getByText("Test obnovy", { exact: true }).first()).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/ops-cra.png`, fullPage: true });
+  // víc Wazuhů (v1.49): přidání připojení s přiřazením skupiny agentů, sbalený řádek, smazání
+  await page.goto("/admin/connectors");
+  const wc = page.getByTestId("wazuh-connections");
+  await wc.getByRole("button", { name: "Přidat Wazuh" }).click();
+  await wc.getByLabel("Název").fill("Wazuh E2E");
+  await wc.getByLabel("URL Wazuh Server API").fill("https://wazuh-e2e.example.test:55000");
+  await wc.getByLabel("Uživatel API").first().fill("contix-ro");
+  await wc.getByLabel("Heslo", { exact: true }).first().fill("e2e-heslo");
+  await wc.getByRole("button", { name: "Přidat pravidlo" }).click();
+  await wc.getByLabel("Skupina agentů").fill("e2e-skupina");
+  await wc.getByRole("button", { name: "Uložit" }).click();
+  const row = page.getByTestId("wazuh-conn-Wazuh E2E");
+  await expect(row).toBeVisible();
+  await expect(row.getByText(/1 pravidlo přiřazení/)).toBeVisible();
+  if (process.env.E2E_SHOTS) await wc.screenshot({ path: `${process.env.E2E_SHOTS}/wazuh-connections.png` });
+  await row.getByRole("button", { name: "Upravit" }).click();
+  await wc.getByRole("button", { name: "Smazat připojení" }).click();
+  await expect(page.getByTestId("wazuh-conn-Wazuh E2E")).toHaveCount(0);
+  // NetBox a JIRA (v1.53): formuláře připojení
+  await expect(page.getByTestId("netbox").getByRole("button", { name: "Přidat NetBox" })).toBeVisible();
+  await page.getByTestId("jira").getByRole("button", { name: "Přidat JIRA" }).click();
+  await expect(page.getByTestId("jira-new").getByLabel("Klíč projektu")).toBeVisible();
+  // sběrač ze serverů (v1.51): připojení, token, hlášení serveru, inventář u aktiva
+  const col = page.getByTestId("collectors");
+  await col.getByLabel("Název").fill("Linux E2E");
+  await col.getByRole("button", { name: "Vytvořit připojení" }).click();
+  const tok = (await page.getByTestId("collector-token").locator("code").first().textContent())!.trim();
+  expect(tok).toMatch(/^ctxh_/);
+  // instalátor (v1.54): jeden soubor s tokenem
+  await col.getByTestId("collector-installer-Linux E2E").click();
+  const inst = page.getByTestId("collector-installer");
+  await inst.getByLabel("IP adresa CONTIXu (volitelné)").fill("192.0.2.247");
+  const dl = page.waitForEvent("download");
+  await inst.getByRole("button", { name: "Stáhnout install-contix-collect.sh" }).click();
+  const file = await dl;
+  expect(file.suggestedFilename()).toBe("install-contix-collect.sh");
+  const instText = await import("node:fs/promises").then(async (f) => f.readFile((await file.path())!, "utf8"));
+  expect(instText).toContain(`CONTIX_TOKEN=${tok}`);
+  expect(instText).toContain("HOSTS_IP='192.0.2.247'");
+  if (process.env.E2E_SHOTS) await inst.screenshot({ path: `${process.env.E2E_SHOTS}/collector-installer.png` });
+  const sent = await page.request.post("/api/public/hosts/inventory", {
+    headers: { authorization: `Bearer ${tok}` },
+    data: { collectedAt: new Date().toISOString(), host: { hostname: "e2e-linux-01", machineId: "e2e0000000000000000000000000beef", os: "Debian 12" }, users: [{ name: "root", uid: 0 }], sshKeys: [{ user: "root", type: "ssh-rsa", bits: 2048, fingerprint: "SHA256:e2e", comment: "" }], firewall: { tool: "iptables", rulesHash: "a", savedHash: null, defaultInput: "accept", ruleCount: 1 } },
+  });
+  expect(sent.status()).toBe(200);
+  const sentBody = await sent.json();
+  await page.goto(`/assets/${sentBody.assetId}`);
+  await expect(page.getByTestId("host-inventory").getByText("Výchozí politika příchozího provozu je ACCEPT")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.getByTestId("host-inventory").screenshot({ path: `${process.env.E2E_SHOTS}/host-inventory.png` });
+  await page.goto("/discovery");
+  await expect(page.getByTestId("host-list").getByRole("link", { name: "e2e-linux-01" })).toBeVisible();
+  // detail serveru s rozklikem (v1.55)
+  await page.getByTestId("host-list").getByRole("link", { name: "e2e-linux-01" }).click();
+  const hd = page.getByTestId("host-detail");
+  await hd.getByTestId("host-finding-fw_default_accept").locator("summary").click();
+  await expect(hd.getByTestId("host-finding-fw_default_accept").getByText("Náprava:")).toBeVisible();
+  await hd.getByRole("tab", { name: "Účty a klíče" }).click();
+  await hd.getByTestId("host-user-root").locator("summary").click();
+  await expect(hd.getByText("SHA256:e2e")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/host-detail.png`, fullPage: true });
+  // bezpečnostní testy (v1.56): sonda v Konektorech, rozsah, schválení, import výstupu nmap, nález
+  await page.goto("/admin/connectors");
+  await page.getByTestId("probes-admin").getByLabel("Název").fill("Kali E2E");
+  await page.getByTestId("probes-admin").getByRole("button", { name: "Vytvořit sondu" }).click();
+  await expect(page.getByTestId("probe-Kali E2E")).toBeVisible();
+  await page.goto("/security-tests?tab=scopes");
+  await page.getByRole("button", { name: "Nový rozsah" }).click();
+  const dlgSc = page.getByRole("dialog");
+  await dlgSc.getByRole("textbox", { name: "Název", exact: true }).fill("E2E síť");
+  await dlgSc.getByPlaceholder(/^192\.0\.2\.0\/24/).fill("10.77.0.0/24");
+  await dlgSc.getByLabel("Podklad:").fill("Objednávka E2E");
+  await dlgSc.getByRole("button", { name: "Uložit" }).click();
+  await page.getByTestId("st-scope-E2E síť").getByTestId("st-scope-approve").click();
+  await expect(page.getByTestId("st-scope-E2E síť").getByText("schválen")).toBeVisible();
+  await page.goto("/security-tests?tab=runs");
+  await page.getByRole("button", { name: "Importovat výstup nástroje" }).click();
+  const form = page.getByTestId("st-run-form");
+  await form.getByLabel("Soubor s výstupem").setInputFiles({ name: "nmap.xml", mimeType: "text/xml", buffer: Buffer.from('<nmaprun><host><address addr="10.77.0.9" addrtype="ipv4"/><ports><port protocol="tcp" portid="23"><state state="open"/><service name="telnet"/></port></ports></host></nmaprun>') });
+  await form.getByRole("button", { name: "Importovat" }).click();
+  await page.getByTestId("st-runs").getByRole("link", { name: "Otevřené porty (TCP top 1000)" }).first().click();
+  await expect(page.getByTestId("st-run").getByText("Telnet dostupný ze sítě")).toBeVisible();
+  await page.getByTestId("st-finding-port.telnet").first().locator("summary").click();
+  await expect(page.getByTestId("st-finding-port.telnet").first().getByText(/hesla v otevřené podobě/)).toBeVisible();
+  // úkol na odstranění nálezu (v1.60) – bez aktiva nemá odpovědnou funkci
+  await page.getByTestId("st-finding-port.telnet").first().getByTestId("st-create-task").click();
+  await expect(page.getByTestId("st-finding-port.telnet").first().getByTestId("st-finding-task")).toContainText("bez odpovědné osoby");
+  // přijetí rizika (v1.64) → Výjimky a přijatá rizika
+  const tf = page.getByTestId("st-finding-port.telnet").first();
+  await tf.getByTestId("st-accept").click();
+  await tf.getByTestId("st-accept-form").getByRole("textbox", { name: "Zdůvodnění přijetí rizika" }).fill("Jen testovací síť E2E");
+  await tf.getByTestId("st-accept-confirm").click();
+  await expect(tf.getByTestId("st-accepted")).toBeVisible();
+  await page.goto("/exceptions");
+  await expect(page.getByText("Jen testovací síť E2E")).toBeVisible();
+  // jednotný přehled nálezů (v1.65): přijatý test + nález serveru ze sběrače se změnou stavu
+  await page.goto("/findings?status=all");
+  await expect(page.getByTestId("fnd-tiles")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Telnet dostupný ze sítě" }).first()).toBeVisible();
+  const hcol = await (await page.request.post("/api/admin/connections/collector", { data: { name: "Sběrač E2E", companyId: null } })).json();
+  const hostInv = { collectorVersion: "1.0", collectedAt: new Date().toISOString(), host: { hostname: "e2e-srv-165", machineId: "e2e165e2e165e2e165e2e165e2e165ab", os: "Debian 12", ips: ["10.77.1.5"] }, users: [{ name: "toor", uid: 0, shell: "/bin/bash", home: "/home/toor", sudo: false, locked: false }], sshKeys: [], containers: [], images: [], services: [], listening: [], firewall: { tool: "nftables", rulesHash: "c".repeat(64), savedHash: "c".repeat(64), defaultInput: "drop", ruleCount: 2 } };
+  expect((await page.request.post("/api/public/hosts/inventory", { headers: { authorization: `Bearer ${hcol.token}` }, data: hostInv })).status()).toBe(200);
+  await page.goto("/findings?source=host");
+  const hostRow = page.getByTestId("fnd-row").filter({ hasText: "e2e-srv-165" });
+  await expect(hostRow).toHaveCount(1);
+  await hostRow.getByTestId("fnd-host-action").click();
+  await page.getByRole("textbox", { name: "Zdůvodnění" }).fill("Servisní účet E2E");
+  await page.getByTestId("fnd-host-save").click();
+  await expect(hostRow).toHaveCount(0);
+  // kvalita dat (v1.70): kontroly a rozbalení položek
+  await page.goto("/quality");
+  await expect(page.getByTestId("qa-score")).toBeVisible();
+  const qaFirst = page.locator("[data-testid^='qa-']").filter({ has: page.locator("button[aria-expanded]") }).first();
+  await qaFirst.locator("button[aria-expanded]").click();
+  await expect(qaFirst.locator("li").first()).toBeVisible();
+  // náprava nálezů a filtr odpovědnosti (v1.69)
+  await page.goto("/findings?status=all");
+  await expect(page.getByTestId("fnd-remediation")).toContainText("Náprava nálezů");
+  // eskalace po termínu ve sloupci nápravy (v1.71)
+  await expect(page.getByTestId("fnd-remediation").getByRole("columnheader", { name: "Eskalováno" })).toBeVisible();
+  await page.getByTestId("fnd-who").selectOption("mine");
+  await expect(page).toHaveURL(/who=mine/);
+  await page.goto("/findings?source=host&status=accepted");
+  await expect(page.getByTestId("fnd-row").filter({ hasText: "e2e-srv-165" })).toContainText("Přijaté riziko");
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/findings.png`, fullPage: true });
+  await page.goto("/security-tests?tab=runs");
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/security-test-run.png`, fullPage: true });
+  // sada testů (v1.56.1): předvolba, víc testů najednou, navazující testy
+  await page.goto("/security-tests?tab=runs");
+  await page.getByRole("button", { name: "Spustit test sondou" }).click();
+  const bf = page.getByTestId("st-batch-form");
+  await bf.getByRole("button", { name: "Linux server" }).click();
+  await bf.getByPlaceholder(/^192\.0\.2\.242/).fill("10.77.0.9");
+  if (process.env.E2E_SHOTS) await bf.screenshot({ path: `${process.env.E2E_SHOTS}/security-test-batch-form.png` });
+  await bf.getByTestId("st-batch-submit").click();
+  await page.getByTestId("st-batches").getByRole("link").first().click();
+  await expect(page.getByTestId("st-batch").getByText("čeká na sondu")).toHaveCount(4);
+  // vzhled výstupů (v1.59): logo a zápatí společnosti
+  await page.goto("/admin/companies");
+  const brand = page.getByTestId("branding-card");
+  await brand.getByLabel("Nahrát logo (PNG, JPEG)").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64") });
+  // logo se čte asynchronně – nejdřív musí být v náhledu, pak uložit (na pomalém runneru jinak uloží bez loga)
+  await expect(brand.getByTestId("branding-preview").locator("img")).toBeVisible();
+  await brand.getByLabel("Text zápatí").fill("Interní E2E");
+  await expect(brand.getByTestId("branding-save")).toBeEnabled();
+  await brand.getByTestId("branding-save").click();
+  await expect(brand.getByText("Uloženo – projeví se v nových výstupech.")).toBeVisible();
+  await expect(brand.getByTestId("branding-preview").locator("img")).toBeVisible();
+  if (process.env.E2E_SHOTS) await brand.screenshot({ path: `${process.env.E2E_SHOTS}/branding.png` });
+  // určení regulace (v1.61): ruční velikost, služba z přílohy vyhl. 408, výsledek bez zápisu do profilu
+  const rg = page.getByTestId("regulation-card");
+  await rg.getByTestId("rg-new").click();
+  await rg.getByLabel("Velikost ručně").selectOption("large");
+  await rg.getByRole("button", { name: "Všechny služby přílohy vyhl. 408/2025" }).click();
+  await rg.getByText("16. Digitální infrastruktura a služby").click();
+  await rg.getByText("Poskytování řízené služby (mimo řízenou bezpečnostní službu)", { exact: false }).first().click();
+  await expect(rg.getByTestId("rg-result")).toContainText("Vyšší povinnosti");
+  await rg.getByText("Zapsat výsledný režim do regulatorního profilu společnosti").click();
+  await rg.getByTestId("rg-save").click();
+  await expect(rg.getByTestId("rg-summary")).toContainText("16.13");
+  // ohlášení NÚKIB (v1.63): karta pod určením regulace
+  await expect(page.getByTestId("registration-card").getByTestId("rg-reg-status")).toBeVisible();
+  // pravidelné testy (v1.63): plán sady
+  await page.goto("/security-tests?tab=schedules");
+  await page.getByTestId("st-sch-new").click();
+  const sf = page.getByTestId("st-batch-form");
+  await sf.getByPlaceholder(/^192\.0\.2\.242/).fill("10.77.0.9");
+  await sf.getByLabel("Název sady (volitelné)").fill("E2E týdenní");
+  await sf.getByTestId("st-batch-submit").click();
+  await expect(page.getByTestId("st-sch-E2E týdenní")).toBeVisible();
+  // Přehled (v1.57): sekce oblastí a karta bezpečnostních testů
+  await page.goto("/");
+  await expect(page.getByTestId("dash-tech").getByText("Bezpečnostní testy")).toBeVisible();
+  await expect(page.getByTestId("dash-gov")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.getByTestId("dash-tech").screenshot({ path: `${process.env.E2E_SHOTS}/dashboard-tech.png` });
+  // štítky a umístění dat (v1.52)
+  const rk = (await (await page.request.get("/api/risks?limit=1")).json()).items[0];
+  await page.goto(`/risks/${rk.id}`);
+  const tb = page.getByTestId("tag-bar");
+  await tb.getByRole("button", { name: "+ Přidat štítek" }).click();
+  await tb.getByLabel("Nový štítek").fill("E2E internet");
+  await tb.getByRole("button", { name: "Přidat štítek" }).click();
+  await expect(tb.getByText("E2E internet")).toBeVisible();
+  await page.goto("/tags");
+  await page.getByTestId("tag-catalog").getByText("E2E internet").click();
+  await expect(page.getByTestId("tag-objects").getByRole("link")).toHaveCount(1);
+  await page.goto("/suppliers/locations");
+  await page.getByRole("button", { name: "Přidat umístění" }).click();
+  const dlgLoc = page.getByRole("dialog");
+  await dlgLoc.getByLabel("Služba / umístění").fill("E2E SaaS USA");
+  await dlgLoc.getByPlaceholder("DE").fill("US");
+  await dlgLoc.getByText("Osobní údaje", { exact: true }).click();
+  await dlgLoc.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByTestId("loc-E2E SaaS USA").getByText(/bez záruk/)).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/data-locations.png`, fullPage: true });
+  // barva horní lišty (v1.45)
+  await page.goto("/profile");
+  await page.getByTestId("topbar-picker").getByRole("radio", { name: "Grafitová" }).click();
+  await expect(page.getByTestId("topbar")).toHaveAttribute("data-topbar", "slate");
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/topbar-slate.png` });
+  await page.getByTestId("topbar-picker").getByRole("radio", { name: "Bílá (výchozí)" }).click();
+  await expect(page.getByTestId("topbar")).toHaveAttribute("data-topbar", "default");
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/compliance-path-2.png`, fullPage: true });
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("aktivum: odpovědný útvar a štítky z katalogu, filtry seznamu (v1.74)", async () => {
+  const headers = { origin: new URL(page.url()).origin };
+  await page.request.post("/api/org/units", { data: { name: "E2E útvar aktiv" }, headers });
+  await page.goto("/assets/new");
+  await page.getByLabel("Název *").fill("E2E server útvaru");
+  await page.getByLabel("Typ aktiva").selectOption("server");
+  await choose(page.getByRole("combobox", { name: "Odpovědný útvar" }), "E2E útvar aktiv");
+  const tags = page.getByRole("combobox", { name: "Štítky" });
+  await tags.click();
+  await tags.fill("E2E štítek 174");
+  await expect(page.getByRole("option", { name: /Nový štítek/ })).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/asset-tags-combo.png` });
+  await tags.press("Enter");
+  await expect(page.getByText("E2E štítek 174")).toBeVisible();
+  await page.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByRole("heading", { name: "E2E server útvaru", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("tag-bar")).toContainText("E2E štítek 174");
+  await page.getByRole("link", { name: "E2E útvar aktiv" }).first().click();
+  await expect(page).toHaveURL(/\/assets\?.*unit=/);
+  await expect(page.getByRole("row", { name: /E2E server útvaru/ })).toBeVisible();
+  await page.getByTestId("asset-tags").getByRole("button", { name: /E2E štítek 174/ }).first().click();
+  await expect(page).toHaveURL(/tag=/);
+  await expect(page.getByRole("row", { name: /E2E server útvaru/ })).toBeVisible();
+  // výběr útvaru s vyhledáváním ukáže cestu ve struktuře
+  await page.getByRole("combobox", { name: "Odpovědný útvar" }).click();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/unit-combo.png` });
+  await page.keyboard.press("Escape");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("hromadné úpravy aktiv v seznamu (v1.75)", async () => {
+  const headers = { origin: new URL(page.url()).origin };
+  for (const n of ["E2E hromadně A", "E2E hromadně B"]) await page.request.post("/api/assets", { data: { name: n, assetType: "server", criticality: "low" }, headers });
+  await page.goto("/assets?q=E2E%20hromadn%C4%9B");
+  await expect(page.getByRole("row", { name: /E2E hromadně B/ })).toBeVisible();
+  await page.getByRole("checkbox", { name: "Vybrat vše na stránce" }).check();
+  const bar = page.getByTestId("bulk-bar");
+  await expect(bar).toContainText("Vybrány 2 záznamy");
+  await bar.getByRole("combobox", { name: "Co změnit" }).selectOption({ label: "Kritičnost" });
+  await bar.getByRole("combobox", { name: "Nová hodnota" }).selectOption({ label: "Vysoká" });
+  await bar.getByTestId("bulk-apply").click();
+  await expect(page.getByTestId("bulk-bar")).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /E2E hromadně A/ })).toContainText("Vysoká");
+  await expect(page.getByRole("row", { name: /E2E hromadně B/ })).toContainText("Vysoká");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("hromadné úpravy dodavatelů v seznamu (v1.79)", async () => {
+  const headers = { origin: new URL(page.url()).origin };
+  for (const n of ["E2E dodavatel hromadně A", "E2E dodavatel hromadně B"]) await page.request.post("/api/suppliers", { data: { name: n }, headers });
+  await page.goto("/suppliers?q=E2E%20dodavatel%20hromadn%C4%9B");
+  await expect(page.getByRole("row", { name: /E2E dodavatel hromadně B/ })).toBeVisible();
+  await page.getByRole("checkbox", { name: "Vybrat vše na stránce" }).check();
+  const bar = page.getByTestId("bulk-bar");
+  await bar.getByRole("combobox", { name: "Co změnit" }).selectOption({ label: "Významný dodavatel" });
+  await bar.getByRole("combobox", { name: "Nová hodnota" }).selectOption({ label: "ano" });
+  await bar.getByTestId("bulk-apply").click();
+  await expect(page.getByTestId("bulk-bar")).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /E2E dodavatel hromadně A/ })).toContainText("Významný");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("ukázková data z Administrace: založit a odstranit (v1.81)", async () => {
+  await page.goto("/admin/companies");
+  const card = page.getByTestId("demo-card");
+  await expect(card).toContainText("Ukázková data");
+  await card.getByTestId("demo-create").click();
+  await expect(card).toContainText("Ukázka je založena", { timeout: 30_000 });
+  // potvrzení odsouhlasí obsluha dialogu (addLocatorHandler výše)
+  await card.getByTestId("demo-remove").click();
+  await expect(card.getByTestId("demo-create")).toBeVisible({ timeout: 30_000 });
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("mobil a přístupnost: bez vodorovného posunu stránky, ovládací prvky s názvem (v1.82)", async () => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const problems: string[] = [];
+  for (const route of ["/", "/my", "/assets", "/risks", "/controls", "/processes", "/suppliers", "/policies", "/actions", "/organization", "/quality", "/findings", "/vulnerabilities", "/incidents", "/admin/companies"]) {
+    await page.goto(route);
+    await page.waitForLoadState("networkidle");
+    const r = await page.evaluate(() => {
+      const out: string[] = [];
+      const de = document.documentElement;
+      if (de.scrollWidth > de.clientWidth + 1) out.push(`vodorovný posun ${de.scrollWidth} > ${de.clientWidth}`);
+      const named = (el: Element) => {
+        const e = el as HTMLInputElement;
+        if (e.getAttribute("aria-label")?.trim() || e.getAttribute("aria-labelledby") || e.getAttribute("title")?.trim()) return true;
+        if ((e as HTMLInputElement).labels?.length) return true;
+        if (el.tagName !== "SELECT" && e.getAttribute("placeholder")?.trim()) return true;
+        if (el.tagName === "BUTTON" || el.tagName === "A") return !!el.textContent?.trim();
+        return false;
+      };
+      for (const el of Array.from(document.querySelectorAll("select, input:not([type=hidden]), textarea, button, a[href]"))) {
+        const box = (el as HTMLElement).getBoundingClientRect();
+        if (!box.width || !box.height) continue;
+        if (!named(el)) out.push(`bez názvu: ${el.outerHTML.slice(0, 120)}`);
+      }
+      return out;
+    });
+    problems.push(...r.map((x) => `${route}: ${x}`));
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect(problems, problems.join("\n")).toEqual([]);
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("rychlé založení útvaru z výběru a přehled útvaru (v1.76)", async () => {
+  await page.goto("/assets/new");
+  await page.getByLabel("Název *").fill("E2E server 176");
+  await page.getByLabel("Typ aktiva").selectOption("server");
+  const unit = page.getByRole("combobox", { name: "Odpovědný útvar" });
+  await unit.click();
+  await unit.fill("E2E útvar 176");
+  await page.getByRole("option", { name: /Založit „E2E útvar 176“/ }).click();
+  await expect(unit).toHaveValue("E2E útvar 176");
+  await page.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByRole("heading", { name: "E2E server 176", level: 1 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "E2E útvar 176" }).first()).toBeVisible();
+  // přehled útvaru v Organizaci
+  await page.goto("/organization");
+  await page.getByRole("button", { name: /E2E útvar 176/ }).first().click();
+  const ov = page.getByTestId("org-unit-overview");
+  await expect(ov).toContainText("1 aktiv");
+  await ov.getByRole("link", { name: /aktiv/ }).click();
+  await expect(page).toHaveURL(/\/assets\?.*unit=/);
+  await expect(page.getByRole("row", { name: /E2E server 176/ })).toBeVisible();
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
+test("průvodce prvním nastavením (v1.73): postup, síťový rozsah, dokončení", async () => {
+  await page.goto("/setup-wizard");
+  await expect(page.getByTestId("wiz-steps")).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Postup prvního nastavení" })).toBeVisible();
+  await page.getByTestId("wiz-nav-ranges").click();
+  const row = page.getByTestId("wiz-range-row").first();
+  await row.getByRole("textbox", { name: "Název segmentu" }).fill("E2E průvodce");
+  await row.getByRole("textbox", { name: "Rozsahy CIDR" }).fill("127.0.0.1/32");
+  await page.getByTestId("wiz-save").click();
+  await expect(page.getByTestId("wiz-step-assets")).toBeVisible();
+  await page.getByTestId("wiz-nav-ranges").click();
+  await expect(page.getByTestId("wiz-step-ranges")).toContainText("E2E průvodce");
+  await page.getByTestId("wiz-nav-finish").click();
+  await page.getByTestId("wiz-finish").click();
+  await expect(page.getByTestId("dash-wizard")).toHaveCount(0);
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("náhledy vzhledu (světlý a tmavý režim)", async () => {
   test.skip(!process.env.E2E_SHOTS, "jen s E2E_SHOTS");
   const dir = process.env.E2E_SHOTS!;
   const risk = (await (await page.request.get("/api/risks?limit=1")).json()).items[0];
   const asset = (await (await page.request.get("/api/assets?limit=1&offset=0")).json()).items[0];
   const ctl = (await (await page.request.get("/api/controls")).json())[0];
-  const pages: [string, string][] = [["dashboard", "/"], ["risks", "/risks"], ["risk", `/risks/${risk.id}`], ["asset", `/assets/${asset.id}`], ["control", `/controls/${ctl.id}`], ["knowledge", "/knowledge"], ["soc", "/soc"], ["admin", "/admin/users"]];
+  const pages: [string, string][] = [["dashboard", "/"], ["risks", "/risks"], ["risk", `/risks/${risk.id}`], ["asset", `/assets/${asset.id}`], ["control", `/controls/${ctl.id}`], ["knowledge", "/knowledge"], ["soc", "/soc"], ["admin", "/admin/users"], ["maps", "/assets/maps"], ["access", "/access"], ["projects", "/projects"]];
   for (const mode of ["light", "dark"]) {
     await page.evaluate((m) => localStorage.setItem("contix.mode", m), mode);
     for (const [name, url] of pages) {
@@ -1759,6 +2461,7 @@ test("náhledy vzhledu (světlý a tmavý režim)", async () => {
 });
 
 test("odhlášení", async () => {
-  await page.getByRole("button", { name: "Odhlásit" }).click();
+  await page.getByRole("button", { name: "Uživatelská nabídka" }).click();
+  await page.getByRole("menuitem", { name: "Odhlásit" }).click();
   await expect(page.locator("input[type=email]")).toBeVisible();
 });

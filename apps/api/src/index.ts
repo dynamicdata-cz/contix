@@ -16,4 +16,6 @@ console.log(`CONTIX API běží na http://localhost:${config.PORT}`);
 export default {
   port: config.PORT,
   fetch: app.fetch,
+  // Bun má výchozí strop 128 MB; skutečné limity hlídá API (app.ts, ADR-165)
+  maxRequestBodySize: 170 * 1024 * 1024,
 };

@@ -1,4 +1,6 @@
+import { SuggestInput } from "@/components/combobox";
 import { useFormGuard } from "@/lib/unsaved";
+import { ProcessGuide } from "@/components/processGuide";
 import { askConfirm } from "@/components/ui/overlay";
 import { AiSuggestPanel } from "@/components/ai";
 import { SimilarRecordsCard } from "@/components/records";
@@ -87,6 +89,7 @@ export function AiActPage() {
           </>
         }
       />
+      <ProcessGuide id="aiact" />
       <ErrorBox error={q.error ?? sum.error} />
       {s && (
         <div className="mb-6 grid gap-3 sm:grid-cols-3 lg:grid-cols-6" data-testid="aiact-summary">
@@ -430,7 +433,15 @@ function AiSystemEditor({ a }: { a: AiSystemDto | null }) {
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label={t("aia.vendor")}>
-                <Input value={f.vendor} onChange={(e) => set("vendor", e.target.value)} />
+                <SuggestInput
+                  value={f.vendor}
+                  onChange={(v) => set("vendor", v)}
+                  ariaLabel={t("aia.vendor")}
+                  placeholder={mod("suppliers") ? t("aia.vendorPh") : undefined}
+                  // dodavatel z evidence (v1.76): výběr doplní i vazbu na dodavatele
+                  suggestions={(suppliers.data ?? []).map((x) => ({ id: x.id, label: x.name }))}
+                  onPick={(o) => !f.supplierIds.includes(o.id) && set("supplierIds", [...f.supplierIds, o.id])}
+                />
               </Field>
               <Field label={t("aia.model")}>
                 <Input value={f.model} onChange={(e) => set("model", e.target.value)} placeholder={t("aia.modelPh")} />

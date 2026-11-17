@@ -80,6 +80,8 @@ export interface OrgUnitDto {
   unitType: OrgUnitType;
   description: string | null;
   sortOrder: number;
+  /** Aktiva, kterým je útvar odpovědným útvarem (v1.74). */
+  assetCount?: number;
   positions: PositionDto[];
 }
 
@@ -122,6 +124,7 @@ export const POSITION_USAGE_KINDS = [
   "training",
   "access_review",
   "cycle",
+  "nukib_registration",
 ] as const;
 export type PositionUsageKind = (typeof POSITION_USAGE_KINDS)[number];
 export const POSITION_USAGE_LABELS: Record<PositionUsageKind, string> = {
@@ -153,6 +156,7 @@ export const POSITION_USAGE_LABELS: Record<PositionUsageKind, string> = {
   training: "Kurzy školení",
   access_review: "Přezkumy přístupů (recenzent)",
   cycle: "Hodnotící cykly (vedoucí)",
+  nukib_registration: "Ohlášení regulované služby NÚKIB",
 };
 export interface PositionUsageDto {
   position: { id: string; name: string; unitName: string; companyId: string; holders: { id: string; name: string }[] };
@@ -165,3 +169,39 @@ export const PositionHandoverInput = z.object({
   note: z.string().trim().max(500).optional(),
 });
 export type PositionHandoverInput = z.infer<typeof PositionHandoverInput>;
+
+/* ---------- předání odpovědností uživatele (v1.65, ADR-158) ---------- */
+
+export const USER_HANDOVER_KINDS = ["asset_owner", "asset_technical", "asset_deputy", "task"] as const;
+export type UserHandoverKind = (typeof USER_HANDOVER_KINDS)[number];
+export const USER_HANDOVER_LABELS: Record<UserHandoverKind, string> = {
+  asset_owner: "Business vlastník aktiv",
+  asset_technical: "Technický garant aktiv",
+  asset_deputy: "Zástupce technického garanta",
+  task: "Přidělené otevřené úkoly",
+};
+export const UserHandoverInput = z.object({
+  toUserId: z.string().uuid(),
+  kinds: z.array(z.enum(USER_HANDOVER_KINDS)).min(1).max(USER_HANDOVER_KINDS.length),
+  note: z.string().trim().max(500).optional(),
+});
+export type UserHandoverInput = z.infer<typeof UserHandoverInput>;
+export interface UserResponsibilitiesDto {
+  counts: Record<UserHandoverKind, number>;
+  assets: { id: string; name: string; roles: UserHandoverKind[] }[];
+  /** Funkční místa, která uživatel drží (předávají se v Organizaci). */
+  positions: { id: string; name: string }[];
+}
+
+/** Co patří útvaru včetně podřízených (v1.76, ADR-169); null = evidence bez oprávnění nebo vypnutý modul. */
+export interface OrgUnitOverviewDto {
+  unitId: string;
+  assets: number | null;
+  processes: number | null;
+  risks: number | null;
+  controls: number | null;
+  tasks: { open: number; overdue: number } | null;
+  /** v1.80: dodavatelé a dokumenty útvaru (včetně podřízených). */
+  suppliers: number | null;
+  documents: number | null;
+}

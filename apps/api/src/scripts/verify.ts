@@ -14,11 +14,10 @@ import { sql } from "drizzle-orm";
 import { config } from "../config";
 import { db, sqlClient } from "../db/client";
 import { getAiSettings, testAi } from "../modules/ai/service";
-import { getWazuhConfig } from "../modules/connectors/config";
+import { listWazuh } from "../modules/connections/wazuh";
 import { systemStatus } from "../modules/ops/routes";
 import { testIndexer } from "../modules/vulnerabilities/sources";
 import { getIntelSettings } from "../modules/vulnerabilities/intel";
-import { getAlertSettings } from "../modules/alerts/routes";
 
 type Level = "ok" | "warning" | "error" | "off";
 const rows: { level: Level; name: string; detail: string }[] = [];
@@ -52,6 +51,19 @@ try {
   const st = await systemStatus(db, config);
   for (const c of st.checks) add(c.level as Level, `Provoz: ${c.label}`, c.detail);
 
+  // 2b) kontrola dat po nasazení útvarů a katalogu štítků (v1.76, ADR-169) – jen počty, opravy v Kvalitě dat
+  const [d] = (await db.execute(sql`select
+      count(*) filter (where owner_unit_id is not null)::int as unit,
+      count(*) filter (where owner_unit_id is null and coalesce(trim(owner_name), '') <> '')::int as text_only,
+      count(*) filter (where exists (select 1 from unnest(tags) t where not exists (select 1 from tags g where g.name = t)))::int as tags_off
+    from assets`)) as unknown as { unit: number; text_only: number; tags_off: number }[];
+  if (d)
+    add(
+      d.text_only || d.tags_off ? "warning" : "ok",
+      "Data aktiv",
+      `útvar ze struktury ${d.unit}, útvar jen textem ${d.text_only}, štítky mimo katalog ${d.tags_off}${d.text_only || d.tags_off ? " – opravte hromadně v Řízení → Kvalita dat" : ""}`,
+    );
+
   // 3) AI na lokálním modelu
   const ai = await getAiSettings(db);
   if (!ai.enabled) add("off", "AI asistent", "vypnutý");
@@ -62,18 +74,20 @@ try {
   }
 
   // 4) Wazuh Indexer (zranitelnosti, alerty SOC)
-  const w = await getWazuhConfig(db, config);
-  const al = await getAlertSettings(db);
-  if (!w.indexerUrl || !w.indexerUser || !w.indexerPassword) add("off", "Wazuh Indexer", "nenastaven (Administrace → Konektory)");
-  else
-    for (const pattern of ["wazuh-states-vulnerabilities-*", ...(al.alertsEnabled ? [al.alertsIndexPattern] : [])]) {
+  const ws = await listWazuh(db, config, { enabledOnly: true });
+  if (!ws.some((w) => w.indexerUrl && w.indexerUser && w.indexerPassword)) add("off", "Wazuh Indexer", "nenastaven (Administrace → Konektory)");
+  for (const w of ws) {
+    if (!w.indexerUrl || !w.indexerUser || !w.indexerPassword) continue;
+    const label = ws.length > 1 ? `Wazuh Indexer (${w.name})` : "Wazuh Indexer";
+    for (const pattern of [w.indexPattern, ...(w.alertsEnabled ? [w.alertsIndexPattern] : [])]) {
       try {
         const r = await testIndexer({ url: w.indexerUrl, user: w.indexerUser, password: w.indexerPassword, verifyTls: w.indexerVerifyTls, indexPattern: pattern });
-        add("ok", `Wazuh Indexer ${pattern}`, `${r.count} dokumentů`);
+        add("ok", `${label} ${pattern}`, `${r.count} dokumentů`);
       } catch (e) {
-        add("error", `Wazuh Indexer ${pattern}`, (e as Error).message);
+        add("error", `${label} ${pattern}`, (e as Error).message);
       }
     }
+  }
 
   // 5) veřejné zdroje hrozeb (jen dostupnost – stahuje plánovač)
   const intel = await getIntelSettings(db);

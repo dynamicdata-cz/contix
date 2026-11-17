@@ -1,3 +1,4 @@
+import { controlFindingCounts } from "../controls/findings";
 import { profileOf, bestDocState,
   COVERAGE_LABELS,
   coverageGaps,
@@ -89,6 +90,8 @@ export async function computeCoverage(db: Db, companyId: string, fw: FrameworkId
       documents.push({ id: p.id, code: p.code, title: p.title, status, requirements: via.size, scored: !!sc, stale, score: gapScore(items) });
     }
   }
+  // otevřené závažné nálezy k opatřením (v1.67, ADR-160)
+  const fCounts = await controlFindingCounts(db, [...new Set(reqRows.flatMap((r) => r.controls.map((x) => x.id)))]);
   const rows: CoverageRow[] = reqRows.map((r) => {
     const docs = (docsByReq.get(r.id) ?? []).sort((a, b) => (a.code ?? a.title).localeCompare(b.code ?? b.title, "cs", { numeric: true }));
     const row: CoverageRow = {
@@ -99,7 +102,10 @@ export async function computeCoverage(db: Db, companyId: string, fw: FrameworkId
       text: r.text,
       applicable: r.applicable,
       compliance: r.compliance,
+      // posouzeno = ruční míra shody nebo navázané opatření (jinak „nesplněno“ jen z chybějícího opatření)
+      assessed: r.manualCompliance != null || r.controls.length > 0,
       controls: r.controls,
+      findingsSerious: r.controls.reduce((n, x) => n + (fCounts.get(x.id)?.serious ?? 0), 0),
       docs,
       docState: bestDocState(docs),
       gaps: [],

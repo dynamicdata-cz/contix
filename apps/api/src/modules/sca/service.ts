@@ -12,7 +12,7 @@ import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
 import { appSettings, assets, assetSources, controlAutomations, controls, scaCheckDefs, scaCheckResults, scaResults } from "../../db/schema";
-import { getWazuhConfig } from "../connectors/config";
+import { listWazuh, wazuhApiReady } from "../connections/wazuh";
 import { wazuhApiClient, type FetchLike } from "../discovery/connectors/wazuh";
 import { finishAutomationTest, storeAutomationEvidence } from "../identity/automations";
 
@@ -55,15 +55,34 @@ export async function lastScaSync(db: Db): Promise<Sync | null> {
 export async function syncSca(db: Db, config: Config, fetchImpl?: FetchLike): Promise<Sync> {
   const out: Sync = { at: new Date().toISOString(), agents: 0, policies: 0, checks: 0, error: null };
   try {
-    const w = await getWazuhConfig(db, config);
-    if (!w.url || !w.user || !w.password) throw new Error("Wazuh API není nastaveno (Administrace → Konektory).");
-    const api = await wazuhApiClient({ url: w.url, user: w.user, password: w.password, verifyTls: w.verifyTls }, fetchImpl);
-    const mapped = await db
-      .select({ assetId: assets.id, companyId: assets.companyId, agentId: assetSources.sourceRef })
-      .from(assetSources)
-      .innerJoin(assets, eq(assets.id, assetSources.assetId))
-      .where(eq(assetSources.sourceType, "wazuh"));
+    // všechna připojení k Wazuhu (ADR-146); agenti každého jen proti jeho API
+    const conns = (await listWazuh(db, config, { enabledOnly: true })).filter(wazuhApiReady);
+    if (!conns.length) throw new Error("Wazuh API není nastaveno (Administrace → Konektory).");
     const prev = new Map((await db.select().from(scaResults)).map((r) => [`${r.assetId}|${r.policyId}`, r]));
+    const errors: string[] = [];
+    for (const w of conns) {
+      let api: Awaited<ReturnType<typeof wazuhApiClient>>;
+      try {
+        api = await wazuhApiClient({ url: w.url, user: w.user, password: w.password!, verifyTls: w.verifyTls }, fetchImpl);
+      } catch (e) {
+        errors.push(`${w.name}: ${(e as Error).message}`);
+        continue;
+      }
+      const mapped = await db
+        .select({ assetId: assets.id, companyId: assets.companyId, agentId: assetSources.sourceRef })
+        .from(assetSources)
+        .innerJoin(assets, eq(assets.id, assetSources.assetId))
+        .where(and(eq(assetSources.sourceType, "wazuh"), eq(assetSources.connectionId, w.id)));
+      await scaForAgents(api, mapped, prev);
+    }
+    if (errors.length) out.error = errors.join("; ").slice(0, 500);
+  } catch (e) {
+    out.error = (e as Error).message.slice(0, 500);
+  }
+  await db.insert(appSettings).values({ key: KEY, value: out }).onConflictDoUpdate({ target: appSettings.key, set: { value: out, updatedAt: new Date() } });
+  return out;
+
+  async function scaForAgents(api: Awaited<ReturnType<typeof wazuhApiClient>>, mapped: { assetId: string; companyId: string; agentId: string }[], prev: Map<string, typeof scaResults.$inferSelect>) {
     for (const m of mapped) {
       let policies: any[];
       try {
@@ -108,19 +127,14 @@ export async function syncSca(db: Db, config: Config, fetchImpl?: FetchLike): Pr
         out.checks += rows.length;
       }
     }
-  } catch (e) {
-    out.error = (e as Error).message.slice(0, 500);
   }
-  await db.insert(appSettings).values({ key: KEY, value: out }).onConflictDoUpdate({ target: appSettings.key, set: { value: out, updatedAt: new Date() } });
-  return out;
 }
 
 /** Plánovač: jednou denně (je-li nastaveno Wazuh API). */
 export async function maybeSyncSca(db: Db, config: Config, now = new Date()) {
   const last = await lastScaSync(db);
   if (last && now.getTime() - new Date(last.at).getTime() < SYNC_HOURS * 3600_000) return null;
-  const w = await getWazuhConfig(db, config);
-  if (!w.enabled || !w.url || !w.password) return null;
+  if (!(await listWazuh(db, config, { enabledOnly: true })).some(wazuhApiReady)) return null;
   return syncSca(db, config);
 }
 

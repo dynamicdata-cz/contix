@@ -1,33 +1,17 @@
 import type { ConnectorSettingsDto, ScanSettingsInput, WazuhSettingsInput } from "@contix/shared";
 import { desc, eq } from "drizzle-orm";
-import { appSecret, type Config } from "../../config";
+import type { Config } from "../../config";
 import type { Db } from "../../db/client";
 import { appSettings, discoveryRuns } from "../../db/schema";
-import { decrypt, encrypt } from "../../auth/crypto";
+import { primaryWazuh, saveWazuh } from "../connections/wazuh";
 
 /**
  * Konfigurace konektorů. Primárně z DB (Administrace → Konektory), jinak fallback na .env.
  * Hesla se ukládají šifrovaně (AES-256-GCM, klíč z APP_SECRET) a nikdy se nevrací do UI.
  */
 
-const WAZUH_KEY = "connector.wazuh";
 const SCAN_KEY = "connector.network_scan";
 
-interface StoredWazuh {
-  enabled: boolean;
-  url: string;
-  user: string;
-  passwordEnc: string | null;
-  verifyTls: boolean;
-  includePackages: boolean;
-  vulnEnabled?: boolean;
-  indexerUrl?: string;
-  indexerUser?: string;
-  indexerPasswordEnc?: string | null;
-  indexerVerifyTls?: boolean;
-  indexPattern?: string;
-  autoSyncHours?: number;
-}
 interface StoredScan {
   enabled: boolean;
   allowedCidrs: string[];
@@ -78,73 +62,31 @@ async function write(db: Db, key: string, value: unknown) {
     .onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date() } });
 }
 
+/**
+ * Primární (nejstarší) připojení k Wazuhu ve tvaru starší konfigurace – pro rozhraní, která pracují s jedním Wazuhem
+ * (Administrace → Konektory, průvodce nastavením, verify). Víc Wazuhů: `connections/wazuh.ts` (ADR-146).
+ */
 export async function getWazuhConfig(db: Db, config: Config): Promise<WazuhConfig> {
-  const s = await read<StoredWazuh>(db, WAZUH_KEY);
-  if (s) {
-    const dec = (v?: string | null) => {
-      try {
-        return v ? decrypt(v, appSecret(config)) : null;
-      } catch {
-        return null; // změněný APP_SECRET → heslo je potřeba zadat znovu
-      }
-    };
-    return {
-      source: "db",
-      enabled: s.enabled,
-      url: s.url,
-      user: s.user,
-      password: dec(s.passwordEnc),
-      verifyTls: s.verifyTls,
-      includePackages: s.includePackages,
-      vulnEnabled: s.vulnEnabled ?? true,
-      indexerUrl: s.indexerUrl ?? "",
-      indexerUser: s.indexerUser ?? "",
-      indexerPassword: dec(s.indexerPasswordEnc),
-      indexerVerifyTls: s.indexerVerifyTls ?? s.verifyTls,
-      indexPattern: s.indexPattern ?? VULN_DEFAULTS.indexPattern,
-      autoSyncHours: s.autoSyncHours ?? VULN_DEFAULTS.autoSyncHours,
-    };
-  }
-  if (config.WAZUH_API_URL && config.WAZUH_API_USER && config.WAZUH_API_PASSWORD)
-    return {
-      source: "env",
-      enabled: true,
-      url: config.WAZUH_API_URL,
-      user: config.WAZUH_API_USER,
-      password: config.WAZUH_API_PASSWORD,
-      verifyTls: config.WAZUH_VERIFY_TLS,
-      includePackages: true,
-      ...VULN_DEFAULTS,
-    };
+  const w = await primaryWazuh(db, config);
+  if (w) return w;
   return { source: "none", enabled: false, url: "", user: "", password: null, verifyTls: true, includePackages: true, ...VULN_DEFAULTS };
 }
 
 export const wazuhReady = (w: WazuhConfig) => w.enabled && !!w.url && !!w.user && !!w.password;
 
+/** Uloží primární připojení (založí ho, pokud žádné není); nastavení alertů a rozsah zůstávají. */
 export async function saveWazuhConfig(db: Db, config: Config, input: ReturnType<typeof normalizeWazuh>) {
-  const prev = await read<StoredWazuh>(db, WAZUH_KEY);
-  const passwordEnc = input.password
-    ? encrypt(input.password, appSecret(config))
-    : (prev?.passwordEnc ?? (config.WAZUH_API_PASSWORD ? encrypt(config.WAZUH_API_PASSWORD, appSecret(config)) : null));
-  const indexerPasswordEnc = input.indexerPassword
-    ? encrypt(input.indexerPassword, appSecret(config))
-    : (prev?.indexerPasswordEnc ?? null);
-  const value: StoredWazuh = {
-    enabled: input.enabled,
-    url: input.url.replace(/\/+$/, ""),
-    user: input.user,
-    passwordEnc,
-    verifyTls: input.verifyTls,
-    includePackages: input.includePackages,
-    vulnEnabled: input.vulnEnabled,
-    indexerUrl: input.indexerUrl.replace(/\/+$/, ""),
-    indexerUser: input.indexerUser,
-    indexerPasswordEnc,
-    indexerVerifyTls: input.indexerVerifyTls,
-    indexPattern: input.indexPattern,
-    autoSyncHours: input.autoSyncHours,
-  };
-  await write(db, WAZUH_KEY, value);
+  const prev = await primaryWazuh(db, config);
+  await saveWazuh(db, config, prev?.id ?? null, {
+    ...input,
+    name: prev?.name ?? "Wazuh",
+    companyId: prev?.companyId ?? null,
+    groupMap: prev?.groupMap ?? [],
+    alertsEnabled: prev?.alertsEnabled ?? false,
+    alertMinLevel: prev?.alertMinLevel ?? 10,
+    alertsIndexPattern: prev?.alertsIndexPattern ?? "wazuh-alerts-*",
+    arUser: prev?.arUser ?? "",
+  });
 }
 
 export const normalizeWazuh = (i: WazuhSettingsInput) => ({
@@ -160,7 +102,7 @@ export const normalizeWazuh = (i: WazuhSettingsInput) => ({
   indexerPassword: i.indexerPassword || undefined,
   indexerVerifyTls: i.indexerVerifyTls ?? true,
   indexPattern: i.indexPattern ?? "wazuh-states-vulnerabilities-*",
-  autoSyncHours: i.autoSyncHours ?? 24,
+  autoSyncHours: (i.autoSyncHours ?? 24) as 0 | 6 | 12 | 24,
 });
 
 export async function getScanConfig(db: Db, config: Config): Promise<ScanConfig> {

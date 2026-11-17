@@ -25,7 +25,7 @@ if [ "$BACKUP" = 1 ]; then
   ok "Záloha hotová."
 fi
 
-mkdir -p fonts # vlastní písma pro převodní službu (v0.24)
+mkdir -p fonts import # vlastní písma pro převodní službu (v0.24), exporty z personalistiky (v1.27)
 if [ -n "$BUNDLE" ]; then
   [ -f "$BUNDLE" ] || die "Balíček $BUNDLE neexistuje."
   tmp="$(mktemp -d)"

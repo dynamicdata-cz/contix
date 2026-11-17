@@ -5,7 +5,7 @@ import { z } from "zod";
  * posouzení požadavku); přehled je počítá při čtení. Výjimka s termínem se blíží / je po termínu podle `exceptionState`.
  * ============================================================ */
 
-export const EXCEPTION_KINDS = ["identity_finding", "sod_violation", "vulnerability", "risk_accepted", "requirement_na", "soc_suppression"] as const;
+export const EXCEPTION_KINDS = ["identity_finding", "sod_violation", "vulnerability", "risk_accepted", "requirement_na", "soc_suppression", "sectest_finding", "host_finding"] as const;
 export type ExceptionKind = (typeof EXCEPTION_KINDS)[number];
 
 export const EXCEPTION_STATES = ["expired", "expiring", "valid", "no_expiry"] as const;
@@ -19,6 +19,8 @@ export const EXCEPTION_LABELS = {
     risk_accepted: "Přijaté riziko",
     requirement_na: "Neaplikované ustanovení",
     soc_suppression: "Potlačení alertů SOC",
+    sectest_finding: "Nález bezpečnostního testu",
+    host_finding: "Nález konfigurace serveru",
   } satisfies Record<ExceptionKind, string>,
   state: { expired: "Po platnosti", expiring: "Brzy vyprší", valid: "Platná", no_expiry: "Bez termínu" } satisfies Record<ExceptionState, string>,
 };

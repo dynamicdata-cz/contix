@@ -250,7 +250,7 @@ export function AssetGraphPage() {
                 onPointerMove={onMove}
                 onPointerUp={() => (drag.current = null)}
                 onPointerLeave={() => (drag.current = null)}
-                role="img"
+                role="group"
                 aria-label={t("ag.title")}
               >
                 <defs>

@@ -1,3 +1,4 @@
+import { withBrandHtml } from "../documents/render";
 import {
   CLAUSE_LABELS,
   CLAUSE_SETS,
@@ -14,7 +15,8 @@ import {
   type SupplierListItem,
 } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, eq, ilike, inArray } from "drizzle-orm";
+import { and, asc, eq, ilike, inArray, sql } from "drizzle-orm";
+import { assertUnitInCompany, unitSubtreeSql } from "../org/hierarchy";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -23,7 +25,7 @@ import { audit, getSettings, type AppEnv } from "../../auth/service";
 import { assertScope, inScope, riskPolicies, scopeOf, settingsFor, targetCompany, visibleIds } from "../../auth/scope";
 import type { Db } from "../../db/client";
 import { tFor } from "../i18n/service";
-import { assets, processes, risks, supplierAssets, supplierContracts, supplierProcesses, supplierRisks, suppliers } from "../../db/schema";
+import { assets, orgUnits, processes, risks, supplierAssets, supplierContracts, supplierProcesses, supplierRisks, suppliers } from "../../db/schema";
 
 type Ctx = Context<AppEnv>;
 type SupplierRow = typeof suppliers.$inferSelect;
@@ -70,11 +72,14 @@ export async function loadSuppliers(db: Db, where?: ReturnType<typeof and>): Pro
   const rows = await db.select().from(suppliers).where(where).orderBy(asc(suppliers.name));
   if (!rows.length) return [];
   const ids = rows.map((r) => r.id);
-  const [contracts, ra, aa] = await Promise.all([
+  const unitIds = [...new Set(rows.map((r) => r.ownerUnitId).filter((x): x is string => !!x))];
+  const [contracts, ra, aa, units] = await Promise.all([
     db.select().from(supplierContracts).where(inArray(supplierContracts.supplierId, ids)).orderBy(asc(supplierContracts.title)),
     db.select().from(supplierRisks).where(inArray(supplierRisks.supplierId, ids)),
     db.select().from(supplierAssets).where(inArray(supplierAssets.supplierId, ids)),
+    unitIds.length ? db.select({ id: orgUnits.id, name: orgUnits.name }).from(orgUnits).where(inArray(orgUnits.id, unitIds)) : [],
   ]);
+  const unitName = new Map(units.map((u) => [u.id, u.name]));
   return rows.map((s) => {
     const cs = contracts.filter((k) => k.supplierId === s.id).map(contractDto);
     const active = cs.filter((k) => !k.expired);
@@ -93,6 +98,8 @@ export async function loadSuppliers(db: Db, where?: ReturnType<typeof and>): Pro
       id: s.id,
       companyId: s.companyId,
       name: s.name,
+      ownerUnitId: s.ownerUnitId,
+      ownerUnitName: s.ownerUnitId ? (unitName.get(s.ownerUnitId) ?? null) : null,
       ico: s.ico,
       country: s.country,
       significant: s.significant,
@@ -172,7 +179,9 @@ export function supplierRoutes(db: Db) {
   async function owned(c: Ctx, id: string) {
     const [r] = await db.select({ companyId: suppliers.companyId }).from(suppliers).where(eq(suppliers.id, id));
     assertScope(c, r?.companyId, "Dodavatel nenalezen");
+    return { companyId: r!.companyId };
   }
+  const assertUnitOf = (unitId: string | null | undefined, companyId: string) => assertUnitInCompany(db, unitId, companyId, "Útvar nepatří do společnosti dodavatele");
 
   function cleanClauses(set: ClauseSet, clauses: Record<string, string>) {
     const keys = new Set(CLAUSE_SETS[set].map((c) => c.key));
@@ -182,17 +191,21 @@ export function supplierRoutes(db: Db) {
   return (
     new Hono<AppEnv>()
       .use("*", requireModule(db, "suppliers"))
-      .get("/", requirePerm("suppliers:read"), zValidator("query", z.object({ q: z.string().optional(), significant: z.enum(["true", "false"]).optional() })), async (c) => {
+      .get("/", requirePerm("suppliers:read"), zValidator("query", z.object({ q: z.string().optional(), significant: z.enum(["true", "false"]).optional(), unit: z.string().uuid().optional() })), async (c) => {
         const q = c.req.valid("query");
         // withGroup: i dodavatelé nadřazených společností (skupinové smlouvy holdingu)
         const where = [c.req.query("withGroup") === "1" ? inArray(suppliers.companyId, await visibleIds(db, c)) : inScope(c, suppliers.companyId)];
         if (q.q) where.push(ilike(suppliers.name, `%${q.q}%`));
         if (q.significant) where.push(eq(suppliers.significant, q.significant === "true"));
+        // útvar včetně podřízených (v1.80)
+        if (q.unit) where.push(sql`${suppliers.ownerUnitId} in ${unitSubtreeSql(q.unit)}`);
         return c.json((await list(and(...where))).map(({ _row, _contracts, ...x }) => x));
       })
       .post("/", requirePerm("suppliers:write"), zValidator("json", SupplierInput), async (c) => {
         const { assetIds, processIds, riskIds, companyId: requested, ...input } = c.req.valid("json");
-        const [s] = await db.insert(suppliers).values({ ...input, companyId: targetCompany(c, requested, "suppliers:write"), ico: input.ico || null }).returning();
+        const companyId = targetCompany(c, requested, "suppliers:write");
+        await assertUnitOf(input.ownerUnitId, companyId);
+        const [s] = await db.insert(suppliers).values({ ...input, companyId, ico: input.ico || null }).returning();
         await setLinks(s!.id, { assetIds, processIds, riskIds });
         await audit(db, { c, user: currentUser(c), action: "supplier.created", entityType: "supplier", entityId: s!.id, details: { name: s!.name, significant: s!.significant } });
         return c.json(await detail(c, s!.id), 201);
@@ -200,8 +213,9 @@ export function supplierRoutes(db: Db) {
       .get("/:id", requirePerm("suppliers:read"), async (c) => c.json(await detail(c, c.req.param("id"))))
       .patch("/:id", requirePerm("suppliers:write"), zValidator("json", SupplierPatch), async (c) => {
         const id = c.req.param("id");
-        await owned(c, id);
+        const own = await owned(c, id);
         const { assetIds, processIds, riskIds, ...rest } = c.req.valid("json");
+        await assertUnitOf(rest.ownerUnitId, own.companyId);
         const input = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)) as Partial<SupplierRow>;
         if ("ico" in input) input.ico = input.ico || null;
         if (Object.keys(input).length) {
@@ -263,7 +277,7 @@ export function supplierRoutes(db: Db) {
         const ico = (v: string) => esc(t("srv.sup.icoLine", { ico: v }));
         const orgLine = `${esc(s.organizationName)}${s.organizationIco ? `, ${ico(s.organizationIco)}` : ""}${s.organizationAddress ? `, ${esc(s.organizationAddress)}` : ""}`;
         const supLine = `${esc(d.name)}${d.ico ? `, ${ico(d.ico)}` : ""}${d.address ? `, ${esc(d.address)}` : ""}`;
-        const html = `<!doctype html><html lang="${esc(t.locale)}"><head><meta charset="utf-8"><title>${esc(t("srv.sup.noticePageTitle", { name: d.name }))}</title>
+        const html = withBrandHtml(`<!doctype html><html lang="${esc(t.locale)}"><head><meta charset="utf-8"><title>${esc(t("srv.sup.noticePageTitle", { name: d.name }))}</title>
 <style>body{font:11pt/1.5 system-ui,sans-serif;color:#1e293b;max-width:760px;margin:32px auto;padding:0 24px}h1{font-size:15pt}
 .box{border:1px solid #cbd5e1;padding:10px 14px;margin:10px 0}.muted{color:#64748b;font-size:9.5pt}button{font:inherit;padding:6px 12px}@media print{button{display:none}body{margin:0}}</style></head>
 <body><p style="text-align:right"><button onclick="window.print()">${esc(t("srv.sup.print"))}</button></p>
@@ -281,11 +295,11 @@ ${d.supplyDescription ? `<p class="muted">${esc(t("srv.sup.subject", { text: d.s
 <p>${esc(t("srv.sup.placeDate"))}</p>
 <p style="margin-top:48px">............................................................<br>${esc(t("srv.sup.signature"))}</p>
 <p class="muted">${esc(t("srv.sup.footer"))}</p>
-</body></html>`;
+</body></html>`);
         await audit(db, { c, user: currentUser(c), action: "supplier.notification_generated", entityType: "supplier", entityId: d.id });
         return c.body(html, 200, {
           "content-type": "text/html; charset=utf-8",
-          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:",
         });
       })
   );

@@ -1,6 +1,7 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { ProcessGuide } from "@/components/processGuide";
 import { useT } from "@/lib/i18n";
-import { flattenUnits, UnitSelect, useOrg } from "@/components/pickers";
+import { flattenUnits, UnitSelect, UserMultiSelect, useOrg } from "@/components/pickers";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, toggle } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useMe } from "@/lib/auth";
@@ -99,6 +100,7 @@ export function OrganizationPage() {
           )
         }
       />
+      <ProcessGuide id="org" />
       <ErrorBox error={org.error ?? err} />
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
           <Card className="self-start">
@@ -157,7 +159,7 @@ export function OrganizationPage() {
                   <p className="mt-2 text-sm text-slate-600">
                     {t("org.nazevIcoRezimAPostaveni")}{" "}
                     {can("admin:settings") ? (
-                      <Link to="/admin/companies" className="text-brand-700 hover:underline">
+                      <Link to="/admin/companies" className="text-brand-700 underline hover:text-brand-800">
                         {t("org.administraciSpolecnosti")}
                       </Link>
                     ) : (
@@ -209,6 +211,7 @@ export function OrganizationPage() {
                       <Badge tone="violet">{t.lbl(ORG_LABELS.unitType[current.unitType])}</Badge>
                       {current.shared && <Badge>{t("org.sdilenoZHoldingu")}</Badge>}
                     </div>
+                    <UnitOverview unitId={current.id} />
                     {current.description && <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{current.description}</p>}
                     {current.unitType === "organization" && !current.parentId && canEditUnit(current) && (
                       <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -404,7 +407,6 @@ function PositionModal({
   save: { mutate: (f: PosForm) => void; isPending: boolean; error: unknown };
 }) {
   const t = useT();
-  const users = useQuery({ queryKey: ["directory"], queryFn: api.directory.users });
   const [custom, setCustom] = useState("");
   const allRoles = [...new Set([...SECURITY_ROLES, ...form.securityRoles])];
   return (
@@ -467,17 +469,7 @@ function PositionModal({
       </div>
       <div>
         <div className="mb-2 text-sm font-medium text-slate-700">{t("org.obsazeniUzivateleContix")}</div>
-        <div className="grid max-h-56 gap-2 overflow-y-auto rounded-md border border-slate-200 p-3 sm:grid-cols-2">
-          {users.data?.map((u) => (
-            <Checkbox
-              key={u.id}
-              checked={form.holderIds.includes(u.id)}
-              onChange={(v) => setForm({ ...form, holderIds: toggle(form.holderIds, u.id, v) })}
-              label={u.displayName}
-              hint={u.jobTitle ?? u.email}
-            />
-          ))}
-        </div>
+        <UserMultiSelect value={form.holderIds} onChange={(holderIds) => setForm({ ...form, holderIds })} ariaLabel={t("org.obsazeniUzivateleContix")} />
         <p className="mt-1 text-xs text-slate-500">{t("org.mistoMuzeBytDocasneNeobsazene")}</p>
       </div>
     </Modal>
@@ -490,3 +482,35 @@ const Section = ({ title, empty, children }: { title: string; empty: boolean; ch
     <div className="space-y-1 text-sm">{empty ? <span className="text-slate-400">—</span> : children}</div>
   </div>
 );
+
+/** Útvar jako centrum (v1.76, ADR-169): co mu patří včetně podřízených útvarů – odkazy do filtrovaných seznamů. */
+function UnitOverview({ unitId }: { unitId: string }) {
+  const t = useT();
+  const q = useQuery({ queryKey: ["org", "overview", unitId], queryFn: () => api.org.unitOverview(unitId) });
+  const d = q.data;
+  if (!d) return null;
+  const chip = (to: string, label: string, n: number | null, extra?: string) =>
+    n == null ? null : (
+      <Link key={to} to={to as never} search={{ unit: unitId } as never} className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:border-brand-300 hover:text-brand-700">
+        <span className="font-semibold tabular-nums">{n}</span> {label}
+        {extra && <span className="text-red-700">{extra}</span>}
+      </Link>
+    );
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5" data-testid="org-unit-overview">
+      {chip("/assets", t("org.ov.assets"), d.assets)}
+      {chip("/processes", t("org.ov.processes"), d.processes)}
+      {chip("/risks", t("org.ov.risks"), d.risks)}
+      {chip("/controls", t("org.ov.controls"), d.controls)}
+      {chip("/suppliers", t("org.ov.suppliers"), d.suppliers)}
+      {chip("/policies", t("org.ov.documents"), d.documents)}
+      {d.tasks && (
+        <Link to="/actions" className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:border-brand-300 hover:text-brand-700">
+          <span className="font-semibold tabular-nums">{d.tasks.open}</span> {t("org.ov.tasks")}
+          {d.tasks.overdue > 0 && <span className="text-red-700">{t("org.ov.overdue", { n: d.tasks.overdue })}</span>}
+        </Link>
+      )}
+      <span className="self-center text-[11px] text-slate-500">{t("org.ov.hint")}</span>
+    </div>
+  );
+}

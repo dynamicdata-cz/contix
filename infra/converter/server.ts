@@ -3,6 +3,7 @@
  * LibreOffice (headless) + poppler v samostatném kontejneru bez přístupu do internetu.
  *   POST /pdf   tělo = soubor (Word, Excel, PowerPoint, ODF…), hlavička x-filename → PDF
  *   POST /text  tělo = PDF → prostý text (UTF-8)
+ *   POST /image tělo = PDF / DXF / DWG, hlavička x-filename → obrázek pro mapy (PNG, u DWG SVG) – v1.25, ADR-122
  *   GET  /health
  * Převody běží po jednom (LibreOffice není vhodný pro souběh), každý s vlastním profilem a časovým limitem.
  */
@@ -76,6 +77,46 @@ async function pdfText(body: Uint8Array): Promise<string> {
   }
 }
 
+const IMAGE_MAX_PX = Number(process.env.CONVERTER_IMAGE_PX ?? 4000);
+
+/** První strana PDF jako PNG (delší strana nejvýš IMAGE_MAX_PX). */
+async function pdfToPng(dir: string, pdf: string): Promise<Uint8Array> {
+  const r = await run(["pdftoppm", "-png", "-r", "200", "-f", "1", "-l", "1", "-scale-to", String(IMAGE_MAX_PX), "-singlefile", pdf, join(dir, "page")], 120_000);
+  if (r.code !== 0) throw new Error(`Převod PDF na obrázek selhal (kód ${r.code})`);
+  return new Uint8Array(await readFile(join(dir, "page.png")));
+}
+
+/** Podklad mapy: PDF → PNG, DXF → (LibreOffice Draw) PDF → PNG, DWG → SVG (LibreDWG, je-li v obrazu). */
+async function toImage(body: Uint8Array, filename: string): Promise<{ data: Uint8Array; mime: string }> {
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+  const dir = await mkdtemp(join(tmpdir(), "img-"));
+  try {
+    if (ext === "pdf") {
+      if (new TextDecoder().decode(body.subarray(0, 5)) !== "%PDF-") throw Object.assign(new Error("Očekáváno PDF"), { status: 400 });
+      await writeFile(join(dir, "input.pdf"), body);
+      return { data: await pdfToPng(dir, join(dir, "input.pdf")), mime: "image/png" };
+    }
+    if (ext === "dxf") {
+      const input = join(dir, "input.dxf");
+      await writeFile(input, body);
+      const r = await run([SOFFICE, `-env:UserInstallation=file://${dir}/profile`, "--headless", "--norestore", "--nologo", "--nodefault", "--nolockcheck", "--convert-to", "pdf", "--outdir", join(dir, "out"), input]);
+      const out = (await readdir(join(dir, "out")).catch(() => [] as string[])).find((f) => f.endsWith(".pdf"));
+      if (r.code !== 0 || !out) throw new Error("Převod DXF selhal – uložte výkres jako PDF.");
+      return { data: await pdfToPng(dir, join(dir, "out", out)), mime: "image/png" };
+    }
+    if (ext === "dwg") {
+      const input = join(dir, "input.dwg");
+      await writeFile(input, body);
+      const r = await run(["dwg2SVG", input], 120_000).catch(() => null);
+      if (!r || r.code !== 0 || r.stdout.length < 100) throw new Error("Převod DWG není k dispozici nebo selhal – výkres exportujte do PDF nebo DXF.");
+      return { data: r.stdout, mime: "image/svg+xml" };
+    }
+    throw Object.assign(new Error(`Nepodporovaný typ podkladu: .${ext}`), { status: 400 });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 async function readBody(req: Request) {
   const len = Number(req.headers.get("content-length") ?? 0);
   if (len > MAX_BYTES) throw Object.assign(new Error("Soubor je příliš velký"), { status: 413 });
@@ -108,6 +149,12 @@ Bun.serve({
         const body = await readBody(req);
         if (new TextDecoder().decode(body.subarray(0, 5)) !== "%PDF-") return fail(Object.assign(new Error("Očekáváno PDF"), { status: 400 }));
         return new Response(await serial(() => pdfText(body)), { headers: { "content-type": "text/plain; charset=utf-8" } });
+      }
+      if (req.method === "POST" && pathname === "/image") {
+        const body = await readBody(req);
+        const name = decodeURIComponent(req.headers.get("x-filename") ?? "mapa.pdf");
+        const img = await serial(() => toImage(body, name));
+        return new Response(img.data, { headers: { "content-type": img.mime } });
       }
       return new Response("Not found", { status: 404 });
     } catch (e) {

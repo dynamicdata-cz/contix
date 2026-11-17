@@ -58,7 +58,7 @@ export type HealthPolicy = z.infer<typeof HealthPolicySchema>;
 
 export interface HealthReason {
   level: "red" | "orange";
-  code: "critical_cve" | "high_cve" | "medium_cve" | "p1_cve" | "eol" | "eol_soon" | "stale" | "supporting";
+  code: "critical_cve" | "high_cve" | "medium_cve" | "p1_cve" | "eol" | "eol_soon" | "stale" | "supporting" | "test_finding" | "host_finding";
   text: string;
 }
 
@@ -265,6 +265,8 @@ export function computeHealth(input: {
   hasVulnData: boolean;
   policy: HealthPolicy;
   now?: Date;
+  /** Otevřené nálezy bezpečnostních testů a sběrače (v1.65): kritický test = červená, vysoký = oranžová. */
+  findings?: { testCritical: number; testHigh: number; hostHigh: number };
 }): { status: HealthStatus; reasons: HealthReason[]; support: ReturnType<typeof osSupport> } {
   const p = input.policy;
   const now = input.now ?? new Date();
@@ -277,6 +279,11 @@ export function computeHealth(input: {
   if (p.redHigh > 0 && c.high >= p.redHigh) reasons.push({ level: "red", code: "high_cve", text: `${c.high}× vysoká zranitelnost` });
   else if (c.high >= p.orangeHigh) reasons.push({ level: "orange", code: "high_cve", text: `${c.high}× vysoká zranitelnost` });
   if (p.orangeMedium > 0 && c.medium >= p.orangeMedium) reasons.push({ level: "orange", code: "medium_cve", text: `${c.medium}× střední zranitelnost` });
+
+  const fx = input.findings;
+  if (fx?.testCritical) reasons.push({ level: "red", code: "test_finding", text: `${fx.testCritical}× kritický nález bezpečnostního testu` });
+  else if (fx?.testHigh) reasons.push({ level: "orange", code: "test_finding", text: `${fx.testHigh}× vysoký nález bezpečnostního testu` });
+  if (fx?.hostHigh) reasons.push({ level: "orange", code: "host_finding", text: `${fx.hostHigh}× vysoký nález konfigurace serveru (sběrač)` });
 
   if (support.status === "eol")
     reasons.push({ level: p.redOnEol ? "red" : "orange", code: "eol", text: `${support.product} bez podpory od ${support.eolDate}` });
@@ -292,7 +299,7 @@ export function computeHealth(input: {
     ? "red"
     : reasons.some((r) => r.level === "orange")
       ? "orange"
-      : input.hasVulnData || support.status === "supported"
+      : input.hasVulnData || support.status === "supported" || !!fx
         ? "green"
         : "unknown";
   return { status, reasons, support };

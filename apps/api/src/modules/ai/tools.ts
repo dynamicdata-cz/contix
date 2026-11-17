@@ -27,7 +27,14 @@ import {
   identityFindings,
   controlMonitors,
   supplierReports,
+  secTestFindings,
+  hostFindings,
+  hostInventories,
+  users,
 } from "../../db/schema";
+import { alias } from "drizzle-orm/pg-core";
+import { hostFindingTasks, hostFindingTitle } from "../collector/findings";
+import { findingTasks } from "../sectests/tasks";
 import { loadRequirementRows } from "../controls/routes";
 import { effLevelSql } from "../soc/exposure";
 import { getNotificationSettings } from "../notifications/service";
@@ -95,6 +102,13 @@ const OBLIGATION_NEED: Record<ObligationKind, Permission> = {
   doc_approval: "policies:read",
   doc_retention: "policies:write",
   access_review: "identity:read",
+  access_approval: "access:manage",
+  access_certification: "access:manage",
+  project_gate: "projects:read",
+  project_task: "projects:read",
+  project_change: "projects:read",
+  guide_step: "isms:read",
+  nukib_notice: "admin:settings",
   legal_review: "legislation:read",
   legal_task: "legislation:read",
   exception_expiry: "assets:read",
@@ -318,6 +332,75 @@ const tools: QueryTool[] = [
       return out(
         ["Zjištění", "Audit", "Závažnost", "Stav", "Termín"],
         rows.map(({ f, a: au }) => ({ cells: [`${f.code ? `${f.code} ` : ""}${f.title}`, au.code ?? au.title, f.severity, f.status, f.dueDate], link: `/audits/${au.id}` })),
+      );
+    },
+  },
+  {
+    name: "security_test_findings",
+    title: "Nálezy bezpečnostních testů",
+    description: "Nálezy bezpečnostních testů (Kali, sken portů, TLS, web) – podle závažnosti, stavu, serveru nebo aktiva; s odpovědnou osobou a úkolem.",
+    module: "sectests",
+    perm: "sectests:read",
+    input: z.object({
+      q: z.string().max(100).optional().describe("text v názvu nálezu, IP / hostu nebo názvu aktiva"),
+      severity: z.enum(["critical", "high", "medium", "low", "info"]).optional(),
+      status: z.enum(["open", "accepted", "fixed", "false_positive"]).optional().describe("výchozí open"),
+      withoutTask: z.boolean().optional().describe("jen otevřené nálezy bez úkolu na odstranění"),
+    }),
+    async run(ctx, a) {
+      const tech = alias(users, "tool_st_tech");
+      const w: (SQL | undefined)[] = [inArray(secTestFindings.companyId, ctx.companyIds), eq(secTestFindings.status, (a.status as string) ?? "open")];
+      if (a.severity) w.push(eq(secTestFindings.severity, a.severity as string));
+      if (a.q) w.push(or(ilike(secTestFindings.title, like(a.q)), ilike(secTestFindings.host, like(a.q)), ilike(assets.name, like(a.q))));
+      const rows = await ctx.db
+        .select({ f: secTestFindings, asset: assets.name, tech: tech.displayName })
+        .from(secTestFindings)
+        .leftJoin(assets, eq(assets.id, secTestFindings.assetId))
+        .leftJoin(tech, eq(tech.id, sql`coalesce(${assets.technicalOwnerUserId}, ${assets.technicalDeputyUserId}, ${assets.ownerUserId})`))
+        .where(and(...w))
+        .orderBy(sql`case ${secTestFindings.severity} when 'critical' then 0 when 'high' then 1 when 'medium' then 2 when 'low' then 3 else 4 end`, desc(secTestFindings.lastSeenAt))
+        .limit(500);
+      const tasks = await findingTasks(ctx.db, rows.map((r) => r.f.id));
+      const list = a.withoutTask ? rows.filter((r) => !tasks.get(r.f.id) || ["done", "cancelled"].includes(tasks.get(r.f.id)!.status)) : rows;
+      return out(
+        ["Nález", "Cíl", "Aktivum", "Závažnost", "Odpovědná osoba", "Úkol"],
+        list.map(({ f, asset, tech: who }) => {
+          const tk = tasks.get(f.id);
+          return { cells: [f.title, `${f.host}${f.port ? `:${f.port}` : ""}`, asset ?? "—", f.severity, tk?.assigneeName ?? who ?? "—", tk ? `${tk.code} (${tk.status}${tk.dueDate ? `, do ${tk.dueDate}` : ""})` : "—"], link: `/security-tests?finding=${f.id}` };
+        }),
+      );
+    },
+  },
+  {
+    name: "server_findings",
+    title: "Nálezy konfigurace serverů",
+    description: "Nálezy konfigurace serverů ze sběrače (účty s UID 0, SSH klíče, firewall, sshd, aktualizace, kontejnery) – podle závažnosti, stavu nebo serveru.",
+    module: "assets",
+    perm: "assets:read",
+    input: z.object({
+      q: z.string().max(100).optional().describe("hostname serveru nebo název aktiva"),
+      severity: z.enum(["high", "medium", "low"]).optional(),
+      status: z.enum(["open", "accepted", "fixed", "false_positive"]).optional().describe("výchozí open"),
+    }),
+    async run(ctx, a) {
+      const w: (SQL | undefined)[] = [inArray(hostFindings.companyId, ctx.companyIds), eq(hostFindings.status, (a.status as string) ?? "open")];
+      if (a.severity) w.push(eq(hostFindings.severity, a.severity as string));
+      if (a.q) w.push(or(ilike(hostInventories.hostname, like(a.q)), ilike(assets.name, like(a.q))));
+      const rows = await ctx.db
+        .select({ f: hostFindings, host: hostInventories.hostname, inv: hostInventories.id, asset: assets.name })
+        .from(hostFindings)
+        .innerJoin(hostInventories, eq(hostInventories.id, hostFindings.inventoryId))
+        .leftJoin(assets, eq(assets.id, hostFindings.assetId))
+        .where(and(...w))
+        .orderBy(sql`case ${hostFindings.severity} when 'high' then 0 when 'medium' then 1 else 2 end`, asc(hostInventories.hostname))
+        .limit(500);
+      const tasks = await hostFindingTasks(ctx.db, rows.map((r) => r.f.id));
+      return out(
+        ["Nález", "Server", "Aktivum", "Závažnost", "Úkol"],
+        rows.map(({ f, host, inv, asset }) => {
+          const tk = tasks.get(f.id);
+          return { cells: [hostFindingTitle(f.code, f.subject), host, asset ?? "—", f.severity, tk ? `${tk.code} (${tk.status}${tk.assigneeName ? `, ${tk.assigneeName}` : ""})` : "—"], link: `/discovery/hosts/${inv}` };
+        }),
       );
     },
   },

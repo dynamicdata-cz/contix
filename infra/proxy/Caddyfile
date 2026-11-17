@@ -23,6 +23,11 @@
 		reverse_proxy api:3000
 	}
 
+	# RFC 9116 – kontakt pro hlášení zranitelností (v1.48)
+	handle /.well-known/security.txt {
+		reverse_proxy api:3000
+	}
+
 	handle /api/* {
 		# IP klienta pro audit a omezení MCP – Caddy nepřebírá X-Forwarded-For od klienta (není důvěryhodná proxy)
 		reverse_proxy api:3000

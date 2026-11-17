@@ -1,3 +1,4 @@
+import { useRiskNav } from "@/components/riskNav";
 import { RiskLevelBadge } from "@/components/risk";
 import { TrendsCard } from "@/components/trends";
 import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Input, PageHeader, Select, Textarea, type Tone } from "@/components/ui";
@@ -17,6 +18,7 @@ import { useState } from "react";
 const kriTone: Record<KriDto["status"], Tone> = { ok: "green", warn: "amber", alert: "red", unknown: "slate" };
 
 export function RiskAppetitePage() {
+  const riskNav = useRiskNav();
   const t = useT();
   const q = useQuery({ queryKey: ["risk-appetite"], queryFn: api.risks.appetite });
   return (
@@ -26,14 +28,14 @@ export function RiskAppetitePage() {
           {t("rsk.rizika")}
         </Link>
       </div>
-      <PageHeader title={t("rap.title")} subtitle={t("rap.subtitle")} />
+      <PageHeader nav={riskNav} title={t("rap.title")} subtitle={t("rap.subtitle")} />
       <ErrorBox error={q.error} />
       {q.data && (
         <div className="space-y-6">
           <AppetiteCard d={q.data} />
           <BreachesCard d={q.data} />
           <KriCard d={q.data} />
-          <TrendsCard metrics={["risks_critical_high", "risks_medium", "risks_low", "risks_over_appetite", "threat_coverage_pct", "unassessed_threats", "weak_capabilities", "kri_alerts", "detection_blind"]} title={t("rap.trendTitle")} />
+          <TrendsCard id="appetite" metrics={["risks_critical_high", "risks_medium", "risks_low", "risks_over_appetite", "threat_coverage_pct", "unassessed_threats", "weak_capabilities", "kri_alerts", "detection_blind"]} title={t("rap.trendTitle")} />
           <GroupCard />
         </div>
       )}
@@ -245,7 +247,7 @@ function GroupCard() {
   return (
     <Card data-testid="rap-group">
       <CardHeader title={t("rap.groupTitle")} subtitle={t("rap.groupHint")} />
-      <div className="overflow-x-auto px-5 py-3">
+      <div className="overflow-x-auto px-5 py-3" tabIndex={0}>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-left text-xs text-slate-500">

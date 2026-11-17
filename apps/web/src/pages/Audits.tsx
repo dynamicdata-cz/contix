@@ -1,4 +1,5 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { ProcessGuide } from "@/components/processGuide";
 import { TasksCard } from "@/components/tasks";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { AuditRequestsPanel } from "@/components/auditRequests";
@@ -9,7 +10,7 @@ import { TransferButton } from "@/components/transfer";
 import { CompanyCell, useGroupView } from "@/components/company";
 import { useMethodologies } from "@/components/methodology";
 import { STATUS_COLORS } from "@/components/health";
-import { IdMultiSelect, PositionSelect } from "@/components/pickers";
+import { AssetPicker, IdMultiSelect, PositionSelect, type PickedAsset } from "@/components/pickers";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useMe, useModule } from "@/lib/auth";
@@ -70,6 +71,7 @@ export function AuditsPage() {
           )
         }
       />
+      <ProcessGuide id="audits" />
       <div className="mb-6 flex gap-2 border-b border-slate-200">
         <button className={tx(tab === "audits")} onClick={() => setTab("audits")}>
           {t("aud.planAAudity")}
@@ -232,6 +234,13 @@ function FindingTable({ rows, showAudit, onEdit }: { rows: FindingDto[]; showAud
                 <div className="text-xs text-slate-500">
                   <Link to="/controls/$controlId" params={{ controlId: f.controlId }} className="hover:text-brand-700 hover:underline">
                     {t("aud.finding.control", { name: f.controlLabel })}
+                  </Link>
+                </div>
+              )}
+              {f.assetName && f.assetId && (
+                <div className="text-xs text-slate-500">
+                  <Link to="/assets/$assetId" params={{ assetId: f.assetId }} className="hover:text-brand-700 hover:underline">
+                    {t("aud.finding.assetIs", { name: f.assetName })}
                   </Link>
                 </div>
               )}
@@ -570,8 +579,10 @@ function FindingModal({ audit, finding, edit, onClose, onDone }: { audit: AuditD
     verification: finding?.verification ?? "",
     riskId: finding?.riskId ?? null,
     controlId: finding?.controlId ?? null,
+    assetId: finding?.assetId ?? null,
     awareness: finding?.awareness ?? false,
   });
+  const [assetPick, setAssetPick] = useState<PickedAsset[]>(finding?.assetId ? [{ id: finding.assetId, name: finding.assetName ?? "—" }] : []);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const nz = (v: string) => (v ? v : null);
   const body = (): FindingInput => ({ ...f, code: nz(f.code), description: nz(f.description), correctiveAction: nz(f.correctiveAction), dueDate: nz(f.dueDate), closedAt: nz(f.closedAt), verification: nz(f.verification) });
@@ -713,6 +724,19 @@ function FindingModal({ audit, finding, edit, onClose, onDone }: { audit: AuditD
                 </option>
               ))}
           </Select>
+        </Field>
+      )}
+      {mod("assets") && (
+        <Field label={t("aud.finding.asset")} hint={t("aud.finding.assetHint")}>
+          <AssetPicker
+            value={assetPick}
+            disabled={!edit}
+            onChange={(v) => {
+              const last = v.slice(-1);
+              setAssetPick(last);
+              set("assetId", last[0]?.id ?? null);
+            }}
+          />
         </Field>
       )}
       <Checkbox checked={f.awareness} disabled={!edit} onChange={(v) => set("awareness", v)} label={t("aud.zahrnutoDoPlanuRozvojeBezpecnostniho")} />

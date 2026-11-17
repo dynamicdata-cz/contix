@@ -10,6 +10,9 @@ import {
   IMPORT_MAX_BYTES,
   IMPORT_MAX_ROWS,
   IMPORT_MODES,
+  IMPORT_TAG_ENTITY,
+  PositionInput,
+  PositionPatch,
   ProcessInput,
   ProcessPatch,
   RiskInput,
@@ -52,6 +55,7 @@ type Ctx = Context<AppEnv>;
 export type Dispatch = (req: Request) => Response | Promise<Response>;
 
 const SCHEMAS: Record<ImportEntity, { create: z.ZodType; patch: z.ZodType }> = {
+  positions: { create: PositionInput, patch: PositionPatch },
   assets: { create: AssetInput, patch: AssetPatch },
   risks: { create: RiskInput, patch: RiskPatch },
   processes: { create: ProcessInput, patch: ProcessPatch },
@@ -64,6 +68,9 @@ interface Existing {
   label: string;
   keys: string[];
 }
+
+/** Zástupné id útvaru, který při náhledu ještě neexistuje (založí se při zápisu) – platné UUID kvůli validaci. */
+const NEW_UNIT = "00000000-0000-4000-8000-00000000a001";
 
 const isEntity = (v: unknown): v is ImportEntity => (IMPORT_ENTITIES as readonly string[]).includes(String(v));
 
@@ -115,6 +122,10 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
   async function existing(entity: ImportEntity, companyId: string): Promise<Existing[]> {
     const k = (...v: (string | null | undefined)[]) => v.filter((x): x is string => !!x && !!x.trim()).map((x) => normalizeLabel(x));
     switch (entity) {
+      case "positions":
+        return (
+          await db.select({ id: positions.id, name: positions.name, code: positions.code, unit: orgUnits.name }).from(positions).innerJoin(orgUnits, eq(orgUnits.id, positions.orgUnitId)).where(eq(orgUnits.companyId, companyId))
+        ).map((r) => ({ id: r.id, label: `${r.unit} – ${r.name}`, keys: [...k(r.code).map((x) => `code:${x}`), `nu:${normalizeLabel(r.unit)}|${normalizeLabel(r.name)}`] }));
       case "assets":
         return (await db.select({ id: assets.id, name: assets.name, sn: assets.serialNumber, hn: assets.hostname }).from(assets).where(eq(assets.companyId, companyId))).map((r) => ({
           id: r.id,
@@ -133,10 +144,12 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
   }
 
   /** Klíče řádku v pořadí priority (kód / IČO / sériové číslo / hostname před názvem). */
-  function rowKeys(entity: ImportEntity, d: Record<string, unknown>): string[] {
+  function rowKeys(entity: ImportEntity, d: Record<string, unknown>, unitName?: string | null): string[] {
     const s = (v: unknown) => (typeof v === "string" && v.trim() ? normalizeLabel(v) : null);
     const out: (string | null)[] =
-      entity === "assets"
+      entity === "positions"
+        ? [s(d.code) && `code:${s(d.code)}`, s(unitName) && s(d.name) && `nu:${s(unitName)}|${s(d.name)}`]
+        : entity === "assets"
         ? [s(d.serialNumber) && `sn:${s(d.serialNumber)}`, s(d.hostname) && `hn:${s(d.hostname)}`, s(d.name) && `name:${s(d.name)}`]
         : entity === "suppliers"
           ? [s(d.ico) && `ico:${s(d.ico)}`, s(d.name) && `name:${s(d.name)}`]
@@ -144,7 +157,7 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
     return out.filter((x): x is string => !!x);
   }
 
-  async function preview(c: Ctx): Promise<ImportPreviewDto & { companyId: string; _payloads: (Record<string, unknown> | null)[] }> {
+  async function preview(c: Ctx): Promise<ImportPreviewDto & { companyId: string; _payloads: (Record<string, unknown> | null)[]; _units: ({ name: string; key: string } | null)[] }> {
     const { entity, companyId, table, mapping, mode } = await load(c);
     const t = await tFor(db, c);
     const fields = new Map(IMPORT_FIELDS[entity].map((f) => [f.key, f]));
@@ -154,9 +167,17 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
       pos.set(normalizeLabel(p.name), p.id);
       if (p.code) pos.set(normalizeLabel(p.code), p.id);
     }
+    const units = new Map<string, string>();
+    if (mapping.some((m) => m && fields.get(m)?.type === "unit"))
+      for (const u of await db.select({ id: orgUnits.id, name: orgUnits.name, code: orgUnits.code }).from(orgUnits).where(eq(orgUnits.companyId, companyId))) {
+        units.set(normalizeLabel(u.name), u.id);
+        if (u.code) units.set(normalizeLabel(u.code), u.id);
+      }
     const emails = new Set<string>();
     mapping.forEach((m, i) => {
-      if (m && fields.get(m)?.type === "user") for (const r of table.rows) if (r[i]?.trim()) emails.add(r[i]!.trim().toLowerCase());
+      const ty = m ? fields.get(m)?.type : null;
+      if (ty === "user") for (const r of table.rows) if (r[i]?.trim()) emails.add(r[i]!.trim().toLowerCase());
+      if (ty === "users") for (const r of table.rows) for (const e of (r[i] ?? "").split(/[,;\s]+/)) if (e.trim()) emails.add(e.trim().toLowerCase());
     });
     const userIds = new Map((emails.size ? await db.select({ id: users.id, email: users.email }).from(users).where(inArray(users.email, [...emails])) : []).map((u) => [u.email.toLowerCase(), u.id]));
     const ex = await existing(entity, companyId);
@@ -167,17 +188,38 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
 
     const rows: ImportPreviewRow[] = [];
     const payloads: (Record<string, unknown> | null)[] = [];
+    const newUnits: ({ name: string; key: string } | null)[] = [];
     table.rows.forEach((cells, idx) => {
       const data: Record<string, unknown> = {};
       const errors: string[] = [];
       const warnings: string[] = [];
+      let unitName: string | null = null;
+      let newUnit: { name: string; key: string } | null = null;
       mapping.forEach((key, i) => {
         if (!key) return;
         const f = fields.get(key)!;
         const p = parseCell(f, cells[i] ?? "");
         if (p.error) return void errors.push(p.error);
         if (p.value === undefined) return;
-        if (f.type === "position") {
+        if (f.type === "unit") {
+          const name = String(p.value);
+          unitName = name;
+          const id = units.get(normalizeLabel(name));
+          if (id) data[key] = id;
+          else {
+            data[key] = NEW_UNIT;
+            newUnit = { name, key };
+            warnings.push(t("srv.imp.warn.newUnit", { value: name }));
+          }
+        } else if (f.type === "users") {
+          const ids: string[] = [];
+          for (const e of p.value as string[]) {
+            const id = userIds.get(e);
+            if (id) ids.push(id);
+            else warnings.push(t("srv.imp.warn.noUser", { field: t.lbl(f.label), value: e }));
+          }
+          data[key] = ids;
+        } else if (f.type === "position") {
           const id = pos.get(normalizeLabel(String(p.value)));
           if (id) data[key] = id;
           else warnings.push(t("srv.imp.warn.noPosition", { field: t.lbl(f.label), value: String(p.value) }));
@@ -192,7 +234,7 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
           data[key] = ids.filter((x) => requirementById(x));
         } else data[key] = p.value;
       });
-      const keys = rowKeys(entity, data);
+      const keys = rowKeys(entity, data, unitName);
       const match = keys.map((k) => byKey.get(k)).find(Boolean) ?? null;
       const line = table.lines[idx] ?? idx + 2;
       const dupOf = keys.map((k) => seen.get(k)).find((x) => x != null);
@@ -209,7 +251,9 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
         if (action === "create") for (const f of IMPORT_FIELDS[entity]) if (f.required && data[f.key] == null && !errors.some((e) => e.startsWith(f.label) || e.startsWith(t.lbl(f.label)))) errors.push(t("srv.imp.err.required", { field: t.lbl(f.label) }));
       }
       rows.push({ row: line, data, errors, warnings, action, matchId: match?.id ?? null, matchLabel: match?.label ?? null });
-      payloads.push(errors.length || action === "skip" ? null : { ...data, ...(action === "create" ? { companyId } : {}) });
+      // funkční místo nemá companyId (patří útvaru)
+      payloads.push(errors.length || action === "skip" ? null : { ...data, ...(action === "create" && entity !== "positions" ? { companyId } : {}) });
+      newUnits.push(errors.length || action === "skip" ? null : newUnit);
     });
     const counts = {
       create: rows.filter((r) => !r.errors.length && r.action === "create").length,
@@ -217,15 +261,15 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
       skip: rows.filter((r) => r.action === "skip").length,
       errors: rows.filter((r) => r.errors.length).length,
     };
-    return { companyId, entity, sheets: table.sheets, sheet: table.sheet, headers: table.headers, mapping, samples: table.rows.slice(0, 3), rows, total: rows.length, counts, _payloads: payloads };
+    return { companyId, entity, sheets: table.sheets, sheet: table.sheet, headers: table.headers, mapping, samples: table.rows.slice(0, 3), rows, total: rows.length, counts, _payloads: payloads, _units: newUnits };
   }
 
   return new Hono<AppEnv>()
-    .post("/preview", requirePerm("assets:write", "risks:write", "processes:write", "controls:write", "suppliers:write"), async (c) => {
-      const { _payloads, companyId: _co, ...dto } = await preview(c);
+    .post("/preview", requirePerm("assets:write", "risks:write", "processes:write", "controls:write", "suppliers:write", "org:write"), async (c) => {
+      const { _payloads, _units, companyId: _co, ...dto } = await preview(c);
       return c.json({ ...dto, rows: dto.rows.slice(0, 1000) } satisfies ImportPreviewDto);
     })
-    .post("/commit", requirePerm("assets:write", "risks:write", "processes:write", "controls:write", "suppliers:write"), async (c) => {
+    .post("/commit", requirePerm("assets:write", "risks:write", "processes:write", "controls:write", "suppliers:write", "org:write"), async (c) => {
       const p = await preview(c);
       const meta = IMPORT_ENTITY_META[p.entity];
       const dispatch = deps.dispatch();
@@ -239,6 +283,7 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
         "x-contix-company": p.companyId,
       };
       const res: ImportResultDto = { created: 0, updated: 0, skipped: p.counts.skip, failed: [] };
+      const createdUnits = new Map<string, string>();
       for (let i = 0; i < p.rows.length; i++) {
         const row = p.rows[i]!;
         const payload = p._payloads[i];
@@ -247,10 +292,36 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
           continue;
         }
         if (!payload) continue;
+        // nový útvar: založit jednou (stejné API jako ruční evidence), pak použít jeho id
+        const nu = p._units[i];
+        if (nu) {
+          const key = normalizeLabel(nu.name);
+          if (!createdUnits.has(key)) {
+            const ur = await dispatch(new Request(`${base.origin}/api/org/units`, { method: "POST", headers, body: JSON.stringify({ name: nu.name, companyId: p.companyId }) }));
+            if (!ur.ok) {
+              res.failed.push({ row: row.row, error: ((await ur.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${ur.status}` });
+              continue;
+            }
+            createdUnits.set(key, ((await ur.json()) as { id: string }).id);
+          }
+          payload[nu.key] = createdUnits.get(key);
+        }
+        // štítky rizik, procesů, opatření a dodavatelů jsou v katalogu – zapíší se po uložení záznamu (aktiva je mají v záznamu)
+        const tagType = IMPORT_TAG_ENTITY[p.entity];
+        const tagNames = tagType && Array.isArray(payload.tags) ? (payload.tags as string[]) : null;
+        if (tagType) delete payload.tags;
         const url = row.action === "update" ? `${base.origin}/api${meta.path}/${row.matchId}` : `${base.origin}/api${meta.path}`;
         const r = await dispatch(new Request(url, { method: row.action === "update" ? "PATCH" : "POST", headers, body: JSON.stringify(payload) }));
-        if (r.ok) row.action === "update" ? res.updated++ : res.created++;
-        else res.failed.push({ row: row.row, error: ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${r.status}` });
+        if (r.ok) {
+          row.action === "update" ? res.updated++ : res.created++;
+          if (tagType && tagNames) {
+            const id = row.action === "update" ? row.matchId : ((await r.json().catch(() => null)) as { id?: string } | null)?.id;
+            if (id) {
+              const tr = await dispatch(new Request(`${base.origin}/api/tags/of/${tagType}/${id}`, { method: "PUT", headers, body: JSON.stringify({ names: tagNames }) }));
+              if (!tr.ok) res.failed.push({ row: row.row, error: ((await tr.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${tr.status}` });
+            }
+          }
+        } else res.failed.push({ row: row.row, error: ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `HTTP ${r.status}` });
       }
       await audit(db, {
         c,
@@ -261,14 +332,14 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
       });
       return c.json(res);
     })
-    .get("/template/:entity", requirePerm("assets:write", "risks:write", "processes:write", "controls:write", "suppliers:write"), async (c) => {
+    .get("/template/:entity", requirePerm("assets:write", "risks:write", "processes:write", "controls:write", "suppliers:write", "org:write"), async (c) => {
       const entity = c.req.param("entity").replace(/\.xlsx$/, "");
       if (!isEntity(entity)) throw new HTTPException(404, { message: "Neznámá evidence" });
       const fields = IMPORT_FIELDS[entity];
       const t = await tFor(db, c);
       // názvy sloupců a hodnoty výčtů zůstávají česky – podle nich se soubor při importu páruje
       const allowed = (f: (typeof fields)[number]) =>
-        f.type === "enum" ? Object.values(f.options ?? {}).join(" / ") : f.type === "bool" ? t("srv.imp.tpl.bool") : f.type === "list" ? t("srv.imp.tpl.list") : f.type === "date" ? t("srv.imp.tpl.date") : f.type === "position" ? t("srv.imp.tpl.position") : f.type === "user" ? t("srv.imp.tpl.user") : f.type === "int" ? t("srv.imp.tpl.int", { min: String(f.min), max: String(f.max) }) : t("srv.imp.tpl.text");
+        f.type === "enum" ? Object.values(f.options ?? {}).join(" / ") : f.type === "bool" ? t("srv.imp.tpl.bool") : f.type === "list" ? t("srv.imp.tpl.list") : f.type === "date" ? t("srv.imp.tpl.date") : f.type === "position" ? t("srv.imp.tpl.position") : f.type === "user" ? t("srv.imp.tpl.user") : f.type === "users" ? t("srv.imp.tpl.users") : f.type === "unit" ? t("srv.imp.tpl.unit") : f.type === "int" ? t("srv.imp.tpl.int", { min: String(f.min), max: String(f.max) }) : t("srv.imp.tpl.text");
       const xlsx = writeXlsx([
         { name: IMPORT_ENTITY_LABELS[entity], rows: [fields.map((f) => f.label)], widths: fields.map((f) => Math.min(40, Math.max(14, f.label.length + 4))) },
         { name: t("srv.imp.tpl.help"), rows: [[t("srv.imp.tpl.column"), t("srv.imp.tpl.required"), t("srv.imp.tpl.values")], ...fields.map((f) => [f.label, f.required ? t("srv.imp.tpl.yes") : "", allowed(f)])], widths: [36, 10, 90] },
@@ -278,7 +349,7 @@ export function importRoutes(deps: { db: Db; dispatch: () => Dispatch }) {
         "content-disposition": `attachment; filename="contix-import-${entity}.xlsx"`,
       });
     })
-    .get("/entities", requirePerm("assets:write", "risks:write", "processes:write", "controls:write", "suppliers:write"), (c) => {
+    .get("/entities", requirePerm("assets:write", "risks:write", "processes:write", "controls:write", "suppliers:write", "org:write"), (c) => {
       const sc = scopeOf(c);
       const ok = IMPORT_ENTITIES.filter((e) => hasPerm(c, IMPORT_ENTITY_META[e].perm as Permission) || sc.ids.some((id) => hasPermIn(c, IMPORT_ENTITY_META[e].perm as Permission, id)));
       return c.json(ok);

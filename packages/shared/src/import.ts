@@ -8,10 +8,11 @@ import { RISK_LABELS } from "./risk";
  * převod hodnot (české popisky, ano/ne, data, seznamy). Sdíleno API (validace) a UI (mapování).
  * ============================================================ */
 
-export const IMPORT_ENTITIES = ["assets", "risks", "processes", "controls", "suppliers"] as const;
+export const IMPORT_ENTITIES = ["assets", "risks", "processes", "controls", "suppliers", "positions"] as const;
 export type ImportEntity = (typeof IMPORT_ENTITIES)[number];
 
 export const IMPORT_ENTITY_LABELS: Record<ImportEntity, string> = {
+  positions: "Útvary a funkční místa",
   assets: "Aktiva",
   risks: "Rizika",
   processes: "Procesy",
@@ -21,6 +22,7 @@ export const IMPORT_ENTITY_LABELS: Record<ImportEntity, string> = {
 
 /** Modul a oprávnění k zápisu pro import dané evidence. */
 export const IMPORT_ENTITY_META: Record<ImportEntity, { module: string; perm: string; path: string }> = {
+  positions: { module: "organization", perm: "org:write", path: "/org/positions" },
   assets: { module: "assets", perm: "assets:write", path: "/assets" },
   risks: { module: "risks", perm: "risks:write", path: "/risks" },
   processes: { module: "processes", perm: "processes:write", path: "/processes" },
@@ -28,7 +30,7 @@ export const IMPORT_ENTITY_META: Record<ImportEntity, { module: string; perm: st
   suppliers: { module: "suppliers", perm: "suppliers:write", path: "/suppliers" },
 };
 
-export type ImportFieldType = "text" | "longtext" | "enum" | "int" | "bool" | "list" | "date" | "position" | "user";
+export type ImportFieldType = "text" | "longtext" | "enum" | "int" | "bool" | "list" | "date" | "position" | "user" | "unit" | "users";
 
 export interface ImportField {
   key: string;
@@ -46,7 +48,25 @@ export interface ImportField {
 
 const yes = { true: "ano", false: "ne" };
 
+/** Evidence, jejichž štítky jsou v katalogu (object_tags) – import je zapíše po uložení záznamu (v1.78). */
+export const IMPORT_TAG_ENTITY: Partial<Record<ImportEntity, "risk" | "process" | "control" | "supplier">> = {
+  risks: "risk",
+  processes: "process",
+  controls: "control",
+  suppliers: "supplier",
+};
+
 export const IMPORT_FIELDS: Record<ImportEntity, ImportField[]> = {
+  // organizace (v1.48, ADR-145): útvar se podle názvu najde, nebo založí; držitelé podle e-mailu
+  positions: [
+    { key: "orgUnitId", label: "Útvar", type: "unit", required: true, synonyms: ["utvar", "oddeleni", "odbor", "organizacni jednotka", "department", "unit"] },
+    { key: "name", label: "Funkční místo", type: "text", required: true, synonyms: ["nazev funkcniho mista", "pozice", "misto", "role", "position", "nazev"] },
+    { key: "code", label: "Kód", type: "text", synonyms: ["kod mista", "id", "oznaceni"] },
+    { key: "isManager", label: "Vedoucí místo (ano/ne)", type: "bool", options: yes, synonyms: ["vedouci", "manager"] },
+    { key: "holderIds", label: "Držitelé (e-maily)", type: "users", synonyms: ["drzitel", "drzitele", "obsazeni", "zamestnanec", "e mail", "email"] },
+    { key: "securityRoles", label: "Bezpečnostní role", type: "list", synonyms: ["role kb", "bezpecnostni role"] },
+    { key: "description", label: "Popis", type: "longtext", synonyms: ["napln", "popis mista"] },
+  ],
   assets: [
     { key: "name", label: "Název", type: "text", required: true, synonyms: ["aktivum", "nazev aktiva", "asset", "jmeno"] },
     { key: "assetType", label: "Typ aktiva", type: "enum", required: true, options: LABELS.assetType, synonyms: ["typ", "druh", "type", "kategorie"] },
@@ -64,8 +84,11 @@ export const IMPORT_FIELDS: Record<ImportEntity, ImportField[]> = {
     { key: "model", label: "Model", type: "text" },
     { key: "serialNumber", label: "Sériové číslo", type: "text", synonyms: ["seriove cislo", "sn", "serial", "s n", "vyrobni cislo"] },
     { key: "location", label: "Umístění", type: "text", synonyms: ["lokalita", "misto", "location", "umisteni"] },
-    { key: "ownerName", label: "Odpovědný útvar / správce (text)", type: "text", synonyms: ["spravce", "odpovedny", "garant text", "utvar"] },
-    { key: "ownerUserId", label: "Vlastník (e-mail uživatele)", type: "user", synonyms: ["vlastnik", "garant", "owner", "e mail vlastnika"] },
+    // v1.78: útvar ze struktury organizace (podle názvu nebo kódu; neznámý se založí) – text jen pro správce mimo strukturu
+    { key: "ownerUnitId", label: "Odpovědný útvar", type: "unit", synonyms: ["utvar", "oddeleni", "odbor", "odpovedny utvar", "organizacni jednotka", "department", "unit"] },
+    { key: "ownerName", label: "Správce (text)", type: "text", synonyms: ["spravce", "odpovedny", "garant text", "odpovedny utvar spravce", "odpovedny utvar spravce text"] },
+    { key: "ownerUserId", label: "Vlastník (e-mail uživatele)", type: "user", synonyms: ["vlastnik", "garant", "business vlastnik", "owner", "e mail vlastnika"] },
+    { key: "technicalOwnerUserId", label: "Technický garant (e-mail uživatele)", type: "user", synonyms: ["technicky garant", "technical owner", "spravce systemu"] },
     { key: "lifecycleStatus", label: "Životní cyklus", type: "enum", options: LABELS.lifecycleStatus, synonyms: ["stav", "status", "zivotni cyklus"] },
     { key: "environment", label: "Prostředí", type: "enum", options: LABELS.environment, synonyms: ["prostredi", "environment"] },
     { key: "tags", label: "Štítky", type: "list", synonyms: ["stitky", "tagy", "tags"] },
@@ -82,6 +105,7 @@ export const IMPORT_FIELDS: Record<ImportEntity, ImportField[]> = {
     { key: "treatment", label: "Způsob zvládání", type: "enum", options: RISK_LABELS.treatment, synonyms: ["zvladani", "osetreni", "treatment", "strategie"] },
     { key: "treatmentPlan", label: "Plán zvládání", type: "longtext", synonyms: ["opatreni", "plan", "plan zvladani"] },
     { key: "treatmentDue", label: "Termín zvládání", type: "date", synonyms: ["termin", "due", "termin zvladani"] },
+    { key: "tags", label: "Štítky", type: "list", synonyms: ["stitky", "tagy", "tags"] },
   ],
   processes: [
     { key: "code", label: "Kód", type: "text", synonyms: ["id", "oznaceni", "kod procesu"] },
@@ -96,6 +120,7 @@ export const IMPORT_FIELDS: Record<ImportEntity, ImportField[]> = {
     { key: "outputs", label: "Výstupy", type: "longtext", synonyms: ["vystup"] },
     { key: "frequency", label: "Četnost", type: "text", synonyms: ["frekvence", "cetnost"] },
     { key: "legislation", label: "Legislativa", type: "longtext", synonyms: ["predpisy", "pravni zaklad"] },
+    { key: "tags", label: "Štítky", type: "list", synonyms: ["stitky", "tagy", "tags"] },
   ],
   controls: [
     { key: "code", label: "Kód", type: "text", synonyms: ["id", "oznaceni", "kod opatreni"] },
@@ -109,9 +134,11 @@ export const IMPORT_FIELDS: Record<ImportEntity, ImportField[]> = {
     { key: "evidence", label: "Doložení (kde je kodifikováno)", type: "longtext", synonyms: ["dukaz", "dolozeni", "dokumentace"] },
     { key: "plannedDate", label: "Plánovaný termín", type: "date", synonyms: ["termin", "planovany termin"] },
     { key: "requirementIds", label: "Požadavky (ID, např. cz409:19/1)", type: "list", synonyms: ["pozadavky", "paragrafy", "mapovani"] },
+    { key: "tags", label: "Štítky", type: "list", synonyms: ["stitky", "tagy", "tags"] },
   ],
   suppliers: [
     { key: "name", label: "Název dodavatele", type: "text", required: true, synonyms: ["dodavatel", "nazev", "firma", "spolecnost"] },
+    { key: "ownerUnitId", label: "Odpovědný útvar", type: "unit", synonyms: ["utvar", "oddeleni", "odbor", "odpovedny utvar", "department", "unit"] },
     { key: "ico", label: "IČO", type: "text", synonyms: ["ico", "ic"] },
     { key: "address", label: "Adresa", type: "longtext", synonyms: ["sidlo"] },
     { key: "country", label: "Země", type: "text", synonyms: ["stat", "zeme"] },
@@ -121,6 +148,7 @@ export const IMPORT_FIELDS: Record<ImportEntity, ImportField[]> = {
     { key: "supplyDescription", label: "Předmět plnění", type: "longtext", synonyms: ["predmet", "sluzba", "plneni"] },
     { key: "significant", label: "Významný dodavatel (ano/ne)", type: "bool", options: yes, synonyms: ["vyznamny"] },
     { key: "dataOutsideCz", label: "Data mimo ČR (ano/ne)", type: "bool", options: yes, synonyms: ["mimo cr", "data mimo cr"] },
+    { key: "tags", label: "Štítky", type: "list", synonyms: ["stitky", "tagy", "tags"] },
   ],
 };
 
@@ -198,6 +226,9 @@ export function parseCell(field: ImportField, raw: string): ParsedCell {
       if (!hit) return { error: `${field.label}: „${v}“ – povolené hodnoty: ${opts.map(([, l]) => l).join(", ")}` };
       return { value: hit[0] };
     }
+    case "users":
+      return { value: [...new Set(v.split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean))] };
+    case "unit":
     case "position":
     case "user":
       // přeloží API (funkční místo podle názvu, uživatel podle e-mailu)

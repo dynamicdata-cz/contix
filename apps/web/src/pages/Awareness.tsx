@@ -1,4 +1,5 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { ProcessGuide } from "@/components/processGuide";
 import { useT } from "@/lib/i18n";
 import { TransferButton } from "@/components/transfer";
 import { AudienceEditor } from "@/components/audience";
@@ -80,6 +81,7 @@ export function AwarenessPage() {
           )
         }
       />
+      <ProcessGuide id="awareness" />
       <ErrorBox error={list.error ?? log.error} />
       <div className="mb-4 flex gap-1 border-b border-slate-200">
         {(

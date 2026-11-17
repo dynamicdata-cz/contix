@@ -119,7 +119,7 @@ export function TacticStrip({ counts, active, onPick }: { counts: Record<string,
               onClick={() => onPick(on ? undefined : ta.id)}
               aria-pressed={on}
               title={`${ta.id} ${ta.name}`}
-              className={cn("rounded-md border px-2 py-1.5 text-left transition", on ? "border-brand-500 ring-1 ring-brand-500" : "border-slate-200 hover:border-slate-300", n === 0 && !on && "opacity-60")}
+              className={cn("rounded-md border px-2 py-1.5 text-left transition", on ? "border-brand-500 ring-1 ring-brand-500" : "border-slate-200 hover:border-slate-300", n === 0 && !on && "bg-slate-50")}
               style={n ? { backgroundColor: `rgba(220, 38, 38, ${0.06 + 0.3 * (n / max)})` } : undefined}
             >
               <div className="truncate text-[11px] text-slate-600">{name(ta.id)}</div>

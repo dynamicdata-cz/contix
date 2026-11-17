@@ -22,10 +22,12 @@ export async function startRun<P>(
   after?: (ctx: { log: (m: string) => void }) => Promise<Record<string, number>>,
   /** Společnost, do které se zakládají nově nalezená aktiva (existující se párují v rámci celé skupiny). */
   companyId?: string,
+  /** Připojení (např. jeden z několika Wazuhů) – v1.49, ADR-146. */
+  connectionId?: string,
 ): Promise<{ runId: string; done: Promise<void> }> {
   const [run] = await db
     .insert(discoveryRuns)
-    .values({ connector: connectorId, status: "running", params: publicParams, startedAt: new Date(), ...(companyId ? { companyId } : {}) })
+    .values({ connector: connectorId, status: "running", params: publicParams, startedAt: new Date(), ...(companyId ? { companyId } : {}), ...(connectionId ? { connectionId } : {}) })
     .returning({ id: discoveryRuns.id });
   const runId = run!.id;
 

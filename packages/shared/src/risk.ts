@@ -265,16 +265,37 @@ export interface ControlForResidual {
   lastTestResult?: string | null;
   /** Některý zapnutý monitor opatření je naposledy nesplněný (v1.20, ADR-117). */
   monitorFailing?: boolean;
+  /** Otevřené nálezy navázané na opatření (v1.67, ADR-160): závažné = kritický test / zásadní zjištění auditu. */
+  findingsSerious?: number;
+  /** Ostatní otevřené nálezy: vysoký nález testu / menší zjištění auditu. */
+  findingsOther?: number;
 }
 
 /**
  * Účinnost opatření pro zbytkové riziko podle důkazů (v1.20, ADR-117): neúčinný poslední test nebo nesplněný monitor
  * = nezapočíst; účinné s výjimkami = nejvýš částečně účinné. Jinak deklarovaná účinnost.
  */
-export function evidencedEffectiveness(c: ControlForResidual): { effectiveness: string; reason: "test_ineffective" | "monitor_failing" | "test_exceptions" | null } {
+export type EvidenceReason = "test_ineffective" | "monitor_failing" | "finding_serious" | "test_exceptions" | "finding_open";
+/** Důvody, kvůli kterým se opatření do zbytkového rizika nezapočítá. */
+export const NOT_COUNTED_REASONS: EvidenceReason[] = ["test_ineffective", "monitor_failing", "finding_serious"];
+export const EVIDENCE_REASON_LABELS: Record<EvidenceReason, string> = {
+  test_ineffective: "poslední test neúčinný",
+  monitor_failing: "monitor nesplněn",
+  finding_serious: "otevřený závažný nález (kritický test / zásadní zjištění auditu)",
+  test_exceptions: "poslední test účinný s výjimkami",
+  finding_open: "otevřený nález (vysoký test / menší zjištění auditu)",
+};
+
+/**
+ * Účinnost podle důkazů: neúčinný test, nesplněný monitor nebo otevřený závažný nález = nezapočíst (neúčinné);
+ * test s výjimkami nebo otevřený vysoký nález = nejvýš částečně účinné (v1.67). Jinak deklarovaná účinnost.
+ */
+export function evidencedEffectiveness(c: ControlForResidual): { effectiveness: string; reason: EvidenceReason | null } {
   if (c.lastTestResult === "ineffective") return { effectiveness: "ineffective", reason: "test_ineffective" };
   if (c.monitorFailing) return { effectiveness: "ineffective", reason: "monitor_failing" };
+  if ((c.findingsSerious ?? 0) > 0) return { effectiveness: "ineffective", reason: "finding_serious" };
   if (c.lastTestResult === "effective_with_exceptions" && c.effectiveness === "effective") return { effectiveness: "partially_effective", reason: "test_exceptions" };
+  if ((c.findingsOther ?? 0) > 0 && c.effectiveness === "effective") return { effectiveness: "partially_effective", reason: "finding_open" };
   return { effectiveness: c.effectiveness, reason: null };
 }
 
@@ -303,10 +324,10 @@ export function suggestResidual(r: { impact: number | null; threatLevel: number 
   const basis: string[] = [];
   const nm = (c: ControlForResidual) => `${c.code ? `${c.code} ` : ""}${c.name}`;
   for (const c of eff) basis.push(`${nm(c)} – zavedeno, účinné`);
-  for (const c of part) basis.push(`${nm(c)} – zavedeno, částečně účinné${c.ev.reason === "test_exceptions" ? " (poslední test účinný s výjimkami)" : ""}`);
-  for (const c of impl.filter((x) => x.ev.reason === "test_ineffective" || x.ev.reason === "monitor_failing"))
-    basis.push(`${nm(c)} – ${c.ev.reason === "test_ineffective" ? "poslední test neúčinný" : "monitor nesplněn"} – nezapočteno`);
-  const notCounted = ctrls.length - eff.length - part.length - impl.filter((x) => x.ev.reason === "test_ineffective" || x.ev.reason === "monitor_failing").length;
+  for (const c of part) basis.push(`${nm(c)} – zavedeno, částečně účinné${c.ev.reason ? ` (${EVIDENCE_REASON_LABELS[c.ev.reason]})` : ""}`);
+  const dropped = impl.filter((x) => x.ev.reason && NOT_COUNTED_REASONS.includes(x.ev.reason));
+  for (const c of dropped) basis.push(`${nm(c)} – ${EVIDENCE_REASON_LABELS[c.ev.reason!]} – nezapočteno`);
+  const notCounted = ctrls.length - eff.length - part.length - dropped.length;
   if (notCounted) basis.push(`${notCounted} opatření nezavedeno nebo bez ověřené účinnosti – nezapočteno`);
   const down = (v: number | null) => (v == null ? null : Math.max(1, v - reduction));
   if (method === "three_factor") {
@@ -495,6 +516,8 @@ export const RiskListQuery = z.object({
   threatId: z.string().uuid().optional(),
   /** Jen rizika s podněty k přehodnocení (ADR-058). */
   triggers: z.enum(["1"]).optional(),
+  /** Vlastník = funkce útvaru nebo podřízeného útvaru (v1.76). */
+  unit: z.string().uuid().optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0),
 });

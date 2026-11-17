@@ -9,7 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Sparkles } from "lucide-react";
 
-export const recordTone: Record<RecordKind, Tone> = { risk: "amber", vulnerability: "red", incident: "violet", exception: "slate", audit_finding: "blue", ai_system: "green", cra_finding: "red", control: "green", asset: "blue", process: "violet", supplier: "amber", legal_review: "slate", qa_answer: "blue", knowledge: "violet" };
+export const recordTone: Record<RecordKind, Tone> = { risk: "amber", vulnerability: "red", incident: "violet", exception: "slate", audit_finding: "blue", ai_system: "green", cra_finding: "red", control: "green", asset: "blue", process: "violet", supplier: "amber", legal_review: "slate", qa_answer: "blue", knowledge: "violet", sectest_finding: "red" };
 
 export function RecordHitRow({ h, showScore = true }: { h: RecordHit; showScore?: boolean }) {
   const t = useT();

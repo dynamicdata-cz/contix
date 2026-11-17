@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { cn, fmtDay } from "@/lib/utils";
 import { FRAMEWORKS, fmtCzk, type CycleStatusDto } from "@contix/shared";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Building2, Network } from "lucide-react";
+import { AlertTriangle, Building2, FileSpreadsheet, Network } from "lucide-react";
 
 const REG = { higher: "vyšší", lower: "nižší", none: "—" } as const;
 const Dash = () => <span className="text-slate-300">—</span>;
@@ -38,7 +38,15 @@ export function GroupPage() {
   const rows = q.data ?? [];
   return (
     <>
-      <PageHeader title={t("org.prehledSkupiny")} subtitle={t("org.stavKybernetickeBezpecnostiPoSpolecnoste")} />
+      <PageHeader
+        title={t("org.prehledSkupiny")}
+        subtitle={t("org.stavKybernetickeBezpecnostiPoSpolecnoste")}
+        actions={
+          <a href={api.guides.groupXlsxUrl} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50">
+            <FileSpreadsheet size={15} aria-hidden /> {t("gx.export")}
+          </a>
+        }
+      />
       <ErrorBox error={q.error} />
       <Card className="overflow-x-auto">
         <CardHeader title={t("org.spolecnosti")} />

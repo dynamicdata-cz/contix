@@ -46,10 +46,11 @@ export const USAGE: Record<PositionUsageKind, Def> = {
   info_review: { table: "info_item_reviews", col: "owner_position_id", label: "coalesce((select i.title from info_feed_items i where i.id = x.item_id), 'Varování')", link: "'/infoservice'", read: "legislation:read", write: "legislation:write", module: "legislation" },
   training: { table: "training_courses", col: "owner_position_id", label: code("x.code", "x.title"), link: "'/awareness/' || x.id", read: "awareness:read", write: "awareness:write", module: "awareness" },
   access_review: { table: "access_reviews", col: "reviewer_position_id", label: "x.name", link: "'/identity/reviews/' || x.id", read: "identity:read", write: "identity:write", module: "identity" },
+  nukib_registration: { table: "regulation_registrations", col: "responsible_position_id", label: "'Ohlášení NÚKIB – ' || coalesce((select c.name from companies c where c.id = x.company_id), '')", link: "'/admin/companies'", read: "admin:settings", write: "admin:settings", module: "organization" },
   cycle: { table: "assessment_cycles", col: "leader_position_id", label: "x.title", link: "'/cycles/' || x.id", read: "risks:read", write: "risks:write", module: "risks" },
 };
 /** legal_watch nemá vlastní id – klíčem je act_id. */
-const idExpr = (k: PositionUsageKind) => (k === "legal_watch" ? "x.act_id" : k === "requirement" ? "x.requirement_id" : "x.id");
+const idExpr = (k: PositionUsageKind) => (k === "legal_watch" ? "x.act_id" : k === "nukib_registration" ? "x.company_id" : k === "requirement" ? "x.requirement_id" : "x.id");
 
 async function positionRow(db: Db, id: string) {
   const [p] = await db.select({ id: positions.id, name: positions.name, unitName: orgUnits.name, companyId: orgUnits.companyId }).from(positions).innerJoin(orgUnits, eq(orgUnits.id, positions.orgUnitId)).where(eq(positions.id, id));

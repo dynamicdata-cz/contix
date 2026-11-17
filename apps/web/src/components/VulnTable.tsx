@@ -104,7 +104,7 @@ export function VulnTable({
             </option>
           ))}
         </Select>
-        <Select value={severity} onChange={(e) => reset(setSeverity)(e.target.value as Severity | "")}>
+        <Select value={severity} onChange={(e) => reset(setSeverity)(e.target.value as Severity | "")} aria-label={t("ast.vsechnyZavaznosti")}>
           <option value="">{t("ast.vsechnyZavaznosti")}</option>
           {SEVERITIES.map((s) => (
             <option key={s} value={s}>
@@ -112,7 +112,7 @@ export function VulnTable({
             </option>
           ))}
         </Select>
-        <Select value={status} onChange={(e) => reset(setStatus)(e.target.value as VulnStatus | "")}>
+        <Select value={status} onChange={(e) => reset(setStatus)(e.target.value as VulnStatus | "")} aria-label={t("ast.vsechnyStavy")}>
           <option value="">{t("ast.vsechnyStavy")}</option>
           {VULN_STATUSES.map((s) => (
             <option key={s} value={s}>

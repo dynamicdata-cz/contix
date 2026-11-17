@@ -12,6 +12,7 @@ import {
   type IdentitySeverity,
   type IdentitySourceDto,
   type IdentitySourceStats,
+  type DirGroup,
   type ProvisioningResultDto,
 } from "@contix/shared";
 import { and, count, eq, isNull, lt, ne, sql } from "drizzle-orm";
@@ -19,7 +20,7 @@ import { decrypt } from "../../auth/crypto";
 import { getSettings } from "../../auth/service";
 import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
-import { identityAccounts, identityFindings, identitySnapshots, identitySources, users } from "../../db/schema";
+import { identityAccounts, identityFindings, identityGroups, identitySnapshots, identitySources, users } from "../../db/schema";
 import { fetchAd } from "./ad";
 import { fetchEntra } from "./entra";
 import { evaluateSod } from "./sod";
@@ -63,7 +64,7 @@ export function sourceDto(r: SourceRow): IdentitySourceDto {
 }
 
 /** Načte účty z adresáře (bez zápisu). */
-export async function fetchDirectory(row: Pick<SourceRow, "kind" | "config" | "provisioning">, secret: string, config: Config) {
+export async function fetchDirectory(row: Pick<SourceRow, "kind" | "config" | "provisioning">, secret: string, config: Config): Promise<{ accounts: DirAccount[]; notes: string[]; groups?: DirGroup[] }> {
   if (row.kind === "ad") return fetchAd({ config: AdSourceConfig.parse(row.config), password: secret });
   const cfg = EntraSourceConfig.parse(row.config);
   const prov = ProvisioningConfig.parse(row.provisioning ?? DEFAULT_PROVISIONING);
@@ -105,6 +106,8 @@ export async function syncSource(db: Db, config: Config, sourceId: string, opts:
         if ((cnt?.n ?? 0) > 0) throw new Error("Adresář nevrátil žádné účty – zkontrolujte Base DN a oprávnění účtu. Dosavadní účty a nálezy zůstaly beze změny.");
       }
       const result = await applyDirectory(db, row, dir.accounts, dir.notes, now);
+      // skupiny AD pro katalog oprávnění (v1.33) – jen když adresář nějaké vrátil
+      if (dir.groups?.length) await storeGroups(db, row, dir.groups, now);
       // synchronizace uživatelů a struktury (je-li zapnutá)
       if (provisioningOf(row).enabled) result.provisioning = await applyProvisioning(db, row);
       return result;
@@ -118,6 +121,22 @@ export async function syncSource(db: Db, config: Config, sourceId: string, opts:
   } finally {
     running.delete(sourceId);
   }
+}
+
+/** Skupiny AD: upsert podle DN, chybějící se označí jako odstraněné. */
+export async function storeGroups(db: Db, row: SourceRow, groups: DirGroup[], now = new Date()) {
+  const existing = new Map((await db.select({ id: identityGroups.id, dn: identityGroups.dn }).from(identityGroups).where(eq(identityGroups.sourceId, row.id))).map((x) => [x.dn.toLowerCase(), x.id]));
+  const seen = new Set<string>();
+  for (const g of groups) {
+    const key = g.dn.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const vals = { dn: g.dn, cn: g.cn.slice(0, 300), description: g.description, privileged: g.privileged, protectedGroup: g.protectedGroup, members: g.members, lastSeenAt: now, removedAt: null };
+    const id = existing.get(key);
+    if (id) await db.update(identityGroups).set(vals).where(eq(identityGroups.id, id));
+    else await db.insert(identityGroups).values({ ...vals, sourceId: row.id, companyId: row.companyId });
+  }
+  await db.update(identityGroups).set({ removedAt: now }).where(and(eq(identityGroups.sourceId, row.id), isNull(identityGroups.removedAt), lt(identityGroups.lastSeenAt, now)));
 }
 
 /** Zápis účtů a nálezů pro načtený adresář. */

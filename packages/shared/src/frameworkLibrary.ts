@@ -40,6 +40,16 @@ export const FrameworkPackMeta = z.object({
   source: z.string().trim().max(500).default(""),
   /** Úřední / plné znění (true) nebo jen popisky (false – texty norem chráněné autorským právem). */
   fullText: z.boolean().default(true),
+  /** Smluvní požadavky zákazníka (druh `contract`, v1.50, ADR-147): komu a k jaké službě se zavazujeme. */
+  contract: z
+    .object({
+      customer: z.string().trim().min(1).max(200),
+      service: z.string().trim().max(300).default(""),
+      reference: z.string().trim().max(200).default(""),
+      validUntil: z.string().date().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
 });
 export type FrameworkPackMeta = z.infer<typeof FrameworkPackMeta>;
 export type FrameworkPackMetaInput = z.input<typeof FrameworkPackMeta>;
@@ -339,6 +349,7 @@ export function packToDto(pack: FrameworkPack): CustomFrameworkDto {
     version: pack.version,
     language: pack.language,
     custom: true,
+    ...(pack.contract ? { contract: pack.contract } : {}),
   };
   const requirements: Requirement[] = pack.requirements.map((r, i) => ({
     id: requirementIdOf(pack.key, r.ref),
@@ -373,6 +384,7 @@ export function packOf(meta: FrameworkMeta, reqs: Requirement[]): Record<string,
     language: meta.language,
     source: meta.source,
     fullText: meta.fullText,
+    ...(meta.contract ? { contract: meta.contract } : {}),
     requirements: reqs.map((r) => ({
       ref: r.ref,
       section: r.section,

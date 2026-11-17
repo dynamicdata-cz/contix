@@ -10,7 +10,7 @@ import {
   type AlertSuggestionDto,
 } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -19,8 +19,8 @@ import { assertScope, hasPermIn, inScope } from "../../auth/scope";
 import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
-import { alertSuggestions, appSettings, assets, assetSources, incidentAssets, incidents } from "../../db/schema";
-import { getWazuhConfig } from "../connectors/config";
+import { alertSuggestions, assets, assetSources, connections, incidentAssets, incidents } from "../../db/schema";
+import { alertsIndexer, alertsIndexPath, assetForAgent, listWazuh, setWazuhState, wazuhIndexerReady, type WazuhConn } from "../connections/wazuh";
 import type { FetchLike } from "../discovery/connectors/wazuh";
 import { indexerCall } from "../vulnerabilities/sources";
 import { activeSuppressions, correlateAlerts, suppressGroup } from "../soc/service";
@@ -31,7 +31,6 @@ import { refreshExposure } from "../soc/exposure";
  * Alerty nad prahem úrovně z indexu wazuh-alerts-* se seskupí podle pravidla a agenta.
  * ============================================================ */
 
-const KEY = "alerts.wazuh";
 interface Stored {
   alertsEnabled: boolean;
   alertMinLevel: number;
@@ -41,15 +40,29 @@ interface Stored {
 }
 const DEFAULTS: Stored = { alertsEnabled: false, alertMinLevel: 10, alertsIndexPattern: "wazuh-alerts-*", lastSyncAt: null, lastResult: null };
 
+/** Nastavení alertů primárního Wazuhu (starší rozhraní; každé připojení má vlastní – ADR-146). */
 export async function getAlertSettings(db: Db): Promise<Stored> {
-  const [r] = await db.select().from(appSettings).where(eq(appSettings.key, KEY));
-  return { ...DEFAULTS, ...((r?.value as Partial<Stored>) ?? {}) };
+  const [r] = await db.select().from(connections).where(eq(connections.kind, "wazuh")).orderBy(asc(connections.createdAt), asc(connections.id)).limit(1);
+  if (!r) return DEFAULTS;
+  const c = r.config as Partial<Stored>;
+  const st = r.state as { alertsLastSyncAt?: string | null; alertsLastResult?: string | null };
+  return { alertsEnabled: c.alertsEnabled ?? false, alertMinLevel: c.alertMinLevel ?? 10, alertsIndexPattern: c.alertsIndexPattern ?? DEFAULTS.alertsIndexPattern, lastSyncAt: st.alertsLastSyncAt ?? null, lastResult: st.alertsLastResult ?? null };
 }
-async function storeAlertSettings(db: Db, v: Stored) {
+/** Souhrn všech Wazuhů: alerty zapnuté aspoň u jednoho, poslední synchronizace kteréhokoli. */
+export async function alertSyncSummary(db: Db): Promise<{ alertsEnabled: boolean; lastSyncAt: string | null }> {
+  const rows = await db.select({ config: connections.config, state: connections.state, enabled: connections.enabled }).from(connections).where(eq(connections.kind, "wazuh"));
+  const on = rows.filter((r) => r.enabled && (r.config as { alertsEnabled?: boolean }).alertsEnabled);
+  const last = on.map((r) => (r.state as { alertsLastSyncAt?: string | null }).alertsLastSyncAt).filter((x): x is string => !!x).sort().at(-1) ?? null;
+  return { alertsEnabled: on.length > 0, lastSyncAt: last };
+}
+
+async function storeAlertSettings(db: Db, v: Pick<Stored, "alertsEnabled" | "alertMinLevel" | "alertsIndexPattern">) {
+  const [r] = await db.select().from(connections).where(eq(connections.kind, "wazuh")).orderBy(asc(connections.createdAt), asc(connections.id)).limit(1);
+  if (!r) throw new HTTPException(400, { message: "Nejdřív nastavte připojení k Wazuhu (Administrace → Konektory)." });
   await db
-    .insert(appSettings)
-    .values({ key: KEY, value: v })
-    .onConflictDoUpdate({ target: appSettings.key, set: { value: v, updatedAt: new Date() } });
+    .update(connections)
+    .set({ config: { ...(r.config as Record<string, unknown>), alertsEnabled: v.alertsEnabled, alertMinLevel: v.alertMinLevel, alertsIndexPattern: v.alertsIndexPattern }, updatedAt: new Date() })
+    .where(eq(connections.id, r.id));
 }
 
 /** Po zamítnutí se stejné pravidlo na stejném agentovi 7 dní nenavrhuje znovu (jen se navýší počet). */
@@ -57,15 +70,39 @@ const SUPPRESS_DAYS = 7;
 
 /** Načte nové alerty z indexeru a založí / aktualizuje návrhy. */
 export async function syncAlerts(db: Db, config: Config, fetchImpl: FetchLike = fetch as FetchLike, now = new Date()) {
-  const s = await getAlertSettings(db);
-  if (!s.alertsEnabled) return { created: 0, updated: 0, skipped: "vypnuto" };
-  const w = await getWazuhConfig(db, config);
-  if (!w.indexerUrl || !w.indexerUser || !w.indexerPassword) throw new Error("Není nastaven Wazuh Indexer (Administrace → Konektory).");
-  const since = s.lastSyncAt ?? new Date(now.getTime() - 24 * 3600_000).toISOString();
-  const index = encodeURIComponent(s.alertsIndexPattern).replace(/%2A/g, "*");
+  // každé připojení se zapnutými alerty zvlášť (ADR-146); chyba jednoho Wazuhu nezastaví ostatní
+  const conns = (await listWazuh(db, config, { enabledOnly: true })).filter((w) => w.alertsEnabled);
+  if (!conns.length) return { created: 0, updated: 0, skipped: "vypnuto" };
+  const total = { created: 0, updated: 0, suppressed: 0, alerts: 0 };
+  const errors: string[] = [];
+  for (const w of conns) {
+    try {
+      const r = await syncConnectionAlerts(db, w, fetchImpl, now);
+      total.created += r.created;
+      total.updated += r.updated;
+      total.suppressed += r.suppressed;
+      total.alerts += r.alerts;
+    } catch (e) {
+      errors.push(conns.length > 1 ? `${w.name}: ${(e as Error).message}` : (e as Error).message);
+      await setWazuhState(db, w.id, { alertsLastResult: `Chyba: ${(e as Error).message}`.slice(0, 500) });
+    }
+  }
+  if (errors.length === conns.length) throw new Error(errors.join("; "));
+  // korelace do případů SOC (stejný hostitel / zdrojová IP)
+  if (((await getSettings(db)).enabledModules as string[]).includes("soc")) {
+    await refreshExposure(db);
+    await correlateAlerts(db, now);
+  }
+  return { ...total, ...(errors.length ? { errors } : {}) };
+}
+
+async function syncConnectionAlerts(db: Db, w: WazuhConn, fetchImpl: FetchLike, now: Date) {
+  if (!wazuhIndexerReady(w)) throw new Error("Není nastaven Wazuh Indexer (Administrace → Konektory).");
+  const since = w.state.alertsLastSyncAt ?? new Date(now.getTime() - 24 * 3600_000).toISOString();
+  const s = { alertMinLevel: w.alertMinLevel };
   const res = await indexerCall(
-    { url: w.indexerUrl, user: w.indexerUser, password: w.indexerPassword, verifyTls: w.indexerVerifyTls, indexPattern: s.alertsIndexPattern },
-    `/${index}/_search`,
+    alertsIndexer(w),
+    alertsIndexPath(w),
     {
       size: 1000,
       sort: [{ timestamp: { order: "asc" } }],
@@ -87,7 +124,8 @@ export async function syncAlerts(db: Db, config: Config, fetchImpl: FetchLike = 
     const ts = new Date(a.timestamp ?? now);
     if (a.timestamp && a.timestamp > maxTs) maxTs = a.timestamp;
     const agentId = a.agent?.id != null ? String(a.agent.id) : null;
-    const key = `${ruleId}:${agentId ?? "-"}`;
+    // klíč nese připojení: stejné pravidlo a ID agenta v jiném Wazuhu je jiný alert
+    const key = `${w.id}:${ruleId}:${agentId ?? "-"}`.slice(0, 200);
     const g = groups.get(key);
     if (!g)
       groups.set(key, {
@@ -116,15 +154,11 @@ export async function syncAlerts(db: Db, config: Config, fetchImpl: FetchLike = 
   const suppressions = await activeSuppressions(db, now);
   for (const [key, g] of groups) {
     // aktivum podle agenta Wazuh (discovery)
-    const [asset] = g.agentId
-      ? await db
-          .select({ id: assets.id, companyId: assets.companyId })
-          .from(assetSources)
-          .innerJoin(assets, eq(assets.id, assetSources.assetId))
-          .where(and(eq(assetSources.sourceType, "wazuh"), eq(assetSources.sourceRef, g.agentId)))
-      : [];
+    const asset = g.agentId ? await assetForAgent(db, w.id, g.agentId) : null;
+    // bez aktiva: společnost připojení (Wazuh omezený na společnost), jinak výchozí
+    const companyId = asset?.companyId ?? w.companyId ?? undefined;
     // potlačení opakovaných falešných poplachů (SOC, ADR-047) – alert se nezaloží, jen se připíše zásah
-    if (suppressions.length && (await suppressGroup(db, suppressions, { companyId: asset?.companyId ?? null, ruleId: g.ruleId, agentId: g.agentId, srcip: typeof g.sample.srcip === "string" ? g.sample.srcip : null, n: g.n, last: g.last }))) {
+    if (suppressions.length && (await suppressGroup(db, suppressions, { companyId: companyId ?? null, ruleId: g.ruleId, agentId: g.agentId, srcip: typeof g.sample.srcip === "string" ? g.sample.srcip : null, n: g.n, last: g.last }))) {
       suppressed += g.n;
       continue;
     }
@@ -149,7 +183,8 @@ export async function syncAlerts(db: Db, config: Config, fetchImpl: FetchLike = 
       await db.insert(alertSuggestions).values({
         mitreIds,
         mitreTactics: tacticsFor(mitreIds, g.tactics),
-        companyId: asset?.companyId ?? undefined,
+        companyId,
+        connectionId: w.id,
         groupKey: key,
         ruleId: g.ruleId,
         ruleLevel: g.level,
@@ -166,13 +201,7 @@ export async function syncAlerts(db: Db, config: Config, fetchImpl: FetchLike = 
       created++;
     }
   }
-  // korelace do případů SOC (stejný hostitel / zdrojová IP)
-  if (((await getSettings(db)).enabledModules as string[]).includes("soc")) {
-    await refreshExposure(db);
-    await correlateAlerts(db, now);
-  }
-  const fresh = await getAlertSettings(db);
-  await storeAlertSettings(db, { ...fresh, lastSyncAt: maxTs, lastResult: `Načteno ${hits.length} alertů, nové návrhy ${created}, aktualizované ${updated}${suppressed ? `, potlačeno ${suppressed}` : ""}` });
+  await setWazuhState(db, w.id, { alertsLastSyncAt: maxTs, alertsLastResult: `Načteno ${hits.length} alertů, nové návrhy ${created}, aktualizované ${updated}${suppressed ? `, potlačeno ${suppressed}` : ""}` });
   return { created, updated, suppressed, alerts: hits.length };
 }
 
@@ -272,13 +301,12 @@ export function alertRoutes(deps: { db: Db; config: Config; fetchImpl?: FetchLik
       })
       .get("/settings", requirePerm("incidents:read"), async (c) => {
         const s = await getAlertSettings(db);
-        const w = await getWazuhConfig(db, config);
-        return c.json({ ...s, indexerConfigured: !!(w.indexerUrl && w.indexerUser && w.indexerPassword) });
+        const ws = await listWazuh(db, config, { enabledOnly: true });
+        return c.json({ ...s, indexerConfigured: ws.some(wazuhIndexerReady), connections: ws.filter((w) => w.alertsEnabled).map((w) => ({ id: w.id, name: w.name, lastSyncAt: w.state.alertsLastSyncAt ?? null, lastResult: w.state.alertsLastResult ?? null })) });
       })
       .put("/settings", requirePerm("admin:settings"), zValidator("json", AlertSettingsInput), async (c) => {
         const input = c.req.valid("json");
-        const cur = await getAlertSettings(db);
-        await storeAlertSettings(db, { ...cur, ...input });
+        await storeAlertSettings(db, { alertsEnabled: input.alertsEnabled, alertMinLevel: input.alertMinLevel ?? 10, alertsIndexPattern: input.alertsIndexPattern ?? "wazuh-alerts-*" });
         await audit(db, { c, user: currentUser(c), action: "alerts.settings_updated", details: input });
         return c.json({ ...(await getAlertSettings(db)) });
       })

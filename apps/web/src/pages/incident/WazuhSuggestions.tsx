@@ -35,15 +35,20 @@ export function WazuhSuggestions() {
     },
   });
   const s = settings.data;
+  // víc Wazuhů (v1.49): alerty z každého připojení se zapnutými alerty
+  const conns = s?.connections ?? [];
+  const anyAlerts = !!s?.alertsEnabled || conns.length > 0;
   return (
     <>
       <Card className="overflow-hidden">
         <CardHeader
           title={t("inc.navrhyUdalostiZWazuh")}
           subtitle={
-            s?.alertsEnabled
-              ? t("inc.alertyUrovneZIndexuSeskupene", { alertMinLevel: s.alertMinLevel, alertsIndexPattern: s.alertsIndexPattern, p: s.lastResult ?? "" })
-              : t("inc.nacitaniAlertuJeVypnuteZapnete")
+            conns.length > 1
+              ? conns.map((c) => `${c.name}: ${c.lastResult ?? "—"}`).join(" · ")
+              : s?.alertsEnabled
+                ? t("inc.alertyUrovneZIndexuSeskupene", { alertMinLevel: s.alertMinLevel, alertsIndexPattern: s.alertsIndexPattern, p: s.lastResult ?? "" })
+                : t("inc.nacitaniAlertuJeVypnuteZapnete")
           }
           action={
             <div className="flex gap-2">
@@ -64,7 +69,7 @@ export function WazuhSuggestions() {
                   {t("inc.nastaveni")}
                 </Button>
               )}
-              {can("incidents:write") && s?.alertsEnabled && (
+              {can("incidents:write") && anyAlerts && (
                 <Button variant="secondary" className="px-2.5 py-1.5 text-xs" disabled={sync.isPending} onClick={() => sync.mutate()}>
                   <RefreshCw size={13} /> {t("inc.nacist")}
                 </Button>

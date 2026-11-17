@@ -1,4 +1,5 @@
 import { cn } from "@/lib/utils";
+import { TagBar } from "@/components/tags";
 import { Tabs, useTab } from "@/components/ui/tabs";
 import { useFormGuard } from "@/lib/unsaved";
 import { askConfirm } from "@/components/ui/overlay";
@@ -6,6 +7,7 @@ import { LinkedRecordsCard } from "@/components/linkedRecords";
 import { ControlMonitorsCard } from "@/pages/Monitoring";
 import { FrameworkOptions } from "@/components/frameworkOptions";
 import { TasksCard } from "@/components/tasks";
+import { ControlSecTestsCard } from "@/pages/SecurityTests";
 import { useDecree } from "@/lib/regime";
 import { useT } from "@/lib/i18n";
 import { LinkedDocsCard } from "@/components/linkedDocs";
@@ -34,7 +36,7 @@ import {
   Textarea,
 } from "@/components/ui";
 import { api } from "@/lib/api";
-import { useCan } from "@/lib/auth";
+import { useCan, useModule } from "@/lib/auth";
 import {
   allRequirements,
   CONTROL_CATEGORIES,
@@ -123,6 +125,7 @@ function ControlEditor({
 }) {
   const t = useT();
   const can = useCan();
+  const mod = useModule();
   const admin = can("controls:write");
   const edit = detail ? detail.canEdit : admin;
   const nav = useNavigate();
@@ -173,7 +176,8 @@ function ControlEditor({
           {t("soa.opatreniAShoda")}
         </Link>
       </div>
-      <div className="sticky top-12 z-20 -mx-4 mb-4 flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/70 bg-slate-50/85 px-4 py-3 backdrop-blur-md md:top-0 md:-mx-8 md:px-8">
+      {detail && <TagBar entityType="control" entityId={detail.id} canEdit={can("controls:write")} />}
+      <div className="sticky top-14 z-20 -mx-4 mb-4 flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/70 bg-slate-50/85 px-4 py-3 backdrop-blur-md md:-mx-8 md:px-8">
         <div className="min-w-0">
           <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">
             {detail
@@ -246,6 +250,7 @@ function ControlEditor({
         <div className="space-y-6">
           <ControlAssurance controlId={detail.id} />
           <ControlMonitorsCard controlId={detail.id} />
+          {mod("sectests") && can("sectests:read") && <ControlSecTestsCard controlId={detail.id} />}
         </div>
       )}
       {detail && tab === "links" && (
@@ -318,7 +323,10 @@ function ControlEditor({
                     ))}
                   </Select>
                 </Field>
-                <Field label={t("soa.ucinnost")}>
+                <Field
+                  label={t("soa.ucinnost")}
+                  hint={detail?.findings && detail.findings.serious + detail.findings.other > 0 ? t(detail.findings.serious ? "ctl.findings.hintSerious" : "ctl.findings.hintOther", { serious: detail.findings.serious, other: detail.findings.other }) : undefined}
+                >
                   <Select
                     value={f.effectiveness}
                     onChange={(e) =>

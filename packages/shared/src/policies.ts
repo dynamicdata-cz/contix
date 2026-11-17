@@ -113,6 +113,8 @@ export const PolicyInput = z.object({
   sections: z.array(z.string().trim().min(1).max(20)).max(40).default([]),
   /** Gestor – § 6 odst. 4 osoba odpovědná za obsah, přezkum a aktualizaci; připravuje verze. */
   ownerPositionId: z.string().uuid().nullable().optional(),
+  /** Útvar, kterému dokument patří (v1.80); prázdné při založení = útvar gestora. */
+  ownerUnitId: z.string().uuid().nullable().optional(),
   /** Vlastník procesu – věcná kontrola verze (prázdné = krok se přeskočí). */
   reviewerPositionId: z.string().uuid().nullable().optional(),
   /** Schvalovatel – schvaluje verzi (prázdné = oprávnění „Schvalovat dokumenty ISMS“). */
@@ -317,6 +319,8 @@ export interface PolicyListItem {
   sections: string[];
   classification: Classification;
   ownerPositionId: string | null;
+  ownerUnitId: string | null;
+  ownerUnitName: string | null;
   ownerPositionName: string | null;
   reviewerPositionName: string | null;
   approverPositionName: string | null;

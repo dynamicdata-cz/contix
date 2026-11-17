@@ -13,21 +13,28 @@ Mimo DB je jen konfigurace (`.env` – **zálohujte zvlášť a bezpečně**, ob
   privátní klíč uchovávejte mimo server (trezor, offline).
 - `BACKUP_COPY_DIR` → kopie na připojený NAS / síťový disk (pravidlo 3-2-1).
 - Výsledek (i chyba) se zapíše do `backup_runs` → Administrace → Provoz, metrika `contix_backup_last_success_timestamp_seconds`.
+- **Automatický test obnovy** (od 1.72, `BACKUP_RESTORE_TEST`): `weekly` (výchozí, v neděli), `daily` nebo `off`.
+  Čerstvá záloha se před zašifrováním obnoví do dočasné databáze a ověří se obsah (níže); klíč k dešifrování
+  na serveru tedy není potřeba. Výsledek se zapíše jako test obnovy, chyba testu zálohu nezahodí.
 
 ```bash
 docker compose run --rm backup backup.sh                       # záloha hned
 age-keygen -o contix-backup.key                                # klíč pro šifrování (veřejná část do .env)
 ```
 
-## Test obnovy (pravidelně, např. čtvrtletně – § 26 vyhl. 409, SOC 2 A1.3)
+## Test obnovy (§ 26 vyhl. 409, SOC 2 A1.3) – automaticky týdně, ručně kdykoli
 
 ```bash
 docker compose run --rm -v $PWD/backups:/backups backup restore.sh --test /backups/contix-20261002-023000.dump
 # šifrovaná: -e BACKUP_AGE_IDENTITY=/keys/contix-backup.key -v /bezpečné/místo:/keys:ro
 ```
 
-Obnoví do dočasné databáze, vypíše počty tabulek/uživatelů/rizik a databázi smaže. Výsledek zaznamenejte jako test
-plánu obnovy (Kontinuita → plány → test).
+Obnoví do dočasné databáze, ověří obsah a databázi smaže. Ověření (od 1.72): klíčové evidence (společnosti,
+uživatelé, aktiva, rizika, opatření, dokumenty, úkoly, auditní záznam) nesmí být po obnově prázdné, když v provozu
+nejsou, migrace nesmí chybět ani být novější než v provozu; do záznamu se uloží doba obnovy a počty jako doklad. Od verze 1.48 se výsledek
+(OK / chyba) zapíše do evidence záloh a v **Administrace → Provoz** je kontrola **Test obnovy**: varování, pokud
+poslední úspěšný test je starší než 92 dní nebo žádný není, chyba, pokud poslední test selhal. Test zaznamenejte
+také jako test plánu obnovy (Kontinuita → plány → test).
 
 ## Obnova
 

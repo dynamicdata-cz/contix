@@ -32,6 +32,20 @@ export const TREND_METRICS = [
   "risks_over_appetite",
   "kri_alerts",
   "detection_blind",
+  // v1.44 (ADR-141) – postup krok za krokem
+  "compliance_path",
+  // v1.66 (ADR-159) – nálezy testů a serverů
+  "sectest_critical_high",
+  "server_findings_high",
+  "finding_tasks_overdue",
+  // v1.69 (ADR-162) – náprava nálezů ze všech zdrojů (12 měsíců)
+  "findings_critical_high",
+  "findings_ontime_pct",
+  "findings_fix_days",
+  // v1.71 (ADR-164) – kvalita dat a eskalace nálezů
+  "quality_score",
+  "quality_issues",
+  "findings_escalated",
 ] as const;
 export type TrendMetric = (typeof TREND_METRICS)[number];
 
@@ -64,6 +78,16 @@ export const TREND_DIRECTION: Record<TrendMetric, "up" | "down"> = {
   risks_over_appetite: "down",
   kri_alerts: "down",
   detection_blind: "down",
+  compliance_path: "up",
+  sectest_critical_high: "down",
+  server_findings_high: "down",
+  finding_tasks_overdue: "down",
+  findings_critical_high: "down",
+  findings_ontime_pct: "up",
+  findings_fix_days: "down",
+  quality_score: "up",
+  quality_issues: "down",
+  findings_escalated: "down",
 };
 
 export const TREND_LABELS: Record<TrendMetric, string> = {
@@ -94,6 +118,16 @@ export const TREND_LABELS: Record<TrendMetric, string> = {
   risks_over_appetite: "Rizika nad ochotou riskovat",
   kri_alerts: "Překročené KRI",
   detection_blind: "Slepá místa detekce ATT&CK",
+  compliance_path: "Cesta k souladu (%)",
+  sectest_critical_high: "Kritické a vysoké nálezy testů",
+  server_findings_high: "Vysoké nálezy konfigurace serverů",
+  finding_tasks_overdue: "Úkoly z nálezů po termínu",
+  findings_critical_high: "Kritické a vysoké nálezy (všechny zdroje)",
+  findings_ontime_pct: "Nálezy opravené v termínu (%)",
+  findings_fix_days: "Průměrná doba opravy nálezu (dny)",
+  quality_score: "Kvalita dat (%)",
+  quality_issues: "Slabiny v evidenci (kvalita dat)",
+  findings_escalated: "Nálezy eskalované po termínu",
 };
 
 /** Ukazatele přehledu skupiny společností (v1.24, ADR-121). */

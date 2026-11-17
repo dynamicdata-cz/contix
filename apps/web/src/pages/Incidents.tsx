@@ -1,4 +1,5 @@
 import { useFormGuard } from "@/lib/unsaved";
+import { ProcessGuide } from "@/components/processGuide";
 import { Tabs, useTab } from "@/components/ui/tabs";
 import { askConfirm } from "@/components/ui/overlay";
 import { FrameworkBadge } from "@/components/frameworkBadge";
@@ -179,6 +180,7 @@ export function IncidentsPage() {
           )
         }
       />
+      <ProcessGuide id="incidents" />
       <Tabs
         value={tab}
         onChange={setTab}
@@ -368,13 +370,15 @@ function IncidentEditor({ inc }: { inc: IncidentDetail }) {
 
   return (
     <div {...guard.bind}>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/incidents" className="hover:text-brand-700">
-          {t("inc.udalostiAIncidenty")}
-        </Link>
-      </div>
       <PageHeader
         title={`${inc.code ? `${inc.code} ` : ""}${inc.title}`}
+        facts={[
+          { label: t("fx.kind"), value: t.lbl(INCIDENT_LABELS.kind[inc.kind]), tone: inc.significant ? "red" : undefined },
+          { label: t("fx.status"), value: t.lbl(INCIDENT_LABELS.status[inc.status]) },
+          { label: t("fx.category"), value: t.lbl(INCIDENT_LABELS.category[inc.category]) },
+          { label: t("fx.owner"), value: inc.ownerPositionName ?? "—" },
+          inc.nextDeadline && { label: t("fx.nextDeadline"), value: <DeadlineChip d={inc.nextDeadline} /> },
+        ]}
         subtitle={`${t("inc.zjistenoDne", { date: fmtDate(inc.detectedAt) })}${inc.reportedBy ? (" " + t("inc.nahlasilA", { reportedBy: inc.reportedBy })) : ""}${inc.createdByName ? (" " + t("inc.zalozilA", { createdByName: inc.createdByName })) : ""}`}
         actions={
           <>

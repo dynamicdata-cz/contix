@@ -19,15 +19,20 @@ export interface Table {
 
 const isXlsx = (buf: Uint8Array) => buf[0] === 0x50 && buf[1] === 0x4b; // "PK" – ZIP
 
-export function readTable(buf: Uint8Array, filename: string, sheet?: string | null): Table {
-  if (isXlsx(buf) || /\.xlsx$/i.test(filename)) return readXlsx(buf, sheet);
+/** headerMatch: rozpozná řádek záhlaví (exporty mívají nad záhlavím titulek, např. „Seznam zaměstnanců k …“). */
+export function readTable(buf: Uint8Array, filename: string, sheet?: string | null, headerMatch?: (cells: string[]) => boolean): Table {
+  if (isXlsx(buf) || /\.xlsx$/i.test(filename)) return readXlsx(buf, sheet, headerMatch);
   if (/\.xls$/i.test(filename)) throw new Error("Starý formát .xls není podporován – uložte soubor jako .xlsx nebo CSV.");
-  return { sheets: [], sheet: null, ...splitHeader(parseCsv(decodeText(buf))) };
+  return { sheets: [], sheet: null, ...splitHeader(parseCsv(decodeText(buf)), headerMatch) };
 }
 
-function splitHeader(all: string[][]): { headers: string[]; rows: string[][]; lines: number[] } {
-  // první neprázdný řádek je záhlaví; prázdné řádky se vynechají (čísla řádků zůstávají podle souboru)
-  const nonEmpty = all.map((r, i) => ({ r, line: i + 1 })).filter(({ r }) => r.some((c) => c.trim() !== ""));
+function splitHeader(all: string[][], headerMatch?: (cells: string[]) => boolean): { headers: string[]; rows: string[][]; lines: number[] } {
+  // první neprázdný řádek je záhlaví (nebo první z prvních 20, který rozpozná headerMatch); prázdné řádky se vynechají
+  let nonEmpty = all.map((r, i) => ({ r, line: i + 1 })).filter(({ r }) => r.some((c) => c.trim() !== ""));
+  if (headerMatch) {
+    const at = nonEmpty.slice(0, 20).findIndex(({ r }) => headerMatch(r.map((c) => c.trim())));
+    if (at > 0) nonEmpty = nonEmpty.slice(at);
+  }
   const [head, ...rest] = nonEmpty;
   const headers = (head?.r ?? []).map((h) => h.trim());
   const width = headers.length;
@@ -125,7 +130,7 @@ const colIndex = (ref: string) => {
   return n - 1;
 };
 
-export function readXlsx(buf: Uint8Array, wanted?: string | null): Table {
+export function readXlsx(buf: Uint8Array, wanted?: string | null, headerMatch?: (cells: string[]) => boolean): Table {
   let files: Record<string, Uint8Array>;
   try {
     files = safeUnzip(buf, { filter: (f) => f.name.startsWith("xl/") && f.name.endsWith(".xml") || f.name.endsWith(".rels") });
@@ -167,7 +172,7 @@ export function readXlsx(buf: Uint8Array, wanted?: string | null): Table {
     }
     all[idx] = Array.from({ length: cells.length }, (_, i) => cells[i] ?? "");
   }
-  return { sheets: names, sheet: chosen["@name"]!, ...splitHeader(Array.from({ length: all.length }, (_, i) => all[i] ?? [])) };
+  return { sheets: names, sheet: chosen["@name"]!, ...splitHeader(Array.from({ length: all.length }, (_, i) => all[i] ?? []), headerMatch) };
 }
 
 /* ---------------- zápis jednoduchého XLSX (šablony importu) ---------------- */

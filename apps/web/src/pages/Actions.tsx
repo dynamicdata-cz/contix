@@ -9,8 +9,8 @@ import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { cn, fmtDay, useDebounced } from "@/lib/utils";
 import { toast } from "@/components/ui/overlay";
-import { PositionSelect } from "@/components/pickers";
-import { TASK_LABELS, type ActionItem, type ActionKind, type TaskDto, type TaskStatus } from "@contix/shared";
+import { PositionSelect, UserSelect } from "@/components/pickers";
+import { TASK_LABELS, TASK_PRIORITIES, type ActionItem, type ActionKind, type TaskDto, type TaskPriority, type TaskStatus } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { AlarmClock, CalendarClock, CheckCircle2, Download, ListTodo, Plus } from "lucide-react";
@@ -58,7 +58,7 @@ export function ActionsBoard({ mineDefault = false }: { mineDefault?: boolean })
   const [mine, setMine] = useState(mineDefault);
   const [sel, setSel] = useState<Set<string>>(new Set());
   const bulk = useMutation({
-    mutationFn: (v: { status?: TaskStatus; dueDate?: string | null; ownerPositionId?: string | null }) => api.actions.bulkTasks({ ids: [...sel], ...v }),
+    mutationFn: (v: { status?: TaskStatus; dueDate?: string | null; ownerPositionId?: string | null; priority?: TaskPriority; assigneeUserId?: string | null }) => api.actions.bulkTasks({ ids: [...sel], ...v }),
     onSuccess: (r) => {
       toast(r.skipped.length ? t("act.bulk.doneSkipped", { n: r.updated, s: r.skipped.length }) : t("act.bulk.done", { n: r.updated }), r.skipped.length ? "info" : "success");
       setSel(new Set());
@@ -69,6 +69,8 @@ export function ActionsBoard({ mineDefault = false }: { mineDefault?: boolean })
   });
   const [bulkDue, setBulkDue] = useState("");
   const [bulkOwner, setBulkOwner] = useState<string | null>(null);
+  const [bulkPriority, setBulkPriority] = useState<"" | TaskPriority>("");
+  const [bulkAssignee, setBulkAssignee] = useState<string | null>(null);
   const [overdue, setOverdue] = useState(false);
   const [text, setText] = useState("");
   const dtext = useDebounced(text);
@@ -144,6 +146,23 @@ export function ActionsBoard({ mineDefault = false }: { mineDefault?: boolean })
                 </div>
                 <Button variant="secondary" className="px-2.5 py-1 text-xs" disabled={!bulkOwner || bulk.isPending} onClick={() => bulk.mutate({ ownerPositionId: bulkOwner })}>
                   {t("act.bulk.setOwner")}
+                </Button>
+                <Select className="w-32 py-1 text-xs" value={bulkPriority} onChange={(e) => setBulkPriority(e.target.value as typeof bulkPriority)} aria-label={t("act.bulk.priority")}>
+                  <option value="">{t("act.bulk.priority")}</option>
+                  {TASK_PRIORITIES.map((p) => (
+                    <option key={p} value={p}>
+                      {t.lbl(TASK_LABELS.priority[p])}
+                    </option>
+                  ))}
+                </Select>
+                <Button variant="secondary" className="px-2.5 py-1 text-xs" disabled={!bulkPriority || bulk.isPending} onClick={() => bulkPriority && bulk.mutate({ priority: bulkPriority })}>
+                  {t("act.bulk.setPriority")}
+                </Button>
+                <div className="w-56">
+                  <UserSelect value={bulkAssignee} onChange={setBulkAssignee} ariaLabel={t("act.bulk.assignee")} className="py-1 text-xs" />
+                </div>
+                <Button variant="secondary" className="px-2.5 py-1 text-xs" disabled={!bulkAssignee || bulk.isPending} onClick={() => bulk.mutate({ assigneeUserId: bulkAssignee })} data-testid="bulk-assignee">
+                  {t("act.bulk.setAssignee")}
                 </Button>
               </>
             )}

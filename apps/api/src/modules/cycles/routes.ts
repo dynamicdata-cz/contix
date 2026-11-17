@@ -30,7 +30,7 @@ import { currentUser, hasPerm, requirePerm } from "../../auth/middleware";
 import { assertScope, hasPermIn, inScope, riskPolicies, scopeOf, settingsFor, targetCompany } from "../../auth/scope";
 import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
-import { assessmentCycleItems, assessmentCycles, biaAssessments, changes, positions, processes, risks, users } from "../../db/schema";
+import { assessmentCycleItems, assessmentCycles, biaAssessments, changes, orgUnits, positionHolders, positions, processes, risks, users } from "../../db/schema";
 import { quantOf } from "../risks/quant";
 
 type Ctx = Context<AppEnv>;
@@ -226,7 +226,22 @@ export function cycleRoutes(db: Db) {
         .limit(1),
     ]);
     const { _row, ...rest } = item!;
+    const teamRows = x.teamPositionIds.length
+      ? await db
+          .select({ id: positions.id, name: positions.name, holder: users.displayName })
+          .from(positions)
+          .leftJoin(positionHolders, eq(positionHolders.positionId, positions.id))
+          .leftJoin(users, eq(users.id, positionHolders.userId))
+          .where(inArray(positions.id, x.teamPositionIds))
+      : [];
+    const teamPositions = x.teamPositionIds
+      .map((pid) => {
+        const r = teamRows.filter((t) => t.id === pid);
+        return r[0] ? { id: pid, name: r[0].name, holders: r.map((t) => t.holder).filter((h): h is string => !!h) } : null;
+      })
+      .filter((t): t is NonNullable<typeof t> => !!t);
     return {
+      teamPositions,
       ...rest,
       changeId: x.changeId,
       changeTitle: ch[0]?.title ?? null,
@@ -275,6 +290,11 @@ export function cycleRoutes(db: Db) {
         await moduleOn(input.kind);
         if (!hasPerm(c, WRITE[input.kind])) throw new HTTPException(403, { message: "Nedostatečná oprávnění" });
         const companyId = targetCompany(c, requested, WRITE[input.kind]);
+        // tým jen z funkčních míst společnosti cyklu (v1.76)
+        if (input.teamPositionIds?.length) {
+          const ok = await db.select({ id: positions.id }).from(positions).innerJoin(orgUnits, eq(orgUnits.id, positions.orgUnitId)).where(and(inArray(positions.id, input.teamPositionIds), eq(orgUnits.companyId, companyId)));
+          if (ok.length !== new Set(input.teamPositionIds).size) throw new HTTPException(400, { message: "Funkční místo nepatří do společnosti záznamu" });
+        }
         const st = await cycleStatus(db, companyId, input.kind);
         if (st.runningId) throw new HTTPException(409, { message: "Pro společnost už probíhá hodnocení stejného druhu – dokončete ho nebo zrušte." });
         const ents = await currentEntities(db, input.kind, companyId, entityIds.length ? entityIds : undefined);

@@ -1,2 +1,11 @@
 # Interní certifikační autorita Caddy
 tls internal
+
+# Kořenový certifikát interní CA (veřejný) – instalátor sběrače a klienti si ho stáhnou (v1.54)
+handle /.well-known/contix-ca.pem {
+	root * /data/caddy/pki/authorities/local
+	rewrite * /root.crt
+	header Content-Type application/x-pem-file
+	header Content-Disposition "attachment; filename=\"contix-ca.pem\""
+	file_server
+}

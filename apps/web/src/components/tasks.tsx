@@ -1,5 +1,6 @@
 import { askConfirm } from "@/components/ui/overlay";
 /** Úkoly (v0.48, ADR-043): editor úkolu a karta úkolů navázaných na záznam (incident, dodavatel, změna, opatření…). */
+import { JiraTaskLink } from "@/components/integrations";
 import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Field, Input, Modal, Select, Textarea, type Tone } from "@/components/ui";
 import { PositionSelect } from "@/components/pickers";
 import { api } from "@/lib/api";
@@ -133,6 +134,7 @@ export function TaskModal({ task, source, onClose, onSaved }: { task: TaskDto | 
             {task.completedAt && ` · ${t("task.completedOn", { date: fmtDay(task.completedAt) })}`}
           </p>
         )}
+        {task && <JiraTaskLink taskId={task.id} />}
         <ErrorBox error={save.error ?? remove.error} />
       </div>
     </Modal>

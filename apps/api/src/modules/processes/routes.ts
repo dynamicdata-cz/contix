@@ -1,3 +1,4 @@
+import { unitPositionsSql, unitSubtreeSql } from "../org/hierarchy";
 import {
   BpmnInput,
   generateBpmn,
@@ -276,13 +277,15 @@ export function processRoutes(db: Db) {
       .get(
         "/",
         requirePerm("processes:read"),
-        zValidator("query", z.object({ q: z.string().optional(), status: z.string().optional(), assetId: z.string().uuid().optional() })),
+        zValidator("query", z.object({ q: z.string().optional(), status: z.string().optional(), assetId: z.string().uuid().optional(), unit: z.string().uuid().optional() })),
         async (c) => {
-          const { q, status, assetId } = c.req.valid("query");
+          const { q, status, assetId, unit } = c.req.valid("query");
           const where = [inScope(c, processes.companyId)];
           if (q) where.push(or(ilike(processes.name, `%${q}%`), ilike(processes.code, `%${q}%`))!);
           if (status) where.push(eq(processes.status, status as ProcessListItem["status"]));
           if (assetId) where.push(sql`exists (select 1 from process_assets pa where pa.process_id = ${processes.id} and pa.asset_id = ${assetId})`);
+          // útvar (v1.76): proces útvaru nebo s vlastníkem z útvaru, včetně podřízených
+          if (unit) where.push(or(sql`${processes.orgUnitId} in ${unitSubtreeSql(unit)}`, sql`${processes.ownerPositionId} in ${unitPositionsSql(unit)}`)!);
           const rows = await db
             .select({
               p: processes,

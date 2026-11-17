@@ -24,8 +24,7 @@ import { audit, type AppEnv } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
 import { alertSuggestions, assets, assetSources, socHunts, users } from "../../db/schema";
-import { getAlertSettings } from "../alerts/routes";
-import { getWazuhConfig } from "../connectors/config";
+import { alertsIndexer, alertsIndexPath, assetForAgent, indexersFor, type WazuhConn } from "../connections/wazuh";
 import type { FetchLike } from "../discovery/connectors/wazuh";
 import type { Mailer, TeamsPoster } from "../notifications/service";
 import { indexerCall } from "../vulnerabilities/sources";
@@ -47,13 +46,24 @@ const str = (v: unknown) => (v == null ? null : String(v));
 const tsOf = (v: { value_as_string?: string; value?: number } | undefined) => v?.value_as_string ?? (v?.value ? new Date(v.value).toISOString() : null);
 
 /** Dotaz do indexeru – vrátí celkový počet a skupiny nad prahem. */
-async function searchHunt(d: Deps, h: Pick<Row, "query" | "groupBy" | "threshold">, since: Date, until: Date): Promise<{ total: number; buckets: SocHuntBucket[] }> {
-  const w = await getWazuhConfig(d.db, d.config);
-  if (!w.indexerUrl || !w.indexerUser || !w.indexerPassword) throw new Error("Wazuh Indexer není nastaven (Administrace → Konektory).");
-  const al = await getAlertSettings(d.db);
+async function searchHunt(d: Deps, h: Pick<Row, "query" | "groupBy" | "threshold" | "companyId">, since: Date, until: Date): Promise<{ total: number; buckets: SocHuntBucket[] }> {
+  // všechny Wazuhy, které pokrývají společnost hledání (ADR-146)
+  const conns = await indexersFor(d.db, d.config, h.companyId);
+  if (!conns.length) throw new Error("Wazuh Indexer není nastaven (Administrace → Konektory).");
+  const out = { total: 0, buckets: [] as SocHuntBucket[] };
+  for (const w of conns) {
+    const r = await searchHuntIn(d, w, h, since, until);
+    out.total += r.total;
+    out.buckets.push(...r.buckets);
+  }
+  out.buckets.sort((a, b) => b.count - a.count);
+  return out;
+}
+
+async function searchHuntIn(d: Deps, w: WazuhConn, h: Pick<Row, "query" | "groupBy" | "threshold">, since: Date, until: Date): Promise<{ total: number; buckets: SocHuntBucket[] }> {
   const res = await indexerCall(
-    { url: w.indexerUrl, user: w.indexerUser, password: w.indexerPassword, verifyTls: w.indexerVerifyTls, indexPattern: al.alertsIndexPattern },
-    `/${encodeURIComponent(al.alertsIndexPattern).replace(/%2A/g, "*")}/_search`,
+    alertsIndexer(w),
+    alertsIndexPath(w),
     {
       size: 0,
       track_total_hits: true,
@@ -83,6 +93,7 @@ async function searchHunt(d: Deps, h: Pick<Row, "query" | "groupBy" | "threshold
         agentName: str(ag.name)?.slice(0, 255) ?? null,
         first: tsOf(b.first),
         last: tsOf(b.last),
+        connectionId: w.id,
       };
     });
   return { total: Number(typeof tot === "object" ? tot?.value : tot) || 0, buckets };
@@ -96,13 +107,7 @@ async function alertsFor(d: Deps, h: Row, buckets: SocHuntBucket[], now: Date): 
   let alerts = 0;
   const ids: string[] = [];
   for (const b of buckets) {
-    const [asset] = b.agentId
-      ? await d.db
-          .select({ id: assets.id, companyId: assets.companyId })
-          .from(assetSources)
-          .innerJoin(assets, eq(assets.id, assetSources.assetId))
-          .where(and(eq(assetSources.sourceType, "wazuh"), eq(assetSources.sourceRef, b.agentId)))
-      : [];
+    const asset = b.agentId ? await assetForAgent(d.db, b.connectionId ?? null, b.agentId) : null;
     const companyId = asset?.companyId ?? h.companyId;
     const first = b.first ? new Date(b.first) : now;
     const last = b.last ? new Date(b.last) : now;

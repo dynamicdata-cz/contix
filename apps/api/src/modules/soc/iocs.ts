@@ -32,8 +32,7 @@ import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
 import { alertSuggestions, socIocFeeds, socIocs, users } from "../../db/schema";
-import { getAlertSettings } from "../alerts/routes";
-import { getWazuhConfig } from "../connectors/config";
+import { alertsIndexer, alertsIndexPath, indexersFor } from "../connections/wazuh";
 import type { FetchLike } from "../discovery/connectors/wazuh";
 import { hashToken } from "../suppliers/questionnaires";
 import { indexerCall } from "../vulnerabilities/sources";
@@ -68,29 +67,31 @@ export async function huntIoc(db: Db, config: Config, ioc: Pick<Row, "companyId"
     .where(and(eq(alertSuggestions.companyId, ioc.companyId), gte(alertSuggestions.lastSeen, since), or(ilike(sql`${alertSuggestions.sample}::text`, likeOf(ioc.value)), ilike(alertSuggestions.description, likeOf(ioc.value)))));
   const out: SocIocHunt = { at: new Date().toISOString(), days, total: 0, agents: [], contixAlerts: cx?.n ?? 0, error: null };
   try {
-    const w = await getWazuhConfig(db, config);
-    if (!w.indexerUrl || !w.indexerUser || !w.indexerPassword) throw new Error("Wazuh Indexer není nastaven (Administrace → Konektory) – hledalo se jen v alertech CONTIXu.");
-    const al = await getAlertSettings(db);
-    const index = encodeURIComponent(al.alertsIndexPattern).replace(/%2A/g, "*");
-    const res = await indexerCall(
-      { url: w.indexerUrl, user: w.indexerUser, password: w.indexerPassword, verifyTls: w.indexerVerifyTls, indexPattern: al.alertsIndexPattern },
-      `/${index}/_search`,
-      {
-        size: 0,
-        track_total_hits: true,
-        query: { bool: { filter: [{ range: { timestamp: { gte: since.toISOString() } } }, { multi_match: { query: ioc.value, type: "phrase", fields: HUNT_FIELDS[ioc.type as SocIocType], lenient: true } }] } },
-        aggs: { agents: { terms: { field: "agent.name", size: 25 }, aggs: { first: { min: { field: "timestamp" } }, last: { max: { field: "timestamp" } } } } },
-      },
-      fetchImpl,
-    );
-    const tot = res.hits?.total;
-    out.total = Number(typeof tot === "object" ? tot?.value : tot) || 0;
-    out.agents = ((res.aggregations?.agents?.buckets ?? []) as any[]).map((b) => ({
-      name: String(b.key).slice(0, 255),
-      count: Number(b.doc_count) || 0,
-      first: b.first?.value_as_string ?? (b.first?.value ? new Date(b.first.value).toISOString() : null),
-      last: b.last?.value_as_string ?? (b.last?.value ? new Date(b.last.value).toISOString() : null),
-    }));
+    // všechny Wazuhy, které pokrývají společnost IOC (ADR-146)
+    const conns = await indexersFor(db, config, ioc.companyId);
+    if (!conns.length) throw new Error("Wazuh Indexer není nastaven (Administrace → Konektory) – hledalo se jen v alertech CONTIXu.");
+    for (const w of conns) {
+      const res = await indexerCall(
+        alertsIndexer(w),
+        alertsIndexPath(w),
+        {
+          size: 0,
+          track_total_hits: true,
+          query: { bool: { filter: [{ range: { timestamp: { gte: since.toISOString() } } }, { multi_match: { query: ioc.value, type: "phrase", fields: HUNT_FIELDS[ioc.type as SocIocType], lenient: true } }] } },
+          aggs: { agents: { terms: { field: "agent.name", size: 25 }, aggs: { first: { min: { field: "timestamp" } }, last: { max: { field: "timestamp" } } } } },
+        },
+        fetchImpl,
+      );
+      const tot = res.hits?.total;
+      out.total += Number(typeof tot === "object" ? tot?.value : tot) || 0;
+      out.agents.push(...((res.aggregations?.agents?.buckets ?? []) as any[]).map((b) => ({
+        name: String(b.key).slice(0, 255),
+        count: Number(b.doc_count) || 0,
+        first: b.first?.value_as_string ?? (b.first?.value ? new Date(b.first.value).toISOString() : null),
+        last: b.last?.value_as_string ?? (b.last?.value ? new Date(b.last.value).toISOString() : null),
+      })));
+    }
+    out.agents.sort((a, b) => b.count - a.count);
   } catch (e) {
     out.error = (e as Error).message.slice(0, 500);
   }

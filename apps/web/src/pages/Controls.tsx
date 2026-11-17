@@ -1,4 +1,7 @@
+import { UnitSelect } from "@/components/pickers";
+import { BulkBar, RowCheck, useSelection } from "@/components/bulk";
 import { useUrlBatch, useUrlSort } from "@/lib/urlState";
+import { ProcessGuide } from "@/components/processGuide";
 import { SavedViews, SortTh } from "@/components/listTools";
 import { useDebounced } from "@/lib/utils";
 import { useUrlFlag, useUrlParam } from "@/lib/urlState";
@@ -23,16 +26,20 @@ export const fwShort = (id: FrameworkId) => FRAMEWORKS.find((f) => f.id === id)?
 export function ControlsPage() {
   const t = useT();
   const can = useCan();
+  // hromadné úpravy (v1.75)
+  const selection = useSelection();
+  const canBulk = can("controls:write");
   const nav = useNavigate();
   const group = useGroupView();
   const fws = useQuery({ queryKey: ["controls", "frameworks"], queryFn: api.controls.frameworks, enabled: !group });
   const [q, setQ] = useUrlParam("q");
   const [status, setStatus] = useUrlParam("status");
   const [framework, setFramework] = useUrlParam("framework");
+  const [unit, setUnit] = useUrlParam("unit");
   const dq = useDebounced(q);
   const [sort, setSort] = useUrlSort<"name" | "category" | "status" | "effectiveness" | "owner" | "reqs" | "risks">();
   const batch = useUrlBatch();
-  const list = useQuery({ queryKey: ["controls", "list", dq, status, framework], queryFn: () => api.controls.list({ q: dq, status, framework }) });
+  const list = useQuery({ queryKey: ["controls", "list", dq, status, framework, unit], queryFn: () => api.controls.list({ q: dq, status, framework, unit: unit || undefined }) });
   const decree = useDecree();
   const [selected, setSelected] = useState<FrameworkId>(decree);
   const [gen, setGen] = useState(false);
@@ -89,6 +96,7 @@ export function ControlsPage() {
           </>
         }
       />
+      <ProcessGuide id="controls" />
       <ErrorBox error={fws.error ?? list.error} />
       {group && <NeedsCompany what={t("ctl.miraShodyAProhlaseniO")}>{null}</NeedsCompany>}
 
@@ -153,7 +161,8 @@ export function ControlsPage() {
         <CardHeader title={t("ctl.katalogOpatreni")} />
         <div className="flex flex-wrap gap-3 border-b border-slate-100 p-4">
           <Input className="max-w-xs" placeholder={t("ctl.hledatKodNeboNazev")} value={q} onChange={(e) => setQ(e.target.value)} />
-          <Select className="w-44" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <UnitSelect className="w-56" value={unit || null} onChange={(v) => setUnit(v ?? "")} emptyLabel={t("org.f.anyUnit")} ariaLabel={t("org.f.unit")} />
+          <Select className="w-44" value={status} onChange={(e) => setStatus(e.target.value)} aria-label={t("ctl.vsechnyStavy")}>
             <option value="">{t("ctl.vsechnyStavy")}</option>
             {CONTROL_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -161,7 +170,7 @@ export function ControlsPage() {
               </option>
             ))}
           </Select>
-          <Select className="w-44" value={framework} onChange={(e) => setFramework(e.target.value)}>
+          <Select className="w-44" value={framework} onChange={(e) => setFramework(e.target.value)} aria-label={t("ctl.vsechnyRamce")}>
             <option value="">{t("ctl.vsechnyRamce")}</option>
             <FrameworkOptions label="short" />
           </Select>
@@ -182,6 +191,11 @@ export function ControlsPage() {
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
                 <tr>
+                  {canBulk && (
+                    <th className="w-8 pl-5">
+                      <RowCheck checked={!!list.data?.length && list.data.every((c) => selection.has(c.id))} onChange={(v) => selection.setAll((list.data ?? []).map((c) => c.id), v)} label={t("bulk.selectAll")} />
+                    </th>
+                  )}
                   <SortTh k="name" label={t("ctl.opatreni2")} sort={sort} onSort={setSort} className="pl-5" />
                   <SortTh k="category" label={t("ctl.druh")} sort={sort} onSort={setSort} />
                   <SortTh k="status" label={t("ctl.stav")} sort={sort} onSort={setSort} />
@@ -195,6 +209,11 @@ export function ControlsPage() {
               <tbody className="divide-y divide-slate-100">
                 {(sort ? sortRows(list.data ?? [], (c) => (sort.key === "name" ? `${c.code ?? ""} ${c.name}` : sort.key === "category" ? c.category : sort.key === "status" ? CONTROL_STATUSES.indexOf(c.status) : sort.key === "effectiveness" ? c.effectiveness : sort.key === "owner" ? c.ownerPositionName : sort.key === "reqs" ? c.requirementCount : c.riskCount), sort.dir) : (list.data ?? [])).map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50">
+                    {canBulk && (
+                      <td className="pl-5">
+                        <RowCheck checked={selection.has(c.id)} onChange={(v) => selection.toggle(c.id, v)} label={t("bulk.selectRow", { name: c.name })} />
+                      </td>
+                    )}
                     <td className="px-5 py-2.5">
                       <Link to="/controls/$controlId" params={{ controlId: c.id }} className="font-medium text-slate-900 hover:text-brand-700">
                         {c.code && <span className="mr-1.5 text-slate-500">{c.code}</span>}
@@ -206,7 +225,14 @@ export function ControlsPage() {
                     <td className="px-3 py-2.5">
                       <ControlStatusBadge s={c.status} />
                     </td>
-                    <td className="px-3 py-2.5 text-xs text-slate-600">{t.lbl(CONTROL_LABELS.effectiveness[c.effectiveness])}</td>
+                    <td className="px-3 py-2.5 text-xs text-slate-600">
+                      {t.lbl(CONTROL_LABELS.effectiveness[c.effectiveness])}
+                      {!!c.findings && c.findings.serious + c.findings.other > 0 && (
+                        <span className={`ml-1.5 whitespace-nowrap font-medium ${c.findings.serious ? "text-red-700" : "text-amber-700"}`} title={t("ctl.findings.title", { serious: c.findings.serious, other: c.findings.other })} data-testid="ctl-findings">
+                          · {t("ctl.findings.short", { n: c.findings.serious + c.findings.other })}
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2.5 text-slate-600">{c.ownerPositionName ?? <span className="text-amber-700">{t("ctl.neurcen")}</span>}</td>
                     <td className="px-3 py-2.5">
                       <div className="flex flex-wrap gap-1">
@@ -221,6 +247,9 @@ export function ControlsPage() {
                 ))}
               </tbody>
             </table>
+            <div className="px-3 pb-3">
+              <BulkBar entity="controls" ids={selection.sel} onClear={selection.clear} />
+            </div>
           </div>
         )}
       </Card>

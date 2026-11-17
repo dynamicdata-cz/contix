@@ -25,8 +25,7 @@ import { audit, type AppEnv } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
 import { alertSuggestions, socRuleTunings, users } from "../../db/schema";
-import { getAlertSettings } from "../alerts/routes";
-import { getWazuhConfig } from "../connectors/config";
+import { alertsIndexer, alertsIndexPath, indexersFor } from "../connections/wazuh";
 import type { FetchLike } from "../discovery/connectors/wazuh";
 import { indexerCall } from "../vulnerabilities/sources";
 import { getResponseSettings } from "./response";
@@ -60,12 +59,12 @@ export function socTuningRoutes(deps: Deps) {
   const idsOf = (c: Ctx, perm: "soc:read" | "soc:write" | "soc:respond" = "soc:read") => scopeOf(c).ids.filter((id) => hasPermIn(c, perm, id));
   const inIds = (ids: string[]): SQL => (ids.length ? inArray(socRuleTunings.companyId, ids) : sql`false`);
 
-  async function indexer() {
-    const w = await getWazuhConfig(db, config);
-    if (!w.indexerUrl || !w.indexerUser || !w.indexerPassword) return null;
-    const al = await getAlertSettings(db);
-    const p = { url: w.indexerUrl, user: w.indexerUser, password: w.indexerPassword, verifyTls: w.indexerVerifyTls, indexPattern: al.alertsIndexPattern };
-    const path = `/${encodeURIComponent(al.alertsIndexPattern).replace(/%2A/g, "*")}/_search`;
+  /** Indexer Wazuhu, který pokrývá společnost (víc Wazuhů: první v pořadí připojení – výjimka patří do jednoho manageru). */
+  async function indexer(companyId: string) {
+    const [w] = await indexersFor(db, config, companyId);
+    if (!w) return null;
+    const p = alertsIndexer(w);
+    const path = alertsIndexPath(w);
     return { search: (body: unknown) => indexerCall(p, path, body, fetchImpl) };
   }
   const base = (ruleId: string, since: Date, until: Date) => [{ term: { "rule.id": ruleId } }, { range: { timestamp: { gte: since.toISOString(), lte: until.toISOString() } } }];
@@ -85,7 +84,7 @@ export function socTuningRoutes(deps: Deps) {
   async function simulate(companyId: string, ruleId: string, conditions: TuningCondition[], days: number, now = new Date()): Promise<TuningSimulation> {
     const since = new Date(now.getTime() - days * DAY);
     const prot = await protectedAlerts(companyId, ruleId, since);
-    const idx = await indexer();
+    const idx = await indexer(companyId);
     if (idx) {
       const count = async (extra: unknown[]) => totalOf(await idx.search({ size: 0, track_total_hits: true, query: { bool: { filter: [...base(ruleId, since, now), ...extra] } } }));
       const conds = conditions.map(condFilter);
@@ -126,7 +125,7 @@ export function socTuningRoutes(deps: Deps) {
    * Kandidátní pole = IP, uživatel, program, hostitel, umístění + textová pole `data.*` ze vzorku událostí.
    */
   async function suggest(companyId: string, ruleId: string, days: number, now = new Date()) {
-    const idx = await indexer();
+    const idx = await indexer(companyId);
     if (!idx) throw new HTTPException(409, { message: "Návrh z dat vyžaduje Wazuh Indexer (Administrace → Konektory)." });
     const since = new Date(now.getTime() - days * DAY);
     const [st] = await db

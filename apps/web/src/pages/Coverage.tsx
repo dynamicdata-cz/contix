@@ -20,7 +20,7 @@ import { useMemo, useState } from "react";
 
 const aiTone: Record<CoverageDocState, Tone> = { covered: "green", partial: "amber", missing: "red", unscored: "slate", none: "slate" };
 const aiDot: Record<GapStatus | "unscored", string> = { covered: "bg-emerald-500", partial: "bg-amber-500", missing: "bg-red-500", unscored: "bg-slate-300" };
-const gapTone: Record<CoverageGap, Tone> = { no_document: "red", ai_missing: "red", ai_partial: "amber", no_control: "amber", not_compliant: "amber" };
+const gapTone: Record<CoverageGap, Tone> = { no_document: "red", ai_missing: "red", ai_partial: "amber", no_control: "amber", not_compliant: "amber", control_findings: "red" };
 
 const docStateLabel = (t: Translate, s: CoverageDocState) => t.dyn(`enum.coverage.docState.${s}`, COVERAGE_LABELS.docState[s]);
 const gapLabel = (t: Translate, g: CoverageGap) => t.dyn(`enum.coverage.gap.${g}`, COVERAGE_LABELS.gap[g]);

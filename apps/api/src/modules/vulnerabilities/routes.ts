@@ -393,14 +393,14 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
         const me = currentUser(c);
         const ids = [...new Set(input.ids)];
         const rows = await db
-          .select({ id: assetVulnerabilities.id, status: assetVulnerabilities.status, assetId: assets.id, ownerUserId: assets.ownerUserId, companyId: assets.companyId, cveId: assetVulnerabilities.cveId })
+          .select({ id: assetVulnerabilities.id, status: assetVulnerabilities.status, assetId: assets.id, ownerUserId: assets.ownerUserId, techUserId: assets.technicalOwnerUserId, deputyUserId: assets.technicalDeputyUserId, companyId: assets.companyId, cveId: assetVulnerabilities.cveId })
           .from(assetVulnerabilities)
           .innerJoin(assets, eq(assets.id, assetVulnerabilities.assetId))
           .where(inArray(assetVulnerabilities.id, ids));
         if (rows.length !== ids.length) throw new HTTPException(404, { message: "Zranitelnost nenalezena" });
         for (const r of rows) {
           assertScope(c, r.companyId, "Zranitelnost nenalezena");
-          if (!hasPermIn(c, "assets:write", r.companyId) && !(hasPermIn(c, "assets:write_own", r.companyId) && r.ownerUserId === me.id))
+          if (!hasPermIn(c, "assets:write", r.companyId) && !(hasPermIn(c, "assets:write_own", r.companyId) && [r.ownerUserId, r.techUserId, r.deputyUserId].includes(me.id)))
             throw new HTTPException(403, { message: "Výjimku může udělit správce aktiv nebo garant aktiva" });
         }
         if (input.action === "duplicate") {

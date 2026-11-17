@@ -1,3 +1,4 @@
+import { useRiskNav } from "@/components/riskNav";
 import { askConfirm } from "@/components/ui/overlay";
 import { useT } from "@/lib/i18n";
 import { Badge, Button, Card, CardHeader, Checkbox, ErrorBox, Field, Input, Modal, PageHeader, Textarea } from "@/components/ui";
@@ -14,6 +15,7 @@ type Kind = "threat" | "weakness";
 type Form = CatalogItemInput & { id?: string; kind: Kind; isBuiltin?: boolean };
 
 export function RiskCatalogPage() {
+  const riskNav = useRiskNav();
   const t = useT();
   const can = useCan();
   const edit = can("risks:catalog");
@@ -41,7 +43,7 @@ export function RiskCatalogPage() {
           {t("rsk.rizika")}
         </Link>
       </div>
-      <PageHeader
+      <PageHeader nav={riskNav}
         title={t("rsk.katalogHrozebAZranitelnosti")}
         subtitle={t("rsk.vychoziObsahKategorieHrozebA")}
         actions={

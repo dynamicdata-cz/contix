@@ -23,6 +23,8 @@ export const ASSET_TYPES = [
   "saas_service",
   "information_asset",
   "facility",
+  "network_socket",
+  "rack",
   "other",
   // primární aktiva (doplněno v0.2)
   "business_service",
@@ -60,7 +62,7 @@ export const Environment = z.enum(ENVIRONMENTS);
 export type Environment = z.infer<typeof Environment>;
 
 /** Odkud záznam o aktivu pochází. */
-export const SOURCE_TYPES = ["manual", "wazuh", "network_scan", "import"] as const;
+export const SOURCE_TYPES = ["manual", "wazuh", "network_scan", "import", "collector", "netbox"] as const;
 export const SourceType = z.enum(SOURCE_TYPES);
 export type SourceType = z.infer<typeof SourceType>;
 
@@ -86,7 +88,12 @@ const AssetBase = z.object({
   serialNumber: optionalText,
   location: optionalText,
   ownerName: optionalText,
+  /** Odpovědný útvar z organizační struktury (v1.74, ADR-167). */
+  ownerUnitId: z.string().uuid().optional().nullable(),
   ownerUserId: z.string().uuid().optional().nullable(),
+  /** Technický garant a jeho zástupce (v1.60, ADR-155). */
+  technicalOwnerUserId: z.string().uuid().optional().nullable(),
+  technicalDeputyUserId: z.string().uuid().optional().nullable(),
   criticality: Criticality,
   confidentiality: CiaLevel.optional().nullable(),
   integrity: CiaLevel.optional().nullable(),
@@ -129,6 +136,12 @@ export const AssetListQuery = z.object({
   criticality: Criticality.optional(),
   source: SourceType.optional(),
   ownerUserId: z.string().uuid().optional(),
+  /** Aktiva, kde je uživatel vlastníkem, technickým garantem nebo zástupcem. */
+  responsibleUserId: z.string().uuid().optional(),
+  /** Odpovědný útvar včetně podřízených útvarů (v1.74). */
+  ownerUnitId: z.string().uuid().optional(),
+  /** Štítek (bez ohledu na velikost písmen, v1.74). */
+  tag: z.string().trim().min(1).max(100).optional(),
   health: z.enum(["green", "orange", "red", "unknown"]).optional(),
   sort: z.enum(["name", "risk"]).default("name"),
   limit: z.coerce.number().int().min(1).max(500).default(50),
@@ -161,7 +174,12 @@ export interface AssetDto {
   serialNumber: string | null;
   location: string | null;
   ownerName: string | null;
+  ownerUnitId: string | null;
+  /** Název odpovědného útvaru (seznam a detail, v1.74). */
+  ownerUnitName?: string | null;
   ownerUserId: string | null;
+  technicalOwnerUserId: string | null;
+  technicalDeputyUserId: string | null;
   criticality: Criticality;
   confidentiality: number | null;
   integrity: number | null;
@@ -203,7 +221,7 @@ export interface Paged<T> {
 
 /* ---------- Discovery ---------- */
 
-export const DISCOVERY_CONNECTORS = ["wazuh", "network_scan", "csv_import"] as const;
+export const DISCOVERY_CONNECTORS = ["wazuh", "network_scan", "csv_import", "netbox"] as const;
 export const DiscoveryConnector = z.enum(DISCOVERY_CONNECTORS);
 export type DiscoveryConnector = z.infer<typeof DiscoveryConnector>;
 
@@ -248,6 +266,8 @@ export const LABELS = {
     saas_service: "SaaS služba",
     information_asset: "Informační aktivum",
     facility: "Objekt / prostory",
+    network_socket: "Datová zásuvka",
+    rack: "Rack / rozvaděč",
     other: "Ostatní",
     business_service: "Služba",
     business_process: "Proces / činnost",
@@ -270,7 +290,7 @@ export const LABELS = {
     Environment,
     string
   >,
-  source: { manual: "Ruční", wazuh: "Wazuh", network_scan: "Síťový sken", import: "Import" } satisfies Record<
+  source: { manual: "Ruční", wazuh: "Wazuh", network_scan: "Síťový sken", import: "Import", collector: "Sběrač ze serverů", netbox: "NetBox" } satisfies Record<
     SourceType,
     string
   >,

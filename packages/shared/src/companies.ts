@@ -24,7 +24,13 @@ export const GROUP_SCOPE = "group";
 export const COMPANY_HEADER = "x-contix-company";
 
 /** Nastavení, která si společnost může určit odlišně od skupiny (jinak se dědí z mateřské). */
+/** Barva horní lišty (v1.45, ADR-142): společnost ji může nastavit všem (rozlišení prostředí), jinak volba uživatele. */
+export const TOPBAR_COLORS = ["default", "slate", "brand", "teal", "green", "amber", "red", "violet"] as const;
+export type TopbarColor = (typeof TOPBAR_COLORS)[number];
+export const TOPBAR_LABELS: Record<TopbarColor, string> = { default: "Bílá (výchozí)", slate: "Grafitová", brand: "Barva motivu", teal: "Petrolejová", green: "Zelená", amber: "Oranžová", red: "Červená", violet: "Fialová" };
+
 export const CompanyOverrides = z.object({
+  topbarColor: z.enum(TOPBAR_COLORS).optional(),
   riskPolicy: RiskPolicySchema.optional(),
   changeCriteria: z.array(z.string().trim().min(1).max(500)).max(50).optional(),
   incidentTolerance: z.string().trim().max(3000).optional(),
@@ -100,6 +106,8 @@ export interface ScopeCompany {
   pack: "cz" | "sk" | "pl" | "de" | "at" | "generic";
   primaryFramework: string | null;
   doraEntity: boolean;
+  /** Barva horní lišty nastavená společností (null = volba uživatele). */
+  topbarColor: TopbarColor | null;
 }
 
 /** Přiřazení role ke společnosti (role platí i pro dceřiné společnosti). */
@@ -141,4 +149,12 @@ export function ancestorsOf(rows: { id: string; parentId: string | null }[], id:
     cur = rows.find((r) => r.id === cur)?.parentId ?? null;
   }
   return out;
+}
+
+/** Ukázková data (v1.81, ADR-174): fiktivní společnost pro předvedení, založení a odstranění z Administrace. */
+export interface DemoStatusDto {
+  exists: boolean;
+  companyId: string | null;
+  name: string;
+  counts: { assets: number; risks: number; processes: number; suppliers: number } | null;
 }

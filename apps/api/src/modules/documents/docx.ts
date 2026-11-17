@@ -5,11 +5,13 @@ import {
   Footer,
   Header,
   HeadingLevel,
+  ImageRun,
   Packer,
   PageNumber,
   PageOrientation,
   Paragraph,
   ShadingType,
+  VerticalAlign,
   Table,
   TableCell,
   TableRow,
@@ -18,6 +20,12 @@ import {
   type IRunOptions,
 } from "docx";
 import { parse, type HTMLElement, type Node } from "node-html-parser";
+import { currentBrand } from "../branding/service";
+import { CONTIX_LOGO_PNG, CONTIX_LOGO_SIZE } from "../branding/contixLogo";
+
+/** Barva #rrggbb smíchaná s bílou (podíl bílé 0–1) – světlé pozadí záhlaví tabulek. */
+const mixWhite = (hex: string, w: number) =>
+  [0, 2, 4].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) * (1 - w) + 255 * w).toString(16).padStart(2, "0")).join("").toUpperCase();
 
 /* ============================================================
  * Převod tiskové HTML podoby dokumentů (render.ts) do Wordu (.docx).
@@ -33,7 +41,8 @@ interface Style {
   color?: string;
 }
 
-const SKIP = new Set(["toolbar", "wm", "bar"]);
+// brandbar / brandfoot: ve Wordu záhlaví a zápatí stránky (v1.59, ADR-154)
+const SKIP = new Set(["toolbar", "wm", "bar", "brandbar", "brandfoot", "contixbar"]);
 const BLOCK_TAGS = new Set([
   "h1",
   "h2",
@@ -46,6 +55,7 @@ const BLOCK_TAGS = new Set([
   "ol",
   "li",
   "section",
+  "img",
 ]);
 const HEAD: Record<string, (typeof HeadingLevel)[keyof typeof HeadingLevel]> = {
   h1: HeadingLevel.HEADING_1,
@@ -136,6 +146,16 @@ function blocks(
           keepNext: true,
         }),
       );
+    } else if (tag === "img") {
+      // jen vložené PNG (grafy ve zprávách, v1.39) – nic se nestahuje
+      const m = (n.getAttribute("src") ?? "").match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+      if (m)
+        out.push(
+          new Paragraph({
+            children: [new ImageRun({ type: "png", data: Buffer.from(m[1]!, "base64"), transformation: { width: Math.min(640, Number(n.getAttribute("width")) || 300), height: Math.min(400, Number(n.getAttribute("height")) || 80) } })],
+            spacing: { after: 60 },
+          }),
+        );
     } else if (tag === "table") {
       const t = table(n, s);
       if (t) {
@@ -234,6 +254,7 @@ function cellContent(td: HTMLElement, st: Style): Paragraph[] {
   return bl.length ? bl : [new Paragraph({ children: [] })];
 }
 
+let headFill = "F1F5F9";
 function table(t: HTMLElement, st: Style): Table | null {
   const rows: TableRow[] = [];
   const trs = t.querySelectorAll("tr");
@@ -255,11 +276,15 @@ function table(t: HTMLElement, st: Style): Table | null {
         children: cells.map((c) => {
           const th = c.tagName.toLowerCase() === "th";
           const cs = Number(c.getAttribute("colspan") ?? 1) || 1;
+          // podbarvení buňky / řádku (style="background:#rrggbb") – semafor ve zprávě pro vedení (v1.59)
+          const bg = /background:\s*#([0-9a-f]{6})/i.exec(c.getAttribute("style") ?? "")?.[1] ?? /background:\s*#([0-9a-f]{6})/i.exec(tr.getAttribute("style") ?? "")?.[1];
           return new TableCell({
             columnSpan: cs > 1 ? cs : undefined,
-            shading: th
-              ? { type: ShadingType.CLEAR, color: "auto", fill: "F1F5F9" }
-              : undefined,
+            shading: bg
+              ? { type: ShadingType.CLEAR, color: "auto", fill: bg.toUpperCase() }
+              : th
+                ? { type: ShadingType.CLEAR, color: "auto", fill: headFill }
+                : undefined,
             margins: { top: 40, bottom: 40, left: 80, right: 80 },
             children: cellContent(c, {
               ...st,
@@ -302,7 +327,50 @@ export async function htmlToDocx(
   });
   const body =
     root.querySelector(".page") ?? root.querySelector("body") ?? root;
+  const brand = currentBrand();
+  const accent = brand?.accent?.slice(1).toUpperCase() ?? null;
+  headFill = accent ? mixWhite(accent, 0.9) : "F1F5F9";
   const children = blocks(body.childNodes, {});
+  // záhlaví: logo vlevo, název společnosti vpravo, čára v barvě společnosti
+  const logoH = 34;
+  const logo = brand?.logo
+    ? new ImageRun({ type: brand.logo.mime === "png" ? "png" : "jpg", data: brand.logo.data, transformation: { height: logoH, width: Math.min(200, Math.round((brand.logo.width / Math.max(1, brand.logo.height)) * logoH)) } })
+    : !brand
+      ? // bez vlastního vzhledu: malé logo CONTIX (v1.69)
+        new ImageRun({ type: "png", data: Buffer.from(CONTIX_LOGO_PNG, "base64"), transformation: { height: 18, width: Math.round((CONTIX_LOGO_SIZE.width / CONTIX_LOGO_SIZE.height) * 18) } })
+      : null;
+  const headerName = brand ? (brand.showName ? brand.companyName : "") : (o.headerLine ?? "");
+  const none = { style: BorderStyle.NONE, size: 0, color: "FFFFFF" };
+  // záhlaví jako tabulka bez okrajů (logo vlevo, název vpravo) – Word i LibreOffice ji vykreslí stejně
+  const headerBlock: (Paragraph | Table)[] = logo
+    ? [
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: { top: none, left: none, right: none, insideHorizontal: none, insideVertical: none, bottom: { style: BorderStyle.SINGLE, size: 8, color: accent ?? "CBD5E1" } },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ borders: { top: none, left: none, right: none, bottom: none }, width: { size: 60, type: WidthType.PERCENTAGE }, children: [new Paragraph({ children: [logo], spacing: { after: 60 } })] }),
+                new TableCell({
+                  borders: { top: none, left: none, right: none, bottom: none },
+                  width: { size: 40, type: WidthType.PERCENTAGE },
+                  verticalAlign: VerticalAlign.CENTER,
+                  children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: headerName ? [new TextRun({ text: headerName, size: 16, color: "64748B" })] : [] })],
+                }),
+              ],
+            }),
+          ],
+        }),
+        new Paragraph({ children: [], spacing: { after: 0 } }),
+      ]
+    : [
+        new Paragraph({
+          children: headerName ? [new TextRun({ text: headerName, size: 16, color: "64748B" })] : [],
+          alignment: AlignmentType.RIGHT,
+          border: brand ? { bottom: { style: BorderStyle.SINGLE, size: 8, color: accent ?? "CBD5E1", space: 4 } } : undefined,
+        }),
+      ];
+  const footText = brand?.footerText ? `${brand.footerText} · ` : "";
   const doc = new Document({
     creator: "CONTIX",
     title: o.title,
@@ -314,14 +382,14 @@ export async function htmlToDocx(
           name: "Heading 1",
           basedOn: "Normal",
           next: "Normal",
-          run: { size: 32, bold: true, color: "0F172A" },
+          run: { size: 32, bold: true, color: accent ?? "0F172A" },
         },
         {
           id: "Heading2",
           name: "Heading 2",
           basedOn: "Normal",
           next: "Normal",
-          run: { size: 26, bold: true, color: "1E293B" },
+          run: { size: 26, bold: true, color: accent ?? "1E293B" },
         },
         {
           id: "Heading3",
@@ -347,20 +415,7 @@ export async function htmlToDocx(
           },
         },
         headers: {
-          default: new Header({
-            children: [
-              new Paragraph({
-                children: [
-                  new TextRun({
-                    text: o.headerLine ?? "",
-                    size: 16,
-                    color: "64748B",
-                  }),
-                ],
-                alignment: AlignmentType.RIGHT,
-              }),
-            ],
-          }),
+          default: new Header({ children: headerBlock }),
         },
         footers: {
           default: new Footer({
@@ -370,7 +425,7 @@ export async function htmlToDocx(
                 children: [
                   new TextRun({
                     children: [
-                      `${o.title} · strana `,
+                      `${footText}${o.title} · strana `,
                       PageNumber.CURRENT,
                       " z ",
                       PageNumber.TOTAL_PAGES,

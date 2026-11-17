@@ -3,6 +3,7 @@ import {
   ACTION_KINDS,
   TASK_LABELS,
   TASK_SOURCES,
+  TASK_PRIORITIES,
   TASK_STATUSES,
   TaskInput,
   TaskPatch,
@@ -24,11 +25,12 @@ import { currentUser, requirePerm } from "../../auth/middleware";
 import { audit, getSettings, type AppEnv } from "../../auth/service";
 import { assertScope, hasPermIn, scopeOf, targetCompany } from "../../auth/scope";
 import type { Db } from "../../db/client";
-import { orgUnits, positionHolders, positions, tasks, users } from "../../db/schema";
+import { assets, orgUnits, positionHolders, positions, secTestFindings, tasks, users } from "../../db/schema";
 import { ApiError } from "../../lib/apiError";
 import { tFor } from "../i18n/service";
 import { loadActionItems, sourceLabels, type ActionScope } from "./service";
 import { onPlaybookTaskDone } from "../soc/playbooks";
+import { onFindingTaskDone } from "../sectests/retest";
 
 /* Akce a úkoly (ADR-043). */
 
@@ -71,6 +73,15 @@ export function actionRoutes(db: Db) {
         .leftJoin(creator, eq(creator.id, tasks.createdById))
         .where(inArray(tasks.id, rows.map((r) => r.id))),
     ]);
+    const asgIds = [...new Set(rows.map((r) => r.assigneeUserId).filter((x): x is string => !!x))];
+    const asgName = new Map(asgIds.length ? (await db.select({ id: users.id, name: users.displayName }).from(users).where(inArray(users.id, asgIds))).map((u) => [u.id, u.name]) : []);
+    const me = currentUser(c).id;
+    const secIds = rows.filter((r) => r.sourceKind === "sectest_finding" && r.sourceId).map((r) => r.sourceId!);
+    const deputyFindings = new Set(
+      secIds.length
+        ? (await db.select({ id: secTestFindings.id }).from(secTestFindings).innerJoin(assets, eq(assets.id, secTestFindings.assetId)).where(and(inArray(secTestFindings.id, secIds), eq(assets.technicalDeputyUserId, me)))).map((x) => x.id)
+        : [],
+    );
     const posName = new Map(pos.map((p) => [p.id, p.name]));
     const crName = new Map(cr.map((x) => [x.id, x.name]));
     return rows.map((r) => {
@@ -88,6 +99,8 @@ export function actionRoutes(db: Db) {
         sourceLink: taskSourceLink(kind, r.sourceId),
         ownerPositionId: r.ownerPositionId,
         ownerName: r.ownerPositionId ? (posName.get(r.ownerPositionId) ?? null) : null,
+        assigneeUserId: r.assigneeUserId,
+        assigneeName: r.assigneeUserId ? (asgName.get(r.assigneeUserId) ?? null) : null,
         dueDate: r.dueDate,
         priority: r.priority as TaskPriority,
         status: r.status as TaskStatus,
@@ -96,7 +109,7 @@ export function actionRoutes(db: Db) {
         createdByName: crName.get(r.id) ?? null,
         createdAt: r.createdAt.toISOString(),
         canManage: manage,
-        canEdit: manage || (!!r.ownerPositionId && mine.has(r.ownerPositionId)),
+        canEdit: manage || (!!r.ownerPositionId && mine.has(r.ownerPositionId)) || r.assigneeUserId === me || (!!r.sourceId && deputyFindings.has(r.sourceId)),
       };
     });
   }
@@ -107,7 +120,14 @@ export function actionRoutes(db: Db) {
     assertScope(c, r.companyId, "Úkol nenalezen");
     return r;
   }
-  const canRead = async (c: Ctx, r: Row) => hasPermIn(c, "actions:read", r.companyId) || (!!r.ownerPositionId && (await myPositions(c)).has(r.ownerPositionId));
+  /** Zástupce technického garanta aktiva u úkolu z nálezu bezpečnostního testu (v1.62). */
+  const isDeputy = async (c: Ctx, r: Row) => {
+    if (r.sourceKind !== "sectest_finding" || !r.sourceId) return false;
+    const [x] = await db.select({ d: assets.technicalDeputyUserId }).from(secTestFindings).innerJoin(assets, eq(assets.id, secTestFindings.assetId)).where(eq(secTestFindings.id, r.sourceId));
+    return !!x?.d && x.d === currentUser(c).id;
+  };
+  const canRead = async (c: Ctx, r: Row) =>
+    hasPermIn(c, "actions:read", r.companyId) || r.assigneeUserId === currentUser(c).id || (!!r.ownerPositionId && (await myPositions(c)).has(r.ownerPositionId)) || (await isDeputy(c, r));
 
   return new Hono<AppEnv>()
     .get(
@@ -124,7 +144,7 @@ export function actionRoutes(db: Db) {
           (a) =>
             (!q.kind || a.kind === q.kind) &&
             (q.status === "all" || (q.status === "done" ? a.status === "done" || a.status === "cancelled" : a.status === "open" || a.status === "in_progress")) &&
-            (!mine || (a.ownerPositionId && mine.has(a.ownerPositionId))) &&
+            (!mine || (a.ownerPositionId && mine.has(a.ownerPositionId)) || a.assigneeUserId === currentUser(c).id) &&
             (!q.overdue || a.overdue) &&
             (!s || `${a.title} ${a.source ?? ""} ${a.ownerName ?? ""}`.toLowerCase().includes(s)),
         );
@@ -200,25 +220,32 @@ export function actionRoutes(db: Db) {
       const manage = hasPermIn(c, "actions:write", cur.companyId);
       if (!manage) {
         // držitel funkčního místa vlastníka smí měnit jen stav a poznámku k plnění
-        if (!cur.ownerPositionId || !(await myPositions(c)).has(cur.ownerPositionId)) throw new ApiError(403, "err.task.forbidden");
+        if (cur.assigneeUserId !== currentUser(c).id && (!cur.ownerPositionId || !(await myPositions(c)).has(cur.ownerPositionId)) && !(await isDeputy(c, cur))) throw new ApiError(403, "err.task.forbidden");
         if (Object.keys(input).some((k) => k !== "status" && k !== "completionNote")) throw new ApiError(403, "err.task.ownerOnlyStatus");
       }
       if (input.status && input.status !== cur.status) input.completedAt = input.status === "done" ? new Date() : null;
       const [r] = await db.update(tasks).set(input).where(eq(tasks.id, cur.id)).returning();
       // úkol z playbooku alertu SOC → hotový krok (ADR-060)
       if (input.status === "done" && cur.status !== "done") await onPlaybookTaskDone(db, r!, currentUser(c).id);
-      await audit(db, { c, user: currentUser(c), action: "task.updated", entityType: "task", entityId: cur.id, details: { fields: Object.keys(input), status: r!.status } });
-      return c.json((await dtos(c, [r!]))[0]);
+      // úkol z nálezu bezpečnostního testu → opakovaný test ověří opravu (v1.63)
+      const verified = input.status === "done" && cur.status !== "done" ? await onFindingTaskDone(db, r!, currentUser(c).id) : null;
+      await audit(db, { c, user: currentUser(c), action: "task.updated", entityType: "task", entityId: cur.id, details: { fields: Object.keys(input), status: r!.status, ...(verified ? { retest: true } : {}) } });
+      return c.json((await dtos(c, [verified ?? r!]))[0]);
     })
     /** Hromadná změna úkolů (v1.10): stav (i vlastník místa), termín a vlastník (jen actions:write); každý úkol se ověří zvlášť. */
     .post(
       "/tasks/bulk",
       requirePerm("actions:write", "obligations:self"),
-      zValidator("json", z.object({ ids: z.array(z.string().uuid()).min(1).max(200), status: z.enum(TASK_STATUSES).optional(), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), ownerPositionId: z.string().uuid().nullable().optional() })),
+      zValidator("json", z.object({ ids: z.array(z.string().uuid()).min(1).max(200), status: z.enum(TASK_STATUSES).optional(), dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(), ownerPositionId: z.string().uuid().nullable().optional(), priority: z.enum(TASK_PRIORITIES).optional(), assigneeUserId: z.string().uuid().nullable().optional() })),
       async (c) => {
         const { ids, ...patchIn } = c.req.valid("json");
         if (!Object.values(patchIn).some((v) => v !== undefined)) throw new HTTPException(400, { message: "Není co změnit" });
         const mine = await myPositions(c);
+        // odpovědná osoba (v1.79) musí být aktivní uživatel
+        if (patchIn.assigneeUserId) {
+          const [u] = await db.select({ id: users.id }).from(users).where(and(eq(users.id, patchIn.assigneeUserId), eq(users.isActive, true)));
+          if (!u) throw new HTTPException(400, { message: "Vybraná osoba neexistuje nebo není aktivní" });
+        }
         let updated = 0;
         const skipped: string[] = [];
         for (const id of [...new Set(ids)]) {
@@ -228,13 +255,15 @@ export function actionRoutes(db: Db) {
             continue;
           }
           const manage = hasPermIn(c, "actions:write", cur.companyId);
-          const own = !!cur.ownerPositionId && mine.has(cur.ownerPositionId);
+          const own = (!!cur.ownerPositionId && mine.has(cur.ownerPositionId)) || cur.assigneeUserId === currentUser(c).id;
           const set: Partial<Row> = {};
           if (patchIn.status !== undefined && (manage || own)) {
             set.status = patchIn.status;
             if (patchIn.status !== cur.status) set.completedAt = patchIn.status === "done" ? new Date() : null;
           }
           if (manage && patchIn.dueDate !== undefined) set.dueDate = patchIn.dueDate;
+          if (manage && patchIn.priority !== undefined) set.priority = patchIn.priority;
+          if (manage && patchIn.assigneeUserId !== undefined) set.assigneeUserId = patchIn.assigneeUserId;
           if (manage && patchIn.ownerPositionId !== undefined) {
             if (patchIn.ownerPositionId) {
               const [p] = await db.select({ companyId: orgUnits.companyId }).from(positions).innerJoin(orgUnits, eq(orgUnits.id, positions.orgUnitId)).where(eq(positions.id, patchIn.ownerPositionId));
@@ -251,6 +280,7 @@ export function actionRoutes(db: Db) {
           }
           const [r] = await db.update(tasks).set(set).where(eq(tasks.id, cur.id)).returning();
           if (set.status === "done" && cur.status !== "done") await onPlaybookTaskDone(db, r!, currentUser(c).id);
+          if (set.status === "done" && cur.status !== "done") await onFindingTaskDone(db, r!, currentUser(c).id);
           updated++;
         }
         await audit(db, { c, user: currentUser(c), action: "task.bulk_updated", details: { updated, skipped: skipped.length, ...patchIn } });

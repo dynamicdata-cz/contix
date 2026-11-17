@@ -1,4 +1,4 @@
-import { profileLabelKey, profileOf, CONTIX_VERSION, DEFAULT_DOC_FOLDERS, SETUP_LABELS, type SetupDto, type SetupStepDto, type Translate } from "@contix/shared";
+import { DEFAULT_ORG_NAME, ROOT_COMPANY_ID, profileLabelKey, profileOf, CONTIX_VERSION, DEFAULT_DOC_FOLDERS, SETUP_LABELS, type SetupDto, type SetupStepDto, type SetupWizardDto, type Translate, type WizardStepDto } from "@contix/shared";
 import { and, count, eq, isNull, ne, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { currentUser, requirePerm } from "../../auth/middleware";
@@ -9,6 +9,9 @@ import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
 import {
+  appSettings,
+  companies,
+  netSegments,
   assets,
   orgUnits,
   policies,
@@ -26,7 +29,8 @@ import {
   identitySources,
 } from "../../db/schema";
 import { getAiSettings } from "../ai/service";
-import { getWazuhConfig, wazuhReady } from "../connectors/config";
+import { listWazuh, wazuhApiReady } from "../connections/wazuh";
+const wazuhReady = (w: Parameters<typeof wazuhApiReady>[0] | null) => !!w && wazuhApiReady(w);
 import { docxResponse, htmlToDocx } from "../documents/docx";
 import { html, printPage } from "../documents/render";
 import { getNotificationSettings } from "../notifications/service";
@@ -41,6 +45,41 @@ const n = async (q: Promise<{ n: number }[]>) => Number((await q)[0]?.n ?? 0);
 
 export function setupRoutes(deps: { db: Db; config: Config }) {
   const { db, config } = deps;
+
+  const WIZARD_KEY = "setup.wizard";
+  async function wizardState(c: Parameters<typeof scopeOf>[0]): Promise<SetupWizardDto> {
+    const s = await getSettings(db);
+    const mod = (k: string) => s.enabledModules.includes(k);
+    // identita organizace = kořenová společnost (Administrace → Nastavení zapisuje název, IČO a sídlo do ní)
+    const [co] = await db.select({ id: companies.id, name: companies.name, ico: companies.ico, address: companies.address }).from(companies).where(eq(companies.id, ROOT_COMPANY_ID));
+    const [usersN, unitsN, rangesN, assetsN, state, oidc, ad] = await Promise.all([
+      n(db.select({ n: count() }).from(users).where(eq(users.isActive, true))),
+      n(db.select({ n: count() }).from(orgUnits)),
+      mod("discovery") ? n(db.select({ n: count() }).from(netSegments)) : Promise.resolve(0),
+      n(db.select({ n: count() }).from(assets)),
+      db.select().from(appSettings).where(eq(appSettings.key, WIZARD_KEY)),
+      providersFor(db, config).then((p) => p.length > 0).catch(() => false),
+      adLoginSources(db).then((x) => x.length > 0).catch(() => false),
+    ]);
+    const orgDone = !!co && (!!co.ico || !!co.address) && co.name.trim() !== "" && co.name !== DEFAULT_ORG_NAME;
+    const steps: WizardStepDto[] = [
+      { key: "organization", done: orgDone, skipped: false, count: co ? 1 : 0 },
+      { key: "users", done: usersN > 1, skipped: false, count: usersN },
+      { key: "structure", done: unitsN > 0, skipped: !mod("organization"), count: unitsN },
+      { key: "ranges", done: rangesN > 0, skipped: !mod("discovery"), count: rangesN },
+      { key: "assets", done: assetsN > 0, skipped: !mod("assets"), count: assetsN },
+    ];
+    const active = steps.filter((x) => !x.skipped);
+    return {
+      steps,
+      done: active.filter((x) => x.done).length,
+      total: active.length,
+      finishedAt: ((state[0]?.value as { finishedAt?: string } | undefined)?.finishedAt as string | undefined) ?? null,
+      organizationName: co?.name ?? s.organizationName,
+      company: co ? { id: co.id, name: co.name, ico: co.ico ?? null, address: co.address ?? null } : null,
+      login: { oidc, ad },
+    };
+  }
 
   async function computeSetup(c: Parameters<typeof scopeOf>[0], t: Translate = CS_T): Promise<SetupDto> {
     const s = await getSettings(db);
@@ -110,7 +149,7 @@ export function setupRoutes(deps: { db: Db; config: Config }) {
       n(db.select({ n: count() }).from(trainingCourses).where(and(inCo(trainingCourses.companyId), eq(trainingCourses.active, true)))),
       getNotificationSettings(db),
       getAiSettings(db),
-      getWazuhConfig(db, config),
+      listWazuh(db, config, { enabledOnly: true }).then((ws) => ws.find(wazuhApiReady) ?? ws[0] ?? null),
       systemStatus(db, config, t),
     ]);
     const providers = await providersFor(db, config);
@@ -427,6 +466,20 @@ ${(["srv.setup.proto.li1", "srv.setup.proto.li2", "srv.setup.proto.li3", "srv.se
       const r = await protocolHtml(c, await tFor(db, c));
       await audit(db, { c, user: currentUser(c), action: "setup.protocol_exported", details: { format: "docx" } });
       return docxResponse(await htmlToDocx(r.html, { title: r.title, headerLine: r.org }), r.fileName);
+    })
+    /** Průvodce prvním nastavením nové instalace (v1.73, ADR-166): stav kroků z dat, dokončení se pamatuje. */
+    .get("/wizard", requirePerm("admin:settings"), async (c) => c.json(await wizardState(c)))
+    .post("/wizard/finish", requirePerm("admin:settings"), async (c) => {
+      await db
+        .insert(appSettings)
+        .values({ key: WIZARD_KEY, value: { finishedAt: new Date().toISOString(), by: currentUser(c).id } })
+        .onConflictDoUpdate({ target: appSettings.key, set: { value: { finishedAt: new Date().toISOString(), by: currentUser(c).id }, updatedAt: new Date() } });
+      await audit(db, { c, user: currentUser(c), action: "setup.wizard_finished" });
+      return c.json(await wizardState(c));
+    })
+    .post("/wizard/reopen", requirePerm("admin:settings"), async (c) => {
+      await db.delete(appSettings).where(eq(appSettings.key, WIZARD_KEY));
+      return c.json(await wizardState(c));
     })
     /** Výchozí struktura složek dokumentace (jen pokud zatím žádné nejsou). */
     .post("/doc-folders", requirePerm("policies:write"), async (c) => {

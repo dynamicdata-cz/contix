@@ -1,4 +1,5 @@
 import { Tabs, useTab } from "@/components/ui/tabs";
+import { TagBar } from "@/components/tags";
 import { useFormGuard } from "@/lib/unsaved";
 import { askConfirm } from "@/components/ui/overlay";
 import { TasksCard } from "@/components/tasks";
@@ -13,7 +14,8 @@ import { SeverityBadge } from "@/components/health";
 import { AssetPicker, PositionSelect, type PickedAsset } from "@/components/pickers";
 import { FactorEditor, useMethodologies } from "@/components/methodology";
 import { RiskLevelBadge, ScaleSelect, locScale } from "@/components/risk";
-import { Badge, Button, Card, CardHeader, Checkbox, ErrorBox, Field, Input, Select, SuccessBox, Textarea, toggle } from "@/components/ui";
+import { Badge, Button, Card, CardHeader, Checkbox, ErrorBox, Facts, Field, Input, Select, SuccessBox, Textarea, toggle } from "@/components/ui";
+import { fmtDay, formatLocale } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
 import {
@@ -220,12 +222,8 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
 
   return (
     <>
-      <div className="mb-1 text-sm text-slate-500">
-        <Link to="/risks" className="hover:text-brand-700">
-          {t("rsk.rizika")}
-        </Link>
-      </div>
-      <div className="sticky top-12 z-20 -mx-4 mb-4 flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/70 bg-slate-50/85 px-4 py-3 backdrop-blur-md md:top-0 md:-mx-8 md:px-8">
+      {detail && <TagBar entityType="risk" entityId={detail.id} canEdit={can("risks:write")} />}
+      <div className="sticky top-14 z-20 -mx-4 mb-4 flex flex-wrap items-start justify-between gap-4 border-b border-slate-200/70 bg-slate-50/85 px-4 py-3 backdrop-blur-md md:-mx-8 md:px-8">
         <div className="min-w-0">
           <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">{detail ? (detail.code ? `${detail.code} ${detail.name}` : detail.name) : t("rsk.noveRiziko")}</h1>
           {cur && (
@@ -238,6 +236,18 @@ function RiskEditor({ detail, initial, onCreated }: { detail?: RiskDetail; initi
               </span>
               <span className="text-slate-400">{t("rsk.max", { max: cur.max })}</span>
             </div>
+          )}
+          {detail && (
+            <Facts
+              items={[
+                { label: t("fx.owner"), value: detail.ownerPositionName ?? "—", tone: detail.ownerPositionName ? undefined : "amber" },
+                { label: t("fx.status"), value: t.lbl(RISK_LABELS.status[detail.status]) },
+                detail.treatment && { label: t("fx.treatment"), value: `${t.lbl(RISK_LABELS.treatment[detail.treatment])}${detail.treatmentDue ? ` · ${fmtDay(detail.treatmentDue)}` : ""}` },
+                { label: t("fx.assessed"), value: detail.assessedAt ? fmtDay(detail.assessedAt) : t("fx.never"), tone: detail.reviewDue || !detail.assessedAt ? "amber" : undefined },
+                detail.triggers > 0 && { label: t("fx.triggers"), value: detail.triggers, tone: "amber" },
+                detail.ale !== null && { label: "ALE", value: `${Math.round(detail.ale).toLocaleString(formatLocale())} Kč` },
+              ]}
+            />
           )}
         </div>
         <div className="flex gap-2">

@@ -107,7 +107,7 @@ export function ImportPage() {
               </a>
             )}
             <span className="text-xs text-slate-500">
-              {t("imp.parovaniNaExistujiciZaznamy")} {ent === "assets" ? t("imp.serioveCisloHostnameNazev") : ent === "suppliers" ? t("imp.icoNazev") : t("imp.kodNazev")}{t("imp.vlastnikaZadejteNazvemFunkcnihoMista")}
+              {t("imp.parovaniNaExistujiciZaznamy")} {ent === "assets" ? t("imp.serioveCisloHostnameNazev") : ent === "suppliers" ? t("imp.icoNazev") : ent === "positions" ? t("imp.kodUtvarNazev") : t("imp.kodNazev")}{ent === "positions" ? "." : t("imp.vlastnikaZadejteNazvemFunkcnihoMista")}
             </span>
           </div>
           <div className="md:col-span-3">

@@ -13,7 +13,8 @@ import { getVulnSla, vulnDueSql, vulnPrioritySql } from "./intel";
 const PRIO_NUM = { p1: 1, p2: 2, p3: 3, p4: 4 } as const;
 
 export interface VulnRemediationItem extends Omit<ObligationItem, "urgency"> {
-  ownerUserId: string | null;
+  /** Kdo opravu řeší: technický garant (+ zástupce), jinak business vlastník (v1.60, ADR-155). */
+  assigneeUserIds: string[];
 }
 
 /** Aktiva s otevřenými zranitelnostmi P1 / P2 s termínem opravy (jedna položka za aktivum, nejbližší termín). */
@@ -29,6 +30,8 @@ export async function vulnRemediationItems(db: Db, companyIds: string[], t: Tran
       name: assets.name,
       companyId: assets.companyId,
       ownerUserId: assets.ownerUserId,
+      techUserId: assets.technicalOwnerUserId,
+      deputyUserId: assets.technicalDeputyUserId,
       due: sql<string>`min(${due})::text`,
       total: sql<number>`count(*)::int`,
       overdue: sql<number>`count(*) filter (where ${due} < current_date)::int`,
@@ -38,7 +41,7 @@ export async function vulnRemediationItems(db: Db, companyIds: string[], t: Tran
     .innerJoin(assets, eq(assets.id, assetVulnerabilities.assetId))
     .leftJoin(vulnIntel, eq(vulnIntel.cveId, assetVulnerabilities.cveId))
     .where(and(inArray(assets.companyId, companyIds), eq(assetVulnerabilities.status, "open"), sql`${vulnPrioritySql} in (${sql.join(prios.map((p) => sql`${p}`), sql`, `)})`))
-    .groupBy(assets.id, assets.name, assets.companyId, assets.ownerUserId);
+    .groupBy(assets.id, assets.name, assets.companyId, assets.ownerUserId, assets.technicalOwnerUserId, assets.technicalDeputyUserId);
   return rows.map((r) => ({
     key: `vuln_remediation:${r.assetId}`,
     kind: "vuln_remediation" as const,
@@ -49,7 +52,7 @@ export async function vulnRemediationItems(db: Db, companyIds: string[], t: Tran
     link: `/assets/${r.assetId}`,
     ownerPositionId: null,
     ownerName: null,
-    ownerUserId: r.ownerUserId,
+    assigneeUserIds: [r.techUserId ?? r.ownerUserId, r.deputyUserId].filter((x): x is string => !!x),
   }));
 }
 

@@ -5,12 +5,15 @@ import { inArray } from "drizzle-orm";
 import { createAdmin, ensureSystemRoles, userCount } from "./auth/service";
 import { discoveryRuns } from "./db/schema";
 import { seedRiskCatalog } from "./modules/risks/routes";
+import { ensureWazuhConnections } from "./modules/connections/wazuh";
 
 /** Při startu: systémové role + první administrátor (pokud v DB nikdo není). */
 export async function bootstrap(db: Db, config: Config) {
   appSecret(config); // v produkci selže bez APP_SECRET
   await ensureSystemRoles(db);
   await seedRiskCatalog(db);
+  // jediný Wazuh (v1.48 a starší) → připojení (ADR-146)
+  await ensureWazuhConnections(db, config);
   // běhy discovery přerušené restartem serveru
   await db
     .update(discoveryRuns)

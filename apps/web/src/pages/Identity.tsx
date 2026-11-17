@@ -1,4 +1,5 @@
 import { askConfirm } from "@/components/ui/overlay";
+import { ProcessGuide } from "@/components/processGuide";
 import { useT, lbl, tt } from "@/lib/i18n";
 import { CompanyCell, TargetCompanyField, useTargetCompany } from "@/components/company";
 import { ColumnChart, Legend, StackedBars } from "@/components/charts";
@@ -70,6 +71,7 @@ export function IdentityPage() {
           </a>
         }
       />
+      <ProcessGuide id="identity" />
       <div className="mb-6 flex gap-2 border-b border-slate-200">
         {(
           [

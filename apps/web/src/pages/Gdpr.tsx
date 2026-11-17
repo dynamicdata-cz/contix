@@ -1,4 +1,5 @@
 import { useFormGuard } from "@/lib/unsaved";
+import { ProcessGuide } from "@/components/processGuide";
 import { askConfirm } from "@/components/ui/overlay";
 import { TasksCard } from "@/components/tasks";
 import { useT } from "@/lib/i18n";
@@ -76,6 +77,7 @@ export function GdprPage() {
           </>
         }
       />
+      <ProcessGuide id="gdpr" />
       <ErrorBox error={q.error} />
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <Select className="w-44" value={status} onChange={(e) => setStatus(e.target.value as typeof status)}>

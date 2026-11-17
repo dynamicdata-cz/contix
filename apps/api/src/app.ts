@@ -15,6 +15,7 @@ import { csrf } from "hono/csrf";
 import { HTTPException } from "hono/http-exception";
 import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
+import { bodyLimit } from "hono/body-limit";
 import { requireAuth, sessionMiddleware } from "./auth/middleware";
 import { authRoutes } from "./auth/routes";
 import { loginAdminRoutes } from "./modules/admin/login";
@@ -23,15 +24,34 @@ import type { AppEnv } from "./auth/service";
 import type { Config } from "./config";
 import type { Db } from "./db/client";
 import { adminRoutes, directoryRoutes } from "./modules/admin/routes";
+import { userHandoverRoutes } from "./modules/admin/handover";
+import { findingRoutes } from "./modules/findings/routes";
+import { bulkRoutes } from "./modules/bulk/routes";
+import { qualityRoutes } from "./modules/quality/routes";
 import { assetRoutes } from "./modules/assets/routes";
 import { assetGraphRoutes } from "./modules/assets/graph";
+import { siteMapRoutes, type MapImageConverter } from "./modules/assets/maps";
+import { accessRoutes } from "./modules/access/routes";
+import { accessReviewRoutes } from "./modules/access/review";
+import { accessReconcileRoutes } from "./modules/access/reconcile";
+import { accessAdGroupRoutes } from "./modules/access/adgroups";
+import { accessIdmRoutes } from "./modules/access/idm";
+import { projectRoutes } from "./modules/projects/routes";
+import { accessProvisioningRoutes, type AdWriterFactory } from "./modules/access/provisioning";
 import { scaRoutes } from "./modules/sca/routes";
 import { connectorAdminRoutes } from "./modules/connectors/routes";
+import { connectionAdminRoutes } from "./modules/connections/routes";
+import { hostRoutes, publicHostRoutes } from "./modules/collector/routes";
+import { tagRoutes } from "./modules/tags/routes";
+import { issueRoutes } from "./modules/connections/issues";
+import { locationRoutes } from "./modules/locations/routes";
+import { publicProbeRoutes, secTestRoutes } from "./modules/sectests/routes";
 import { discoveryRoutes } from "./modules/discovery/routes";
 import { orgRoutes } from "./modules/org/routes";
 import { processRoutes } from "./modules/processes/routes";
 import { riskRoutes } from "./modules/risks/routes";
 import { scenarioRoutes } from "./modules/risks/scenarios";
+import { modelingRoutes } from "./modules/risks/modeling";
 import { appetiteRoutes } from "./modules/risks/appetite";
 import { controlRoutes } from "./modules/controls/routes";
 import { monitorRoutes } from "./modules/controls/monitors";
@@ -70,6 +90,9 @@ import { ismsRoutes } from "./modules/isms/routes";
 import { incidentRoutes } from "./modules/incidents/routes";
 import { auditRoutes } from "./modules/audits/routes";
 import { companyRoutes } from "./modules/companies/routes";
+import { brandingRoutes } from "./modules/branding/routes";
+import { regulationRoutes } from "./modules/regulation/routes";
+import { brandLoader } from "./modules/branding/service";
 import { methodologyLoader, methodologyRoutes } from "./modules/methodologies/routes";
 import { frameworkLoader, frameworkRoutes } from "./modules/frameworks/routes";
 import { policyRoutes } from "./modules/policies/routes";
@@ -81,6 +104,7 @@ import { aiRoutes } from "./modules/ai/routes";
 import { assuranceRoutes } from "./modules/assurance/routes";
 import { reportRoutes } from "./modules/reports/routes";
 import { dashboardRoutes } from "./modules/dashboard/routes";
+import { guideRoutes } from "./modules/guides/routes";
 import { identityRoutes } from "./modules/identity/routes";
 import { legislationRoutes } from "./modules/legislation/routes";
 import { infoServiceRoutes } from "./modules/infoservice/routes";
@@ -93,6 +117,7 @@ import { publicVulnScanRoutes } from "./modules/vulnerabilities/ci";
 import { publicMonitorRoutes } from "./modules/controls/monitors";
 import { defectDojoRoutes } from "./modules/vulnerabilities/defectdojo";
 import { importRoutes } from "./modules/import/routes";
+import { demoRoutes } from "./modules/demo/routes";
 import { metricsAuthorized, metricsText, opsRoutes } from "./modules/ops/routes";
 import { CONTIX_LICENSE, CONTIX_DEFAULT_SOURCE_URL, CONTIX_VERSION, type HealthDto } from "@contix/shared";
 import type { FetchLike } from "./modules/discovery/connectors/wazuh";
@@ -107,7 +132,11 @@ import { vulnAdviceRoutes } from "./modules/vulnerabilities/advice";
 /** CSP odpovědí API (v1.12, ADR-108). */
 export const API_CSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; frame-ancestors 'self'; base-uri 'none'; form-action 'none'";
 
-export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams?: TeamsPoster; fetchImpl?: FetchLike; onBackground?: (p: Promise<unknown>) => void; esbirkaFetch?: (input: string, init?: RequestInit) => Promise<Response>; aresFetch?: AresFetch; intelFetch?: FetchLike; infoFetch?: FetchLike; pdfText?: (buf: Uint8Array) => Promise<string>; tls?: TlsDeps; netscan?: NetScanDeps; adAuth?: AdAuthenticator }) {
+/** Největší tělo požadavku (v1.72, ADR-165). */
+export const MAX_JSON_BYTES = 32 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 160 * 1024 * 1024;
+
+export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams?: TeamsPoster; fetchImpl?: FetchLike; onBackground?: (p: Promise<unknown>) => void; esbirkaFetch?: (input: string, init?: RequestInit) => Promise<Response>; aresFetch?: AresFetch; intelFetch?: FetchLike; infoFetch?: FetchLike; pdfText?: (buf: Uint8Array) => Promise<string>; tls?: TlsDeps; netscan?: NetScanDeps; adAuth?: AdAuthenticator; toImage?: MapImageConverter; adWriter?: AdWriterFactory }) {
   const { db, config } = deps;
   const origins = [...new Set([...config.CORS_ORIGINS, new URL(config.APP_URL).origin])];
 
@@ -116,15 +145,34 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .use("*", requireAuth(db))
     .use("*", methodologyLoader(db))
     .use("*", frameworkLoader(db))
+    .use("*", brandLoader(db))
     .route("/frameworks", frameworkRoutes(db))
     .route("/sca", scaRoutes(deps))
     .route("/assets/certificates", certificateRoutes(db, deps.tls))
+    .route("/assets/maps", siteMapRoutes(db, { toImage: deps.toImage }))
+    .route("/access", accessRoutes(db))
+    .route("/access", accessReviewRoutes(db, config))
+    .route("/access", accessReconcileRoutes(db))
+    .route("/access", accessAdGroupRoutes(db))
+    .route("/access", accessIdmRoutes(db))
+    .route("/projects", projectRoutes(db))
+    .route("/access", accessProvisioningRoutes(db, config, { adWriter: deps.adWriter }))
     .route("/assets", assetGraphRoutes(db))
     .route("/assets", assetRoutes(db))
     .route("/discovery/segments", netSegmentRoutes(db, config, deps.netscan))
     .route("/discovery", discoveryRoutes(db, config))
     .route("/admin/connectors", connectorAdminRoutes(deps))
+    .route("/admin/connections", connectionAdminRoutes(deps))
+    .route("/hosts", hostRoutes(db))
+    .route("/quality", qualityRoutes(db))
+    .route("/bulk", bulkRoutes(db))
+    .route("/findings", findingRoutes(db, { config, fetchImpl: deps.fetchImpl }))
+    .route("/tags", tagRoutes(db))
+    .route("/jira", issueRoutes(db, config))
+    .route("/data-locations", locationRoutes(db))
+    .route("/security-tests", secTestRoutes({ db, config, fetchImpl: deps.fetchImpl }))
     .route("/admin/login", loginAdminRoutes(deps))
+    .route("/admin", userHandoverRoutes(db))
     .route("/admin", adminRoutes(deps))
     .route("/directory", directoryRoutes(db))
     .route("/vulnerabilities/defectdojo", defectDojoRoutes({ db, config, fetchImpl: deps.intelFetch }))
@@ -139,6 +187,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/suppliers", savedViewRoutes(db, "suppliers", "suppliers", "suppliers:read"))
     // rizikové scénáře z dat (ADR-114) – před routerem s /:id
     .route("/risks/scenarios", scenarioRoutes(db, { dispatch: () => (req) => app.fetch(req) }))
+    .route("/risks/modeling", modelingRoutes(db, { dispatch: () => (req) => app.fetch(req) }))
     .route("/risks/appetite", appetiteRoutes(db))
     .route("/risks", riskRoutes(db))
     .route("/monitors", monitorRoutes(deps))
@@ -183,6 +232,8 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/incidents", incidentRoutes(db))
     .route("/audits", auditRoutes(db))
     .route("/companies", companyRoutes(db))
+    .route("/branding", brandingRoutes(db))
+    .route("/regulation", regulationRoutes(db))
     .route("/methodologies", methodologyRoutes(db))
     .route("/policies", policyRoutes(db, config))
     .route("/awareness", awarenessRoutes(db))
@@ -193,6 +244,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/assurance", assuranceRoutes(db))
     .route("/reports", reportRoutes(db))
     .route("/dashboard", dashboardRoutes(db))
+    .route("/guides", guideRoutes(db, { dispatch: () => (req) => app.fetch(req) }))
     .route("/gdpr", gdprRoutes(db))
     .route("/aiact", aiActRoutes(db))
     .route("/soc2", soc2Routes(db))
@@ -203,6 +255,8 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/tokens", tokenRoutes(db))
     // import zapisuje přes stejná API jako ruční evidence (interní požadavek s relací uživatele)
     .route("/import", importRoutes({ db, dispatch: () => (req) => app.fetch(req) }))
+    // ukázková data z Administrace – zakládají se přes stejná API (v1.81)
+    .route("/demo", demoRoutes({ db, dispatch: () => (req) => app.fetch(req) }))
     .route("/ops", opsRoutes(deps))
     .route("/setup", setupRoutes(deps))
     .route("/help", helpRoutes(db))
@@ -239,6 +293,8 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/public/trust", publicTrustRoutes(db))
     /** Import skenů zranitelností z CI/CD – osobní API token (ADR-097). */
     .route("/public/vulnerabilities", publicVulnScanRoutes(db))
+    .route("/public/hosts", publicHostRoutes(db))
+    .route("/public/probe", publicProbeRoutes({ db, config, fetchImpl: deps.fetchImpl, onBackground: deps.onBackground }))
     /** Výsledky externích kontrol opatření ze skriptů – token monitoru (ADR-109). */
     .route("/public/monitors", publicMonitorRoutes(db))
     .route("/", protectedApi);
@@ -260,12 +316,30 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     }
   });
   app.use("/api/*", cors({ origin: origins, credentials: true }));
+  // omezení velikosti požadavku (v1.72, ADR-165): JSON 32 MB, nahrávání souborů 160 MB (největší povolený soubor je 150 MB)
+  const jsonLimit = bodyLimit({ maxSize: MAX_JSON_BYTES, onError: (c) => c.json({ error: "Požadavek je příliš velký" }, 413) });
+  const fileLimit = bodyLimit({ maxSize: MAX_UPLOAD_BYTES, onError: (c) => c.json({ error: "Požadavek je příliš velký" }, 413) });
+  app.use("/api/*", (c, next) => (c.req.method === "GET" || c.req.method === "HEAD" ? next() : (c.req.header("content-type") ?? "").includes("multipart/") ? fileLimit(c, next) : jsonLimit(c, next)));
   // Ochrana proti CSRF: změnové požadavky musí mít Origin naší aplikace (+ SameSite=Lax cookie).
   // výjimka: příjem alertů z jiných nástrojů – autentizace tokenem v hlavičce, bez cookies (ADR-052)
   const csrfMw = csrf({ origin: origins });
-  app.use("/api/*", (c, next) => (c.req.path === "/api/public/soc/ingest" || c.req.path === "/api/public/vulnerabilities/scans" || c.req.path === "/api/public/monitors/result" ? next() : csrfMw(c, next)));
+  app.use("/api/*", (c, next) => (c.req.path === "/api/public/soc/ingest" || c.req.path === "/api/public/vulnerabilities/scans" || c.req.path === "/api/public/monitors/result" || c.req.path === "/api/public/hosts/inventory" ? next() : csrfMw(c, next)));
   app.use("/api/*", sessionMiddleware(db));
   app.route("/api", api);
+  /** RFC 9116 (v1.48, ADR-145): kontakt provozovatele (SECURITY_CONTACT), jinak soukromé hlášení u výrobce. */
+  app.get("/.well-known/security.txt", (c) => {
+    const src = config.CONTIX_SOURCE_URL ?? CONTIX_DEFAULT_SOURCE_URL;
+    const expires = new Date(Date.now() + 180 * 86_400_000);
+    expires.setUTCHours(0, 0, 0, 0);
+    const lines = [
+      `Contact: ${config.SECURITY_CONTACT ?? `${src}/security/advisories/new`}`,
+      `Expires: ${expires.toISOString()}`,
+      `Policy: ${src}/blob/main/SECURITY.md`,
+      "Preferred-Languages: cs, en",
+      ...(config.APP_URL ? [`Canonical: ${config.APP_URL.replace(/\/$/, "")}/.well-known/security.txt`] : []),
+    ];
+    return c.text(`${lines.join("\n")}\n`, 200, { "cache-control": "public, max-age=86400" });
+  });
   /** WebDAV pro úpravy v desktopovém Office – autentizace tokenem v cestě (ADR-026), bez cookies a CSRF. */
   app.route("/dav", davRoutes(db, config));
 

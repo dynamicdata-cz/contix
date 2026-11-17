@@ -1,4 +1,6 @@
+import { SuggestInput } from "@/components/combobox";
 import { askConfirm } from "@/components/ui/overlay";
+import { TagBar } from "@/components/tags";
 import { LinkedRecordsCard } from "@/components/linkedRecords";
 import { TasksCard } from "@/components/tasks";
 import { useT } from "@/lib/i18n";
@@ -69,6 +71,7 @@ export function ProcessDetailPage() {
 
   return (
     <>
+      <TagBar entityType="process" entityId={p.id} canEdit={can("processes:write")} />
       <div className="mb-1 text-sm text-slate-500">
         <Link to="/processes" className="hover:text-brand-700">
           {t("prc.procesy")}
@@ -390,6 +393,7 @@ function StepModal({ p, form, setForm }: { p: ProcessDetail; form: StepForm; set
     },
   });
   const set = (k: keyof StepForm) => (e: { target: { value: string } }) => setForm({ ...form, [k]: e.target.value });
+  const stepAssets = useQuery({ queryKey: ["assets", "picker", "step"], queryFn: () => api.assets.list({ limit: 500, offset: 0, withGroup: "1" }), staleTime: 60_000 });
   const accountable = form.raci.filter((r) => r.role === "A").length;
   return (
     <Modal
@@ -436,8 +440,18 @@ function StepModal({ p, form, setForm }: { p: ProcessDetail; form: StepForm; set
         <Field label={t("prc.dobaTrvaniLhuta")}>
           <Input value={form.duration} onChange={set("duration")} placeholder={t("prc.naprDo5DneV")} />
         </Field>
-        <Field label={t("prc.systemyNastrojeVolnyText")}>
-          <Input value={form.systems} onChange={set("systems")} />
+        <Field label={t("prc.systemyNastrojeVolnyText")} hint={t("prc.systemsHint")}>
+          {/* v1.76: napsaný název, který je v evidenci aktiv, se nabídne – výběr ho přidá mezi aktiva kroku */}
+          <SuggestInput
+            value={form.systems}
+            onChange={(v) => setForm({ ...form, systems: v })}
+            ariaLabel={t("prc.systemyNastrojeVolnyText")}
+            suggestions={(stepAssets.data?.items ?? []).filter((a) => !form.assets.some((x) => x.id === a.id)).map((a) => ({ id: a.id, label: a.name, hint: t("prc.systemsAsAsset") }))}
+            onPick={(o) => {
+              const a = stepAssets.data?.items.find((x) => x.id === o.id);
+              if (a) setForm({ ...form, systems: "", assets: [...form.assets, { id: a.id, name: a.name, assetType: a.assetType, healthStatus: a.healthStatus }] });
+            }}
+          />
         </Field>
       </div>
       <div>

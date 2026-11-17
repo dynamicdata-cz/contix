@@ -1,0 +1,1 @@
+ALTER TABLE "backup_runs" ADD COLUMN "kind" varchar(20) DEFAULT 'backup' NOT NULL;

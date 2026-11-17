@@ -31,6 +31,8 @@ const LAYER_OF: Partial<Record<AssetType, AssetLayer>> = {
   iot_ot: "infrastructure",
   network_device: "network",
   security_device: "network",
+  network_socket: "network",
+  rack: "network",
   personnel: "people",
   supplier: "people",
   facility: "people",

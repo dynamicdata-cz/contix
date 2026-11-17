@@ -1,3 +1,5 @@
+import { unitPositionsSql } from "../org/hierarchy";
+import { findingsOtherSql, findingsSeriousSql } from "../controls/findings";
 import { methodologyMatrix, ACTION_STATUSES,
   BUILTIN_THREATS,
   BUILTIN_WEAKNESSES,
@@ -132,6 +134,8 @@ const controlEvidenceCols = {
   effectiveness: controls.effectiveness,
   lastTestResult: sql<string | null>`(select t.result from control_tests t where t.control_id = ${controls.id} and t.status = 'completed' and t.result is not null order by t.performed_at desc nulls last, t.updated_at desc limit 1)`,
   monitorFailing: sql<boolean>`exists (select 1 from control_monitors m where m.control_id = ${controls.id} and m.enabled and m.last_result = 'fail')`,
+  findingsSerious: findingsSeriousSql(controls.id),
+  findingsOther: findingsOtherSql(controls.id),
 };
 
 export function suggestImpact(
@@ -931,6 +935,7 @@ export function riskRoutes(db: Db) {
         if (q.threatId) where.push(or(eq(risks.threatId, q.threatId), sql`exists (select 1 from risk_catalog_links l where l.risk_id = ${risks.id} and l.catalog_id = ${q.threatId})`)!);
         if (q.assetId) where.push(sql`exists (select 1 from risk_assets x where x.risk_id = ${risks.id} and x.asset_id = ${q.assetId})`);
         if (q.processId) where.push(sql`exists (select 1 from risk_processes x where x.risk_id = ${risks.id} and x.process_id = ${q.processId})`);
+        if (q.unit) where.push(sql`${risks.ownerPositionId} in ${unitPositionsSql(q.unit)}`);
         const rows = await listRows(and(...where));
         const trig = await riskTriggers(db, rows.map((x) => x.r.id));
         let items = rows.map((x) => toListItem(policies.get(x.r.companyId)!, x, trig.get(x.r.id)?.length ?? 0));

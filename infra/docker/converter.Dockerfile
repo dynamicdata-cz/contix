@@ -3,9 +3,12 @@
 FROM oven/bun:1
 # písma metricky shodná s Microsoft Office: Calibri → Carlito, Cambria → Caladea, Arial/Times/Courier → Liberation
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui \
+      libreoffice-writer-nogui libreoffice-calc-nogui libreoffice-impress-nogui libreoffice-draw-nogui \
       poppler-utils fontconfig \
       fonts-crosextra-carlito fonts-crosextra-caladea fonts-liberation fonts-liberation2 fonts-dejavu-core fonts-noto-core \
+    && rm -rf /var/lib/apt/lists/*
+# DWG → SVG pro mapy (LibreDWG) – je-li v distribuci; bez něj se DWG odmítne s výzvou k exportu do PDF / DXF (ADR-122)
+RUN apt-get update && (apt-get install -y --no-install-recommends libredwg-tools || echo "libredwg-tools není k dispozici") \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY infra/converter/server.ts ./server.ts

@@ -1,4 +1,4 @@
-import { aresQueryKind, validIco, type AresSubject } from "@contix/shared";
+import { RES_EMPLOYEE_CLASSES, aresQueryKind, sizeFromHeadcount, suggestServices, validIco, type AresSubject, type ResLookupDto, type ResSubject } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -34,7 +34,47 @@ export function mapSubject(r: Raw): AresSubject | null {
   };
 }
 
+type RawRes = {
+  ico?: string;
+  obchodniJmeno?: string;
+  pravniForma?: string;
+  datumVzniku?: string;
+  datumAktualizace?: string;
+  czNace?: string[];
+  czNace2008?: string[];
+  czNacePrevazujici?: string;
+  czNacePrevazujici2008?: string;
+  primarniZaznam?: boolean;
+  sidlo?: { textovaAdresa?: string };
+  statistickeUdaje?: { institucionalniSektor2010?: string; kategoriePoctuPracovniku?: string };
+};
+
+/** Záznam RES (Registr ekonomických subjektů ČSÚ) z ARES – činnosti CZ-NACE, sektor, kategorie zaměstnanců (v1.61). */
+export function mapRes(body: { zaznamy?: RawRes[] }): ResSubject | null {
+  const list = body.zaznamy ?? [];
+  const r = list.find((x) => x.primarniZaznam) ?? list[0];
+  if (!r?.ico || !r.obchodniJmeno) return null;
+  const cls = r.statistickeUdaje?.kategoriePoctuPracovniku ?? null;
+  const range = cls ? RES_EMPLOYEE_CLASSES[cls] : undefined;
+  const nace = [...new Set([...(r.czNace ?? []), ...(r.czNace2008 ?? [])])].filter((x) => /^\d{2,5}$/.test(x));
+  return {
+    ico: r.ico,
+    name: r.obchodniJmeno.trim(),
+    address: r.sidlo?.textovaAdresa?.trim() || null,
+    legalForm: r.pravniForma ?? null,
+    foundedAt: r.datumVzniku ?? null,
+    primaryNace: r.czNacePrevazujici ?? r.czNacePrevazujici2008 ?? null,
+    nace,
+    esaSector: r.statistickeUdaje?.institucionalniSektor2010 ?? null,
+    employeeClass: cls,
+    employeeClassLabel: range?.label ?? null,
+    sizeEstimate: range ? sizeFromHeadcount(range.min, range.max) : null,
+    updatedAt: r.datumAktualizace ?? null,
+  };
+}
+
 export class AresClient {
+  private resCache = new Map<string, { at: number; v: ResLookupDto | null }>();
   private cache = new Map<string, { at: number; v: AresSubject[] }>();
   constructor(
     private base: string,
@@ -73,6 +113,24 @@ export class AresClient {
     this.cache.set(key, { at: Date.now(), v });
     return v;
   }
+
+  /** RES podle IČO + návrh regulovaných služeb (null = subjekt v RES není). */
+  async res(ico: string): Promise<ResLookupDto | null> {
+    if (!validIco(ico)) throw new ApiError(400, "err.ares.invalidIco");
+    const hit = this.resCache.get(ico);
+    if (hit && Date.now() - hit.at < 10 * 60_000) return hit.v;
+    const res = await this.call(`/ekonomicke-subjekty-res/${ico}`);
+    let v: ResLookupDto | null = null;
+    if (res.status === 404) v = null;
+    else if (!res.ok) throw new ApiError(502, "err.ares.failed", { status: String(res.status) });
+    else {
+      const subject = mapRes((await res.json()) as { zaznamy?: RawRes[] });
+      v = subject ? { subject, suggestions: suggestServices(subject.nace, subject.esaSector, subject.primaryNace) } : null;
+    }
+    if (this.resCache.size > 500) this.resCache.clear();
+    this.resCache.set(ico, { at: Date.now(), v });
+    return v;
+  }
 }
 
 export function aresRoutes(deps: { config: Config; aresFetch?: AresFetch }) {
@@ -83,5 +141,12 @@ export function aresRoutes(deps: { config: Config; aresFetch?: AresFetch }) {
     .get("/search", requirePerm("suppliers:write", "admin:settings"), zValidator("query", z.object({ q: z.string().max(200) })), async (c) => {
       if (!enabled) throw new ApiError(409, "err.ares.disabled");
       return c.json(await client.search(c.req.valid("query").q));
+    })
+    /** RES (ČSÚ) přes ARES – podklad pro určení regulace podle vyhl. 408/2025 (v1.61, ADR-156). */
+    .get("/res/:ico", requirePerm("suppliers:write", "admin:settings"), async (c) => {
+      if (!enabled) throw new ApiError(409, "err.ares.disabled");
+      const v = await client.res(c.req.param("ico"));
+      if (!v) throw new ApiError(404, "err.ares.resNotFound");
+      return c.json(v);
     });
 }

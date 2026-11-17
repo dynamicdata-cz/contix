@@ -4,7 +4,7 @@ import { Card, CardHeader, EmptyState, ErrorBox } from "@/components/ui";
 import { api } from "@/lib/api";
 import { BACKUP_MAX_AGE_HOURS, fmtBytes, type OpsLevel } from "@contix/shared";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, CircleMinus, OctagonX } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CircleMinus, Download, OctagonX } from "lucide-react";
 
 const LEVEL: Record<OpsLevel, { color: string; Icon: typeof CheckCircle2; label: string }> = {
   ok: { color: STATUS_COLORS.good, Icon: CheckCircle2, label: "V pořádku" },
@@ -117,6 +117,7 @@ export function AdminOpsPage() {
                       <span className="inline-flex items-center gap-1.5 text-xs">
                         <l.Icon size={14} style={{ color: l.color }} aria-hidden /> {b.status === "ok" ? "OK" : "Chyba"}
                       </span>
+                      {b.kind === "restore_test" && <span className="ml-1.5 rounded bg-sky-50 px-1.5 py-0.5 text-[11px] text-sky-800">{t("adt.testObnovy")}</span>}
                     </td>
                     <td className="px-3 py-2 font-mono text-xs">
                       {b.file ?? "—"}
@@ -142,6 +143,22 @@ export function AdminOpsPage() {
             <p>
               <code className="rounded bg-slate-100 px-1">{t("adt.getApiMetrics")}</code> {t("adt.metrikyProPrometheus")}{" "}
               {s.metricsEnabled ? <strong>{t("adt.zapnuto")}</strong> : <>{t("adt.vypnutoNastavtePromennouMetricsToken")}</>}{t("adt.pristupSHlavickou")} <code className="rounded bg-slate-100 px-1">{t("adt.authorizationBearer")}</code>.
+            </p>
+          </div>
+        </Card>
+      )}
+
+      {s && (
+        <Card data-testid="ops-cra">
+          <CardHeader title={t("adt.craTitle")} subtitle={t("adt.craSubtitle")} />
+          <div className="space-y-2 p-5 text-sm text-slate-700">
+            <p>
+              <a className="inline-flex items-center gap-1.5 font-medium text-brand-700 hover:underline" href={api.ops.sbomUrl} download>
+                <Download size={14} aria-hidden /> {t("adt.sbomDownload", { version: s.version })}
+              </a>
+            </p>
+            <p>
+              <code className="rounded bg-slate-100 px-1">/.well-known/security.txt</code> {t("adt.securityTxt")}
             </p>
           </div>
         </Card>

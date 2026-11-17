@@ -25,7 +25,7 @@ import { currentUser, hasPerm, requireModule, requirePerm } from "../../auth/mid
 import { audit, getSettings, type AppEnv } from "../../auth/service";
 import { assertScope, companySettings, getCompanies, hasPermIn, inScope, riskPolicies, scopeOf, settingsFor, targetCompany } from "../../auth/scope";
 import { docxResponse, htmlToDocx } from "../documents/docx";
-import { printPage } from "../documents/render";
+import { printPage, withBrandHtml } from "../documents/render";
 import { socDraftFor, socEvidenceFor } from "../soc/incident";
 import { incidentRecordHtml } from "./record";
 import type { Db } from "../../db/client";
@@ -277,14 +277,14 @@ export function incidentRoutes(db: Db) {
     const timeline =
       type === "final" ? `<h2>${esc(t("srv.inc.hTimeline"))}</h2>${d.timeline.length ? `<table>${d.timeline.map((x) => row(dt(x.at), nl(x.text))).join("")}</table>` : `<p class="m">${esc(t("srv.inc.noEntries"))}</p>`}` : "";
     const note = type === "gdpr" ? t("srv.inc.noteGdpr") : d.regime === "dora" ? t("srv.inc.noteDora", { authority: r.recipientName }) : d.regime === "nis2" ? t("srv.inc.noteNis2") : t("srv.inc.noteNukib");
-    return `<!doctype html><html lang="${esc(t.locale)}"><head><meta charset="utf-8"><title>${esc(r.title)}</title><style>
+    return withBrandHtml(`<!doctype html><html lang="${esc(t.locale)}"><head><meta charset="utf-8"><title>${esc(r.title)}</title><style>
 body{font:10.5pt/1.45 system-ui,sans-serif;color:#1e293b;max-width:900px;margin:24px auto;padding:0 24px}h1{font-size:17pt;margin:0}h2{font-size:12pt;margin:22px 0 6px;border-bottom:1px solid #e2e8f0}
 table{width:100%;border-collapse:collapse}th,td{border:1px solid #e2e8f0;padding:4px 6px;text-align:left;vertical-align:top}th{width:32%;background:#f8fafc;font-weight:600}.m{color:#64748b}.note{background:#fef3c7;border:1px solid #fcd34d;padding:8px 12px;margin:12px 0;font-size:9.5pt}
 button{float:right}@media print{button,.note{display:none}}</style></head><body><button onclick="window.print()">${esc(t("srv.inc.print"))}</button>
 <h1>${esc(r.title)}</h1><div class="m">${esc(t("srv.inc.generated", { date: dt(new Date()), recipient: r.recipientName }))}</div>
 ${r.legalBasis ? `<div class="m">${esc(r.legalBasis)}</div>` : ""}
 <div class="note">${esc(note)}</div>
-${body}${timeline}</body></html>`;
+${body}${timeline}</body></html>`);
   }
 
   /** SOC podklady jen se zapnutým modulem a soc:read ve společnosti incidentu. */
@@ -432,7 +432,7 @@ ${body}${timeline}</body></html>`;
         const s = await settingsFor(db, null, d.companyId);
         return c.body(reportHtml(d, s, c.req.valid("query").type, await tFor(db, c), await leiOf(d.companyId)), 200, {
           "content-type": "text/html; charset=utf-8",
-          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+          "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:",
         });
       })
   );

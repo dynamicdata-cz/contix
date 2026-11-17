@@ -68,6 +68,11 @@ const INLINE_GUARDED = new Set([
   "modules/trust/center.ts GET /:slug/docs/:policyId",
   "modules/trust/center.ts POST /:slug/requests",
   "modules/vulnerabilities/ci.ts POST /scans",
+  // sběrač ze serverů: token připojení v hlavičce (v1.51, ADR-148)
+  "modules/collector/routes.ts POST /inventory",
+  // sonda bezpečnostních testů: token sondy v hlavičce (v1.56, ADR-153)
+  "modules/sectests/routes.ts POST /poll",
+  "modules/sectests/routes.ts POST /result",
   "modules/controls/monitors.ts POST /result",
   "modules/vulnerabilities/routes.ts POST /:id/accept",
   "modules/vulnerabilities/routes.ts POST /:id/reopen"
@@ -161,5 +166,37 @@ describe("regulatorní profil", () => {
       .map((f) => relative(APPS, f).replaceAll("\\", "/"));
     expect(hits.filter((f) => !CZ_LITERAL_ALLOWED.has(f))).toEqual([]);
     expect([...CZ_LITERAL_ALLOWED].filter((f) => !hits.includes(f))).toEqual([]);
+  });
+});
+
+/* ---------- pokrytí vazeb (v1.75, ADR-168) ---------- */
+import { is } from "drizzle-orm";
+import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
+import * as schema172 from "../src/db/schema";
+import { BACKLINKS_FOR, RELATION_COVERAGE, type LinkTarget } from "@contix/shared";
+describe("vazby mezi evidencemi", () => {
+  const TARGET: Record<keyof typeof RELATION_COVERAGE, LinkTarget> = { assets: "asset", processes: "process", risks: "risk", controls: "control", suppliers: "supplier" };
+  const fks = new Map<string, Set<string>>(Object.keys(RELATION_COVERAGE).map((k) => [k, new Set<string>()]));
+  for (const v of Object.values(schema172)) {
+    if (!is(v, PgTable)) continue;
+    const cfg = getTableConfig(v);
+    for (const fk of cfg.foreignKeys) fks.get(getTableConfig(fk.reference().foreignTable).name)?.add(cfg.name);
+  }
+  test("každá tabulka s cizím klíčem na aktivum / proces / riziko / opatření / dodavatele je v RELATION_COVERAGE", () => {
+    const missing: string[] = [];
+    for (const [core, tables] of fks) for (const t of tables) if (!(t in RELATION_COVERAGE[core as keyof typeof RELATION_COVERAGE])) missing.push(`${core} ← ${t}`);
+    expect(missing).toEqual([]);
+  });
+  test("mapa neobsahuje zastaralé tabulky a zpětné vazby jsou u cíle zapnuté", () => {
+    const stale: string[] = [];
+    const off: string[] = [];
+    for (const [core, map] of Object.entries(RELATION_COVERAGE)) {
+      for (const [t, place] of Object.entries(map)) {
+        if (!fks.get(core)!.has(t)) stale.push(`${core} ← ${t}`);
+        if (place.startsWith("backlink:") && !(BACKLINKS_FOR[TARGET[core as keyof typeof TARGET]] as readonly string[]).includes(place.slice(9))) off.push(`${core}: ${place}`);
+      }
+    }
+    expect(stale).toEqual([]);
+    expect(off).toEqual([]);
   });
 });

@@ -32,7 +32,19 @@ const slug = (s: string) =>
     .replace(/^_+|_+$/g, "")
     .slice(0, 60) || "x";
 
-export async function buildAuditPackage(db: Db, o: { companyId: string; framework: FrameworkId; periodFrom: string; periodTo: string; withFiles: boolean; userName: string }): Promise<PackageResult> {
+export async function buildAuditPackage(
+  db: Db,
+  o: {
+    companyId: string;
+    framework: FrameworkId;
+    periodFrom: string;
+    periodTo: string;
+    withFiles: boolean;
+    userName: string;
+    /** Další soubory (v1.46, ADR-143): zpráva o připravenosti, platné dokumenty po oddílech – s kontrolními součty v manifestu. */
+    extras?: { path: string; data: Uint8Array; note: string }[];
+  },
+): Promise<PackageResult> {
   const { esc, day } = h;
   const settings = await settingsFor(db, null, o.companyId);
   const fw = FRAMEWORKS.find((f) => f.id === o.framework)!;
@@ -170,12 +182,13 @@ ${t.frequency ? `<span class="muted">Frekvence opatření</span><span>${esc(ASSU
 <h1>Balíček podkladů pro auditora – ${esc(fw.name)}</h1>
 <div class="meta"><span class="muted">Období</span><span>${day(o.periodFrom)} – ${day(o.periodTo)}</span><span class="muted">Vytvořeno</span><span>${h.dt(new Date().toISOString())}, ${esc(o.userName)}</span>
 <span class="muted">Obsah</span><span>požadavků ${rows.length} (aplikovatelných ${applicable.length}, bez důkazu ${withoutEv.length}), důkazů ${evRows.length}, testů ${tests.length}</span></div>
-<h2>Obsah balíčku</h2><ul><li><a href="01_prohlaseni_o_aplikovatelnosti.html">Prohlášení o aplikovatelnosti</a> (<a href="01_prohlaseni_o_aplikovatelnosti.docx">Word</a>)</li><li>Protokoly testů ve složce <code>testy/</code></li><li>Soubory důkazů ve složce <code>dukazy/</code></li><li><code>manifest.csv</code> a <code>SHA256SUMS</code> – kontrolní součty všech souborů</li></ul>
+<h2>Obsah balíčku</h2><ul><li><a href="01_prohlaseni_o_aplikovatelnosti.html">Prohlášení o aplikovatelnosti</a> (<a href="01_prohlaseni_o_aplikovatelnosti.docx">Word</a>)</li><li>Protokoly testů ve složce <code>testy/</code></li><li>Soubory důkazů ve složce <code>dukazy/</code></li>${o.extras?.length ? `<li><a href="02_pripravenost_na_audit.html">Připravenost na audit po oddílech</a> (<a href="02_pripravenost_na_audit.docx">Word</a>) a platné dokumenty ve složce <code>dokumenty/</code></li>` : ""}${o.extras?.some((x) => x.path.startsWith("03_")) ? `<li><a href="03_bezpecnostni_testy.html">Zpráva z bezpečnostních testů</a> (<a href="03_bezpecnostni_testy.docx">Word</a>)</li>` : ""}<li><code>manifest.csv</code> a <code>SHA256SUMS</code> – kontrolní součty všech souborů</li></ul>
 <h2>Požadavky, opatření, testy a důkazy</h2>
 <table><thead><tr><th>Požadavek</th><th>Text</th><th>Shoda</th><th>Opatření a testy</th><th>Důkazy</th></tr></thead><tbody>${reqRows}</tbody></table>
 <h2>Seznam důkazů</h2><table><thead><tr><th>Důkaz</th><th>Soubory / odkazy</th></tr></thead><tbody>${evTable || '<tr><td colspan="2">Žádné důkazy.</td></tr>'}</tbody></table>
 ${skipped ? `<p><b>Upozornění:</b> ${skipped} souborů nebylo přiloženo (limit velikosti balíčku) – jsou uvedeny s kontrolními součty.</p>` : ""}
 <p class="small muted">Soubory důkazů jsou v CONTIX uloženy neměnně; kontrolní součty SHA-256 umožňují ověřit, že nebyly změněny.</p>`;
+  for (const x of o.extras ?? []) put(x.path, x.data, x.note);
   put("00_obsah.html", strToU8(printPage(`Balíček pro auditora – ${fw.shortName}`, index)), "přehled");
 
   // manifest + SHA256SUMS

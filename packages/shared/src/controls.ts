@@ -106,6 +106,8 @@ export interface ControlListItem {
   riskCount: number;
   frameworks: FrameworkId[];
   updatedAt: string;
+  /** Otevřené nálezy navázané na opatření (v1.67): závažné = kritický test / zásadní zjištění auditu, ostatní = vysoký / menší. */
+  findings?: { serious: number; other: number };
 }
 
 export interface ControlDetail extends ControlListItem {

@@ -4,6 +4,7 @@ import { Tabs } from "@/components/ui/tabs";
  * případy (korelace), lhůty převzetí a vyřešení, potlačení falešných poplachů, ladění pravidel,
  * taktiky MITRE ATT&CK, eskalace na incident a poradce SOC na lokálním modelu.
  */
+import { ProcessGuide } from "@/components/processGuide";
 import { AiTriageBadge, ExposureBadge, IntelBadge, MitreBadges, SeverityBadge, SlaBadge, SocAdvisorCard, SocStatusBadge, TacticStrip } from "@/components/soc";
 import { SourcesTab } from "@/components/socSources";
 import { ThreatIntelCard } from "@/components/socThreatIntel";
@@ -102,6 +103,7 @@ export function SocPage() {
           </>
         }
       />
+      <ProcessGuide id="soc" />
       <ErrorBox error={summary.error ?? sync.error} />
       {sync.data && <p className="mb-3 text-sm text-slate-600">{t("soc.synced2", { created: sync.data.created, updated: sync.data.updated, suppressed: sync.data.suppressed ?? 0 })}</p>}
       {sm && (

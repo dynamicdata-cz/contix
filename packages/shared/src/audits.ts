@@ -91,6 +91,8 @@ export const FindingInput = z.object({
   riskId: z.string().uuid().nullable().optional(),
   /** Opatření, kterého se zjištění týká (v1.05). */
   controlId: z.string().uuid().nullable().optional(),
+  /** Aktivum, kterého se zjištění týká (v1.60) – bez odpovědné funkce připadne business vlastníkovi aktiva. */
+  assetId: z.string().uuid().nullable().optional(),
   awareness: z.boolean().default(false),
 });
 export type FindingInput = z.input<typeof FindingInput>;
@@ -154,6 +156,8 @@ export interface FindingDto {
   riskName: string | null;
   controlId: string | null;
   controlLabel: string | null;
+  assetId: string | null;
+  assetName: string | null;
   awareness: boolean;
   overdue: boolean;
 }

@@ -19,6 +19,9 @@ import {
   incidentRisks,
   incidents,
   riskAssets,
+  secTestFindings,
+  hostFindings,
+  hostInventories,
   riskControls,
   riskScenarioProposals,
   risks,
@@ -264,6 +267,39 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
     seenKri.add(`${k.riskId}|${k.key}`);
     add(k.riskId, { kind: "kri", at: iso(k.at), link: "/risks/appetite", title: RISK_APPETITE_LABELS.kri[k.key as KriKey], detail: k.key, count: 1, strong: false });
   }
+  // otevřené nálezy bezpečnostních testů (střední a vyšší) na aktivech rizika nebo u navázaných opatření (v1.63, ADR-157)
+  const secRows = await db.execute<{ risk_id: string; n: number; high: number; at: Date; titles: string[] }>(sql`
+    select x.risk_id, count(distinct f.id)::int as n,
+      count(distinct f.id) filter (where f.severity in ('critical','high'))::int as high,
+      max(f.first_seen_at) as at, (array_agg(distinct f.title))[1:3] as titles
+    from (
+      select ra.risk_id, f.id as fid from ${riskAssets} ra join ${secTestFindings} f on f.asset_id = ra.asset_id
+      union
+      select rc.risk_id, f.id from ${riskControls} rc join ${secTestFindings} f on f.control_id = rc.control_id
+    ) x
+    join ${secTestFindings} f on f.id = x.fid
+    join ${risks} r on r.id = x.risk_id
+    where x.risk_id in (${sql.join(riskIds.map((i) => sql`${i}`), sql`, `)}) and r.status <> 'closed'
+      and f.status = 'open' and f.severity in ('critical','high','medium')
+      and f.first_seen_at > coalesce(greatest(r.assessed_at, r.reviewed_at), r.created_at)
+    group by x.risk_id`);
+  for (const s of secRows as unknown as { risk_id: string; n: number; high: number; at: Date; titles: string[] }[])
+    add(s.risk_id, { kind: "sectest", at: iso(s.at), link: "/security-tests", title: (s.titles ?? []).join(" · "), detail: `${s.n} (${s.high} krit./vys.)`, count: s.n, strong: s.high > 0 });
+  // otevřené vysoké a střední nálezy konfigurace serverů ze sběrače na aktivech rizika (v1.65, ADR-158)
+  const hostRows = await db.execute<{ risk_id: string; n: number; high: number; at: Date; host: string }>(sql`
+    select ra.risk_id, count(distinct f.id)::int as n,
+      count(distinct f.id) filter (where f.severity = 'high')::int as high,
+      max(f.first_seen_at) as at, min(i.hostname) as host
+    from ${riskAssets} ra
+    join ${hostFindings} f on f.asset_id = ra.asset_id
+    join ${hostInventories} i on i.id = f.inventory_id
+    join ${risks} r on r.id = ra.risk_id
+    where ra.risk_id in (${sql.join(riskIds.map((i) => sql`${i}`), sql`, `)}) and r.status <> 'closed'
+      and f.status = 'open' and f.severity in ('high','medium')
+      and f.first_seen_at > coalesce(greatest(r.assessed_at, r.reviewed_at), r.created_at)
+    group by ra.risk_id`);
+  for (const s of hostRows as unknown as { risk_id: string; n: number; high: number; at: Date; host: string }[])
+    add(s.risk_id, { kind: "host_finding", at: iso(s.at), link: "/findings?source=host", title: s.host, detail: `${s.n} (${s.high} vys.)`, count: s.n, strong: s.high > 0 });
   for (const l of out.values()) l.sort((a, b) => b.at.localeCompare(a.at));
   return out;
 }

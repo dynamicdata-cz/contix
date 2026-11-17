@@ -16,10 +16,20 @@ export const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
 };
 
 /** Předvolby adres – lokální instalace na stejném serveru jako CONTIX. */
-export const AI_PRESETS: { key: string; label: string; provider: AiProvider; baseUrl: string; hint: string }[] = [
+export const AI_PRESETS: { key: string; label: string; provider: AiProvider; baseUrl: string; hint: string; model?: string; embeddingModel?: string }[] = [
   { key: "openwebui", label: "Open WebUI (OpenAI API)", provider: "openai", baseUrl: "http://127.0.0.1:8080/api", hint: "API klíč: Open WebUI → Nastavení → Účet → API klíče" },
   { key: "openwebui-ollama", label: "Open WebUI → Ollama proxy", provider: "ollama", baseUrl: "http://127.0.0.1:8080/ollama", hint: "API klíč z Open WebUI; přímý přístup k modelům Ollamy" },
   { key: "ollama", label: "Ollama (port 11434)", provider: "ollama", baseUrl: "http://127.0.0.1:11434", hint: "Bez klíče; port musí být publikován" },
+  // cloudová služba s OpenAI-kompatibilním rozhraním (v1.83) – texty odcházejí mimo server, viz kontrola po aktualizaci
+  {
+    key: "mistral",
+    label: "Mistral AI (cloud)",
+    provider: "openai",
+    baseUrl: "https://api.mistral.ai/v1",
+    hint: "API klíč z konzole Mistral AI; model mistral-small-latest, vektory mistral-embed. Texty odcházejí ke zpracovateli – ověřte smlouvu (DPA) a umístění dat.",
+    model: "mistral-small-latest",
+    embeddingModel: "mistral-embed",
+  },
 ];
 
 export const AI_USE_CASES = ["risk_treatment", "control_mapping", "asset_classification", "finding_remediation", "incident_summary", "policy_review", "legal_change", "ai_act_screening", "vex_triage", "incident_triage", "vuln_scan_triage", "supplier_report_extract", "questionnaire_answer"] as const;

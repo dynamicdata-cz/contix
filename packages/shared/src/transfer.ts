@@ -20,6 +20,7 @@ export const TRANSFER_ENTITIES = [
   "processing",
   "ai_systems",
   "cra_products",
+  "sectest_scopes",
 ] as const;
 export type TransferEntity = (typeof TRANSFER_ENTITIES)[number];
 
@@ -39,6 +40,7 @@ export const TRANSFER_LABELS: Record<TransferEntity, string> = {
   objectives: "cíl ISMS",
   ai_systems: "AI systém (vč. FRIA)",
   cra_products: "produkt s digitálními prvky (vč. SBOM a hlášení)",
+  sectest_scopes: "rozsah bezpečnostních testů (vč. pravidelných testů)",
 };
 
 export const TransferInput = z.object({

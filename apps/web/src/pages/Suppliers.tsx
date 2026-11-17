@@ -1,4 +1,7 @@
 import { useUrlBatch, useUrlSort } from "@/lib/urlState";
+import { TagBar } from "@/components/tags";
+import { BulkBar, RowCheck, useSelection } from "@/components/bulk";
+import { ProcessGuide } from "@/components/processGuide";
 import { SavedViews, SortTh } from "@/components/listTools";
 import { useFormGuard } from "@/lib/unsaved";
 import { useDebounced } from "@/lib/utils";
@@ -11,6 +14,7 @@ import { useCzDecree } from "@/lib/regime";
 import { QuestionnairesCard } from "@/components/supplierQuestionnaires";
 import { SupplierReportsCard } from "@/components/supplierReports";
 import { AresLookup } from "@/components/ares";
+import { RegulationCard } from "@/components/regulation";
 import { useT } from "@/lib/i18n";
 import { LinkedDocsCard } from "@/components/linkedDocs";
 import { DoraProviderCard } from "./Dora";
@@ -18,7 +22,7 @@ import { TransferButton } from "@/components/transfer";
 import { CompanyCell, useGroupView } from "@/components/company";
 import { STATUS_COLORS } from "@/components/health";
 import { RiskLevelBadge } from "@/components/risk";
-import { AssetPicker, IdMultiSelect, type PickedAsset } from "@/components/pickers";
+import { AssetPicker, IdMultiSelect, UnitSelect, type PickedAsset } from "@/components/pickers";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
@@ -39,7 +43,7 @@ import {
 } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { AlertTriangle, FileSignature, Mail, Plus, Trash2, Landmark } from "lucide-react";
+import { AlertTriangle, FileSignature, Mail, Plus, Trash2, Landmark, Globe2 } from "lucide-react";
 import { useState } from "react";
 
 const clauseTone: Record<ClauseState, Tone> = { included: "green", partial: "amber", missing: "red", not_relevant: "slate" };
@@ -50,14 +54,18 @@ export function SuppliersPage() {
   const can = useCan();
   const [q, setQ] = useUrlParam("q");
   const [onlySig, setOnlySig] = useUrlFlag("significant");
+  // útvar z adresy (odkaz z Organizace, v1.80)
+  const [unit, setUnit] = useUrlParam("unit");
   const dq = useDebounced(q);
   const [sort, setSort] = useUrlSort<"name" | "significant" | "contracts" | "links" | "review" | "gaps">();
   const batch = useUrlBatch();
-  const list = useQuery({ queryKey: ["suppliers", dq, onlySig], queryFn: () => api.suppliers.list({ q: dq || undefined, significant: onlySig ? "true" : undefined }) });
+  const list = useQuery({ queryKey: ["suppliers", dq, onlySig, unit], queryFn: () => api.suppliers.list({ q: dq || undefined, significant: onlySig ? "true" : undefined, unit: unit || undefined }) });
   const rows = sort
     ? sortRows(list.data ?? [], (s) => (sort.key === "name" ? s.name : sort.key === "significant" ? (s.significant ? 1 : 0) : sort.key === "contracts" ? s.contractCount : sort.key === "links" ? s.riskCount + s.assetCount : sort.key === "review" ? (s.lastReviewAt ?? "") : s.gaps.length), sort.dir)
     : (list.data ?? []);
   const withGaps = rows.filter((s) => s.gaps.length).length;
+  const selection = useSelection();
+  const canBulk = can("suppliers:write");
   return (
     <>
       <PageHeader badge={<FrameworkBadge />}
@@ -65,6 +73,11 @@ export function SuppliersPage() {
         subtitle={t("sup.9VyhlC4092025")}
         actions={
           <div className="flex gap-2">
+            <Link to="/suppliers/locations">
+              <Button variant="secondary">
+                <Globe2 size={16} /> {t("loc.open")}
+              </Button>
+            </Link>
             <Link to="/suppliers/dora">
               <Button variant="secondary">
                 <Landmark size={16} /> {t("dora.title")}
@@ -80,10 +93,12 @@ export function SuppliersPage() {
           </div>
         }
       />
+      <ProcessGuide id="suppliers" />
       <ErrorBox error={list.error} />
       <Card className="mb-4 p-4">
         <div className="flex flex-wrap items-center gap-4">
           <Input className="max-w-xs" placeholder={t("sup.hledatNazevNeboIco")} value={q} onChange={(e) => setQ(e.target.value)} />
+          <UnitSelect className="w-56" value={unit || null} onChange={(v) => setUnit(v ?? "")} emptyLabel={t("org.f.anyUnit")} ariaLabel={t("org.f.unit")} />
           <Checkbox checked={onlySig} onChange={setOnlySig} label={t("sup.jenVyznamniDodavatele")} />
           <div className="ml-auto">
             <SavedViews
@@ -107,6 +122,11 @@ export function SuppliersPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
               <tr>
+                {canBulk && (
+                  <th className="w-8 pl-5">
+                    <RowCheck checked={rows.length > 0 && rows.every((s) => selection.has(s.id))} onChange={(v) => selection.setAll(rows.map((s) => s.id), v)} label={t("bulk.selectAll")} />
+                  </th>
+                )}
                 <SortTh k="name" label={t("sup.dodavatel")} sort={sort} onSort={setSort} className="pl-5" />
                 <SortTh k="significant" label={t("sup.vyznam")} sort={sort} onSort={setSort} firstDir="desc" />
                 <SortTh k="contracts" label={t("sup.smlouvy")} sort={sort} onSort={setSort} firstDir="desc" />
@@ -119,6 +139,11 @@ export function SuppliersPage() {
             <tbody className="divide-y divide-slate-100">
               {rows.map((s) => (
                 <tr key={s.id} className={cn("hover:bg-slate-50", s.status === "ended" && "text-slate-400")}>
+                  {canBulk && (
+                    <td className="pl-5">
+                      <RowCheck checked={selection.has(s.id)} onChange={(v) => selection.toggle(s.id, v)} label={t("bulk.selectRow", { name: s.name })} />
+                    </td>
+                  )}
                   <td className="px-5 py-2.5">
                     <Link to="/suppliers/$supplierId" params={{ supplierId: s.id }} className="font-medium hover:text-brand-700">
                       {s.name}
@@ -128,6 +153,7 @@ export function SuppliersPage() {
                       {s.ico ? t("sup.ico", { ico: s.ico }) : t("sup.bezIco")}
                       {s.country && ` · ${s.country}`}
                       {s.status === "ended" && t("sup.ukoncen")}
+                      {s.ownerUnitName && ` · ${s.ownerUnitName}`}
                     </div>
                   </td>
                   <td className="px-3 py-2.5">
@@ -165,6 +191,11 @@ export function SuppliersPage() {
               ))}
             </tbody>
           </table>
+        )}
+        {canBulk && (
+          <div className="px-3 pb-3">
+            <BulkBar entity="suppliers" ids={selection.sel} onClear={selection.clear} />
+          </div>
         )}
       </Card>
     </>
@@ -209,6 +240,7 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
     reviewIntervalMonths: s?.reviewIntervalMonths ?? 12,
     status: s?.status ?? "active",
     notes: s?.notes ?? "",
+    ownerUnitId: s?.ownerUnitId ?? null,
     processIds: s?.processes.map((p) => p.id) ?? [],
     riskIds: s?.risks.map((r) => r.id) ?? [],
     assets: s?.assets ?? [],
@@ -266,6 +298,7 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
           {t("sup.dodavatele")}
         </Link>
       </div>
+      {s && <TagBar entityType="supplier" entityId={s.id} canEdit={can("suppliers:write")} />}
       <PageHeader
         title={s ? s.name : t("sup.novyDodavatel")}
         subtitle={s ? `${s.significant ? t("sup.vyznamnyDodavatel") : "Dodavatel"}${s.ico ? (" " + t("sup.ico2", { ico: s.ico })) : ""}` : t("sup.vyznamnyDodavatel2PismH")}
@@ -344,12 +377,17 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
             <Field label={t("sup.predmetPlneni")}>
               <Textarea rows={2} value={f.supplyDescription ?? ""} disabled={!edit} onChange={(e) => set("supplyDescription", e.target.value)} />
             </Field>
-            <Field label={t("sup.stav")}>
-              <Select value={f.status} disabled={!edit} onChange={(e) => set("status", e.target.value as Form["status"])}>
-                <option value="active">{t("sup.aktivni")}</option>
-                <option value="ended">{t("sup.spolupraceUkoncena")}</option>
-              </Select>
-            </Field>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label={t("sup.stav")}>
+                <Select value={f.status} disabled={!edit} onChange={(e) => set("status", e.target.value as Form["status"])}>
+                  <option value="active">{t("sup.aktivni")}</option>
+                  <option value="ended">{t("sup.spolupraceUkoncena")}</option>
+                </Select>
+              </Field>
+              <Field label={t("sup.ownerUnit")} hint={t("sup.ownerUnitHint")}>
+                <UnitSelect value={f.ownerUnitId} onChange={(v) => set("ownerUnitId", v)} disabled={!edit} companyId={s?.companyId} ariaLabel={t("sup.ownerUnit")} emptyLabel={t("sup.ownerUnitNone")} />
+              </Field>
+            </div>
           </div>
         </Card>
         <Card>
@@ -490,6 +528,7 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
       )}
       {s && <QuestionnairesCard supplier={s} edit={edit} />}
       {s && <SupplierReportsCard supplierId={s.id} edit={can("suppliers:write")} />}
+      {s && <RegulationCard className="mt-6" subjectKind="supplier" subjectId={s.id} ico={s.ico ?? null} canEdit={edit} />}
       {s && <DoraProviderCard supplierId={s.id} name={s.name} dora={s.dora ?? {}} edit={edit} />}
       {s && <LinkedRecordsCard target="supplier" id={s.id} className="mt-6" />}
       {s && <TasksCard kind="supplier" id={s.id} className="mt-6" />}

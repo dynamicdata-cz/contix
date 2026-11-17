@@ -9,6 +9,7 @@ import {
   sidToString,
   type AdSourceConfig,
   type DirAccount,
+  type DirGroup,
 } from "@contix/shared";
 import { Client, type Entry } from "ldapts";
 
@@ -36,7 +37,7 @@ const USER_ATTRS = [
   "title",
   "accountExpires",
 ];
-const GROUP_ATTRS = ["distinguishedName", "cn", "objectSid", "memberOf"];
+const GROUP_ATTRS = ["distinguishedName", "cn", "objectSid", "memberOf", "description", "adminCount"];
 
 /** Účty, které se nehodnotí (vestavěné, vždy zakázané nebo spravované systémem). */
 const SKIP_LOGINS = new Set(["krbtgt"]);
@@ -112,7 +113,7 @@ export async function testAd(conn: AdConnection): Promise<{ users: number; group
   }
 }
 
-export async function fetchAd(conn: AdConnection, now = new Date()): Promise<{ accounts: DirAccount[]; notes: string[] }> {
+export async function fetchAd(conn: AdConnection, now = new Date()): Promise<{ accounts: DirAccount[]; notes: string[]; groups: DirGroup[] }> {
   const client = await connect(conn);
   const { config } = conn;
   let users: Entry[];
@@ -137,7 +138,27 @@ export async function fetchAd(conn: AdConnection, now = new Date()): Promise<{ a
   } finally {
     await client.unbind().catch(() => {});
   }
-  return { accounts: buildAccounts(users, groups, config, now), notes: users.length ? [] : ["V zadané bázi (Base DN) nebyli nalezeni žádní uživatelé."] };
+  return { accounts: buildAccounts(users, groups, config, now), notes: users.length ? [] : ["V zadané bázi (Base DN) nebyli nalezeni žádní uživatelé."], groups: buildGroups(users, groups, config) };
+}
+
+/** Skupiny pro katalog oprávnění (v1.33): DN, CN, popis, privilegovaná / chráněná, počet přímých členů. */
+export function buildGroups(users: Entry[], groups: Entry[], config: AdSourceConfig): DirGroup[] {
+  const members = new Map<string, number>();
+  for (const e of users) for (const d of list(lower(e), "memberOf")) members.set(dnKey(d), (members.get(dnKey(d)) ?? 0) + 1);
+  return groups.map((e) => {
+    const a = lower(e);
+    const dn = str(a, "distinguishedName") ?? e.dn;
+    const sidBytes = buf(a, "objectSid");
+    const cn = str(a, "cn") ?? cnOf(dn);
+    return {
+      dn,
+      cn,
+      description: str(a, "description"),
+      privileged: isPrivilegedAdGroup(sidBytes ? sidToString(sidBytes) : "", cn, config.extraPrivilegedGroups),
+      protectedGroup: str(a, "adminCount") === "1",
+      members: members.get(dnKey(dn)) ?? 0,
+    };
+  });
 }
 
 /** Převod záznamů LDAP na účty (samostatně kvůli testům). */

@@ -1,7 +1,14 @@
+import { pendingApprovalsFor } from "../access/routes";
+import { guideStepObligations } from "../guides/routes";
+import { pendingCertificationsFor } from "../access/review";
+import { projectGateItems } from "../projects/routes";
+import { projectWorkItems } from "../projects/team";
 import { certExpiryItems } from "../assets/certificates";
 import { auditRequestItems } from "../audits/requests";
-import { EXCEPTION_LABELS, EXCEPTION_LEAD_DAYS, OBLIGATION_LABELS, type ExceptionDto, type Translate, POLICY_WORKFLOW_ACTIONS, urgencyOf, type ObligationItem, type ObligationKind, triggerDue, RISK_TRIGGER_LABELS, exerciseCode, requestCode } from "@contix/shared";
+import { daysOverdue, EXCEPTION_LABELS, EXCEPTION_LEAD_DAYS, OBLIGATION_LABELS, type ExceptionDto, type Translate, POLICY_WORKFLOW_ACTIONS, urgencyOf, type ObligationItem, type ObligationKind, triggerDue, RISK_TRIGGER_LABELS, exerciseCode, requestCode } from "@contix/shared";
 import { vulnRemediationItems } from "../vulnerabilities/remediation";
+import { escalationChain, escalationLevel, orgSnapshot, positionOfUser } from "../org/hierarchy";
+import { nukibNoticeItems } from "../regulation/registration";
 import { and, eq, inArray, isNotNull, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { getCompanies, riskPolicies } from "../../auth/scope";
 import { activityNextReview } from "../gdpr/routes";
@@ -9,7 +16,7 @@ import { aiNextReview } from "../aiact/routes";
 import { reportDto } from "../cra/routes";
 import { getSettings } from "../../auth/service";
 import type { Db } from "../../db/client";
-import { infoFeedItems, infoItemReviews, accessReviewItems, accessReviews, legalActs, legalChanges, legalReviews, legalTasks, legalVersions, assessmentCycles, policies, policyEvents, policyVersions, trainingCourses, auditFindings, audits, changes, continuityPlans, incidents, planTests, positionHolders, positions, risks, riskTreatmentActions, supplierContracts, suppliers, controlTests, controls, evidence, processingActivities, dpias, aiSystems, craProducts, craReports, supplierQuestionnaires, supplierReports, tasks, exercises } from "../../db/schema";
+import { infoFeedItems, infoItemReviews, accessReviewItems, accessReviews, legalActs, legalChanges, legalReviews, legalTasks, legalVersions, assessmentCycles, policies, policyEvents, policyVersions, trainingCourses, auditFindings, audits, changes, continuityPlans, incidents, planTests, positionHolders, positions, risks, riskTreatmentActions, supplierContracts, suppliers, controlTests, controls, evidence, processingActivities, dpias, aiSystems, craProducts, craReports, supplierQuestionnaires, supplierReports, tasks, exercises, users, secTestFindings, assets } from "../../db/schema";
 import { loadAudits, loadFindings } from "../audits/routes";
 import { cycleStatus } from "../cycles/routes";
 import { loadCourses } from "../awareness/routes";
@@ -52,6 +59,10 @@ export function kindsForModules(enabled: string[]): Set<ObligationKind> {
   const m = new Set(enabled);
   const k = new Set<ObligationKind>();
   if (m.has("incidents")) k.add("incident_report");
+  // další krok průvodců (v1.44, ADR-141) – moduly hlídá `guideStepObligations`
+  k.add("guide_step");
+  // ohlášení regulované služby a změn údajů NÚKIB (v1.63, ADR-157)
+  k.add("nukib_notice");
   if (m.has("risks")) k.add("risk_action").add("risk_review").add("risk_trigger");
   if (m.has("audits")) k.add("finding").add("audit").add("audit_request");
   if (m.has("isms")) k.add("isms_review").add("change");
@@ -65,6 +76,8 @@ export function kindsForModules(enabled: string[]): Set<ObligationKind> {
   if (m.has("aiact")) k.add("ai_review");
   if (m.has("cra")) k.add("cra_report").add("cra_support");
   if (m.has("identity")) k.add("access_review");
+  if (m.has("access")) k.add("access_approval").add("access_certification");
+  if (m.has("projects")) k.add("project_gate").add("project_task").add("project_change");
   if (m.has("legislation")) k.add("legal_review").add("legal_task").add("info_assessment");
   if (m.has("identity") || m.has("vulnerabilities") || m.has("soc")) k.add("exception_expiry");
   if (m.has("soc")) k.add("soc_sla");
@@ -77,7 +90,7 @@ export function kindsForModules(enabled: string[]): Set<ObligationKind> {
 /** Výjimky s termínem: nálezy identit a SoD (modul identity), zranitelnosti (modul vulnerabilities). */
 function exceptionScope(kinds: Set<ObligationKind> | undefined, ids: string[]) {
   const mods = (kinds && kindsMods.get(kinds)) ?? new Set(["identity", "vulnerabilities", "soc"]);
-  return { identity_finding: mods.has("identity") ? ids : [], sod_violation: mods.has("identity") ? ids : [], vulnerability: mods.has("vulnerabilities") ? ids : [], soc_suppression: mods.has("soc") ? ids : [] };
+  return { identity_finding: mods.has("identity") ? ids : [], sod_violation: mods.has("identity") ? ids : [], vulnerability: mods.has("vulnerabilities") ? ids : [], soc_suppression: mods.has("soc") ? ids : [], sectest_finding: mods.has("sectests") ? ids : [], host_finding: mods.has("assets") ? ids : [] };
 }
 const exceptionObligation = (e: ExceptionDto, t: Translate = CS_T): Omit<ObligationItem, "urgency"> => ({
   key: `exception_expiry:${e.key}`,
@@ -548,7 +561,7 @@ export async function collectObligations(db: Db, o: CollectOptions): Promise<Obl
 
   // lhůty SOC (ADR-047) – převzetí a vyřešení otevřených alertů a případů
   if (want("vuln_remediation"))
-    for (const { ownerUserId: _o, ...i } of await vulnRemediationItems(db, o.companyIds, t)) {
+    for (const { assigneeUserIds: _o, ...i } of await vulnRemediationItems(db, o.companyIds, t)) {
       const urgency = urgencyOf(i.due, o.leadDays, now);
       if (o.includeLater || urgency !== "later") out.push({ ...i, urgency });
     }
@@ -561,6 +574,22 @@ export async function collectObligations(db: Db, o: CollectOptions): Promise<Obl
       .select()
       .from(tasks)
       .where(and(inArray(tasks.companyId, ids), inArray(tasks.status, ["open", "in_progress"]), isNotNull(tasks.dueDate)));
+    // úkol přidělený přímo osobě bez funkčního místa (v1.62) – jméno osoby
+    const asg = [...new Set(rows.filter((r) => !r.ownerPositionId && r.assigneeUserId).map((r) => r.assigneeUserId!))];
+    const asgName = new Map(asg.length ? (await db.select({ id: users.id, name: users.displayName }).from(users).where(inArray(users.id, asg))).map((u) => [u.id, u.name]) : []);
+    // úkoly z nálezů bezpečnostních testů vidí i zástupce technického garanta aktiva
+    const secIds = rows.filter((r) => r.sourceKind === "sectest_finding" && r.sourceId).map((r) => r.sourceId!);
+    const deputyOf = new Map(
+      secIds.length
+        ? (
+            await db
+              .select({ id: secTestFindings.id, d: assets.technicalDeputyUserId })
+              .from(secTestFindings)
+              .innerJoin(assets, eq(assets.id, secTestFindings.assetId))
+              .where(inArray(secTestFindings.id, secIds))
+          ).map((x) => [x.id, x.d])
+        : [],
+    );
     for (const r of rows)
       push({
         key: `task:${r.id}`,
@@ -571,6 +600,10 @@ export async function collectObligations(db: Db, o: CollectOptions): Promise<Obl
         due: r.dueDate,
         link: `/actions?task=${r.id}`,
         ...owner(r.ownerPositionId),
+        ...(!r.ownerPositionId && r.assigneeUserId ? { ownerName: asgName.get(r.assigneeUserId) ?? null } : {}),
+        assigneeUserId: r.assigneeUserId,
+        deputyUserId: r.sourceId ? (deputyOf.get(r.sourceId) ?? null) : null,
+        action: { type: "task_done", taskId: r.id },
       });
   }
 
@@ -757,6 +790,21 @@ export async function collectObligations(db: Db, o: CollectOptions): Promise<Obl
       });
   }
 
+  // další krok postupu u průvodců s garantem (v1.44, ADR-141)
+  if (want("guide_step")) for (const x of await guideStepObligations(db, o.companyIds, t)) out.push(x);
+  if (want("nukib_notice"))
+    for (const n of await nukibNoticeItems(db, o.companyIds))
+      push({
+        key: `nukib_notice:${n.companyId}`,
+        kind: "nukib_notice",
+        title: n.status === "to_notify" ? t("srv.obl.nukibNotice") : t("srv.obl.nukibChange", { n: n.changes }),
+        detail: t("srv.obl.nukibDetail"),
+        companyId: n.companyId,
+        due: n.due,
+        link: "/admin/companies",
+        ...owner(n.positionId),
+      });
+
   const order = { overdue: 0, today: 1, soon: 2, later: 3 } as const;
   return out.sort((a, b) => order[a.urgency] - order[b.urgency] || (a.due ?? "9").localeCompare(b.due ?? "9"));
 }
@@ -773,8 +821,28 @@ export async function personalObligations(db: Db, userId: string, leadDays: numb
   const myPos = new Set(mine.map((m) => m.p));
   const all = (await getCompanies(db)).filter((c) => c.active).map((c) => c.id);
   const kinds = kindsForModules(enabled);
-  const owned = myPos.size ? (await collectObligations(db, { companyIds: all, leadDays, now, kinds, includeLater, t })).filter((x) => x.ownerPositionId && myPos.has(x.ownerPositionId)) : [];
+  // úkoly přidělené přímo osobě (v1.62) – i bez funkčního místa
+  const [assigned] = await db.select({ n: sql<number>`count(*)::int` }).from(tasks).where(and(eq(tasks.assigneeUserId, userId), inArray(tasks.status, ["open", "in_progress"])));
+  const [deputy] = await db.select({ n: sql<number>`count(*)::int` }).from(assets).where(eq(assets.technicalDeputyUserId, userId));
+  const collected = myPos.size || assigned!.n || deputy!.n ? await collectObligations(db, { companyIds: all, leadDays, now, kinds, includeLater, t }) : [];
+  const owned = collected.filter((x) => (x.ownerPositionId && myPos.has(x.ownerPositionId)) || x.assigneeUserId === userId || x.deputyUserId === userId);
   const out = [...owned];
+  // eskalace v hierarchii (v1.60): položky podřízených funkcí po termínu – týden po termínu vedoucí útvaru, pak výš;
+  // úkol přidělený osobě bez funkce eskaluje od funkce této osoby (v1.62)
+  const snapP = myPos.size ? orgSnapshot(db) : null;
+  const late = myPos.size ? collected.filter((x) => x.urgency === "overdue" && x.assigneeUserId !== userId && (x.ownerPositionId ? !myPos.has(x.ownerPositionId) : !!x.assigneeUserId)) : [];
+  if (late.length) {
+    const snap = (await snapP)!;
+    for (const x of late) {
+      const base = x.ownerPositionId ?? positionOfUser(snap, x.assigneeUserId, x.companyId);
+      if (!base || myPos.has(base)) continue;
+      const days = daysOverdue(x.due, now);
+      const chain = escalationChain(snap, base);
+      const lvl = escalationLevel(days, chain.length);
+      const at = chain.slice(0, lvl).findIndex((p) => myPos.has(p));
+      if (at >= 0) out.push({ ...x, key: `${x.key}:esc`, action: null, escalation: { level: at + 1, daysOverdue: days } });
+    }
+  }
   // výjimky, které uživatel udělil – upozornění před koncem platnosti
   if (kinds.has("exception_expiry"))
     for (const e of await loadExceptions(db, exceptionScope(kinds, all))) {
@@ -784,11 +852,101 @@ export async function personalObligations(db: Db, userId: string, leadDays: numb
     }
   // opravy zranitelností na aktivech, jejichž je uživatel garantem (vlastníkem)
   if (kinds.has("vuln_remediation"))
-    for (const { ownerUserId, ...i } of await vulnRemediationItems(db, all, t)) {
-      if (ownerUserId !== userId) continue;
+    for (const { assigneeUserIds, ...i } of await vulnRemediationItems(db, all, t)) {
+      if (!assigneeUserIds.includes(userId)) continue;
       const urgency = urgencyOf(i.due, leadDays, now);
       if (includeLater || urgency !== "later") out.push({ ...i, urgency });
     }
+  // žádosti o přístup, kde je uživatel na řadě se schválením (v1.26, ADR-123) – lhůta 2 pracovní dny od podání
+  if (kinds.has("access_approval"))
+    for (const x of await pendingApprovalsFor(db, userId)) {
+      const due = new Date(x.created.getTime() + 2 * 86_400_000).toISOString().slice(0, 10);
+      out.push({
+        key: `access_approval:${x.requestId}`,
+        kind: "access_approval",
+        title: t("srv.obl.accessApproval", { person: x.person, resource: x.resource }),
+        detail: t("srv.obl.accessApprovalDetail"),
+        companyId: x.companyId,
+        due,
+        urgency: urgencyOf(due, leadDays, now) === "later" ? "soon" : urgencyOf(due, leadDays, now),
+        link: `/access?request=${x.requestId}`,
+        ownerPositionId: null,
+        ownerName: null,
+        action: { type: "access_decide", requestId: x.requestId },
+      });
+    }
+  // recertifikace oprávnění – položky k posouzení (v1.27, ADR-124)
+  if (kinds.has("access_certification"))
+    for (const x of await pendingCertificationsFor(db, userId)) {
+      const urgency = urgencyOf(x.cert.dueDate, leadDays, now);
+      out.push({
+        key: `access_certification:${x.cert.id}`,
+        kind: "access_certification",
+        title: t("srv.obl.accessCert", { name: x.cert.name }),
+        detail: t("srv.obl.accessCertDetail", { n: x.n }),
+        companyId: x.cert.companyId,
+        due: x.cert.dueDate,
+        urgency: urgency === "later" ? "soon" : urgency,
+        link: `/access?tab=reviews&cert=${x.cert.id}`,
+        ownerPositionId: null,
+        ownerName: null,
+      });
+    }
+  // projekty: sponzor – brána připravená ke schválení; manažer – termín aktuální fáze (v1.31, ADR-128)
+  if (kinds.has("project_gate"))
+    for (const x of await projectGateItems(db, userId)) {
+      const urgency = x.role === "sponsor" ? "soon" : urgencyOf(x.due, leadDays, now);
+      if (!includeLater && urgency === "later") continue;
+      out.push({
+        key: `project_gate:${x.projectId}:${x.role}`,
+        kind: "project_gate",
+        title: t(x.role === "sponsor" ? "srv.obl.projectGateReady" : "srv.obl.projectGateDue", { name: x.name, phase: x.phase }),
+        detail: t(x.role === "sponsor" ? "srv.obl.projectGateReadyDetail" : "srv.obl.projectGateDueDetail"),
+        companyId: x.companyId,
+        due: x.due,
+        urgency: x.role === "sponsor" && x.due && x.due < now.toISOString().slice(0, 10) ? "overdue" : urgency,
+        link: `/projects/${x.projectId}`,
+        ownerPositionId: null,
+        ownerName: null,
+      });
+    }
+  // projekty: úkoly řešitele, žádosti o změnu ke schválení sponzorem (v1.35, ADR-132)
+  if (kinds.has("project_task") || kinds.has("project_change")) {
+    const w = await projectWorkItems(db, userId);
+    if (kinds.has("project_task"))
+      for (const x of w.tasks) {
+        const urgency = x.blocked ? "soon" : urgencyOf(x.due, leadDays, now);
+        if (!includeLater && urgency === "later") continue;
+        out.push({
+          key: `project_task:${x.id}`,
+          kind: "project_task",
+          title: x.title,
+          detail: t("srv.obl.projectTaskDetail", { name: x.project }),
+          companyId: x.companyId,
+          due: x.due,
+          urgency: x.due && x.due < now.toISOString().slice(0, 10) ? "overdue" : urgency,
+          link: `/projects/${x.projectId}?tab=tasks`,
+          ownerPositionId: null,
+          ownerName: null,
+          action: { type: "project_task_done", projectId: x.projectId, taskId: x.id },
+        });
+      }
+    if (kinds.has("project_change"))
+      for (const x of w.changes)
+        out.push({
+          key: `project_change:${x.id}`,
+          kind: "project_change",
+          title: t("srv.obl.projectChange", { name: x.project, n: x.number, title: x.title }),
+          detail: t("srv.obl.projectChangeDetail"),
+          companyId: x.companyId,
+          due: null,
+          urgency: "soon",
+          link: `/projects/${x.projectId}?tab=changes`,
+          ownerPositionId: null,
+          ownerName: null,
+          action: { type: "project_change", projectId: x.projectId, changeId: x.id },
+        });
+  }
   // alerty a případy SOC přidělené uživateli
   if (kinds.has("soc_sla")) for (const { assigneeId, ...i } of await socSlaItems(db, all, leadDays, now, t)) if (assigneeId === userId) out.push(i);
   if (enabled.includes("policies")) {

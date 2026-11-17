@@ -8,6 +8,8 @@ services:
   db:
     image: pgvector/pgvector:pg17 # PostgreSQL 17 + pgvector (připraveno pro AI vrstvu)
     restart: unless-stopped
+    # JIT vypnutý: u přehledů s mnoha poddotazy trval překlad déle než dotaz (ADR-165); API ho vypíná i ve spojení
+    command: ["postgres", "-c", "jit=off"]
     environment:
       POSTGRES_USER: contix
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-contix}
@@ -41,6 +43,8 @@ services:
     # AI na stejném serveru (Ollama / Open WebUI na hostiteli): v aplikaci zadejte http://host.docker.internal:8080/api
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./import:/import:ro # exporty z personálního systému pro automatický import osob (ADR-124)
     networks: [default, converter]
     depends_on:
       db: { condition: service_healthy }
@@ -104,6 +108,7 @@ services:
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
       BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
       BACKUP_COPY_DIR: ${BACKUP_COPY_DIR:-}
+      BACKUP_RESTORE_TEST: ${BACKUP_RESTORE_TEST:-weekly} # weekly (neděle) / daily / off – automatický test obnovy
     volumes:
       - ${BACKUP_HOST_DIR:-./backups}:/backups
     depends_on:

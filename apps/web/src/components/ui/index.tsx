@@ -5,6 +5,9 @@
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { useEffect, useRef } from "react";
+import { Link } from "@tanstack/react-router";
+import { MoreHorizontal } from "lucide-react";
+import { DropdownMenu, type MenuItem } from "./menu";
 import type { ButtonHTMLAttributes, HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 type Variant = "primary" | "secondary" | "ghost" | "danger";
@@ -34,12 +37,39 @@ export const Input = ({ className, ...p }: InputHTMLAttributes<HTMLInputElement>
 export const Textarea = ({ className, ...p }: TextareaHTMLAttributes<HTMLTextAreaElement>) => (
   <textarea className={cn(field, "min-h-20", className)} {...p} />
 );
-export const Select = ({ className, ...p }: SelectHTMLAttributes<HTMLSelectElement>) => <select className={cn(field, className)} {...p} />;
+/** Výběr vypadá stejně jako pole (v1.62): vlastní šipka, stejná výška – Safari jinak ignoruje odsazení nativního výběru. */
+/**
+ * Výběr. Přístupnost (v1.82): výběr bez popisku (filtry v liště nad seznamem) dostane jako přístupný název text
+ * první volby („Všechny stavy“…), pokud nemá vlastní `aria-label` ani nadřazený `<label>`.
+ */
+export function Select({ className, ...p }: SelectHTMLAttributes<HTMLSelectElement>) {
+  const ref = useRef<HTMLSelectElement | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || el.labels?.length || el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby")) return;
+    const first = el.options[0]?.text.trim();
+    if (first) el.setAttribute("aria-label", first);
+  });
+  return <select ref={ref} className={cn(field, "ctx-select", className)} {...p} />;
+}
+
+/** Oddíl formuláře uvnitř karty: malý nadpis a obsah (karty s více skupinami polí). */
+export function FormSection({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
+  return (
+    <section className={cn("p-5", className)}>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
+      {children}
+    </section>
+  );
+}
 
 export function Field({ label, children, hint, className }: { label: string; children: ReactNode; hint?: string; className?: string }) {
   return (
-    <label className={cn("block space-y-1.5", className)}>
-      <span className="text-sm font-medium text-slate-700">{label}</span>
+    <label className={cn("block min-w-0 space-y-1.5", className)}>
+      {/* popisek na jednom řádku (od šířky sm) – pole v řádku mřížky pak lícují; celý text v title */}
+      <span className="block text-sm font-medium leading-5 text-slate-700 sm:truncate" title={label}>
+        {label}
+      </span>
       {children}
       {hint && <span className="block text-xs text-slate-500">{hint}</span>}
     </label>
@@ -77,29 +107,114 @@ export const Badge = ({ tone = "slate", children }: { tone?: Tone; children: Rea
 
 export const criticalityTone: Record<string, Tone> = { low: "slate", medium: "blue", high: "amber", critical: "red" };
 export const statusLabel: Record<string, string> = { queued: "ve frontě", running: "běží", succeeded: "hotovo", failed: "chyba" }; // překlad: t.lbl()
-export const connectorLabel: Record<string, string> = { wazuh: "Wazuh", network_scan: "Síťový sken", csv_import: "Import CSV" };
+export const connectorLabel: Record<string, string> = { wazuh: "Wazuh", network_scan: "Síťový sken", csv_import: "Import CSV", netbox: "NetBox" };
 export const statusTone: Record<string, Tone> = { queued: "slate", running: "blue", succeeded: "green", failed: "red" };
 
 /** Záhlaví stránky; `sticky` = pevná hlavička detailu záznamu (název, stav, akce) při posouvání (v1.08). */
-export function PageHeader({ title, subtitle, actions, badge, meta, sticky }: { title: string; subtitle?: string; actions?: ReactNode; badge?: ReactNode; meta?: ReactNode; sticky?: boolean }) {
+/**
+ * Záhlaví stránky (v1.36, ADR-133): nadpis, jedna hlavní akce (`actions`), vedlejší akce schované v „Další“ (`more`),
+ * podsekce modulu jako řádek odkazů (`nav`) – místo řady stejně důležitých tlačítek.
+ */
+export function PageHeader({
+  title,
+  subtitle,
+  actions,
+  badge,
+  meta,
+  sticky,
+  more,
+  nav,
+  facts,
+}: {
+  title: string;
+  subtitle?: string;
+  actions?: ReactNode;
+  badge?: ReactNode;
+  meta?: ReactNode;
+  sticky?: boolean;
+  more?: MenuItem[];
+  nav?: SubNavItem[];
+  /** Klíčové údaje pod nadpisem (v1.38). */
+  facts?: FactItem[];
+}) {
+  const t = useT();
   return (
     <div
       className={cn(
-        "mb-6 flex flex-wrap items-end justify-between gap-4",
-        sticky && "sticky top-12 z-20 -mx-4 mb-4 border-b border-slate-200/70 bg-slate-50/85 px-4 py-3 backdrop-blur-md supports-[backdrop-filter]:bg-slate-50/70 md:top-0 md:-mx-8 md:px-8",
+        "mb-6",
+        sticky && "sticky top-14 z-20 -mx-4 mb-4 border-b border-slate-200/70 bg-slate-50/85 px-4 py-3 backdrop-blur-md supports-[backdrop-filter]:bg-slate-50/70 md:-mx-8 md:px-8",
       )}
       data-sticky={sticky ? "" : undefined}
     >
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">{title}</h1>
-          {badge}
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">{title}</h1>
+            {badge}
+          </div>
+          {subtitle && <p className="mt-1 max-w-3xl text-sm text-slate-500">{subtitle}</p>}
+          {meta && <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-slate-600">{meta}</div>}
+          {facts && <Facts items={facts} />}
         </div>
-        {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
-        {meta && <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-sm text-slate-600">{meta}</div>}
+        {(actions || more?.length) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {more && more.length > 0 && (
+              <DropdownMenu
+                label={t("ui.moreActions")}
+                buttonClassName="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+                button={
+                  <>
+                    <MoreHorizontal size={16} /> {t("ui.more")}
+                  </>
+                }
+                items={more}
+              />
+            )}
+            {actions}
+          </div>
+        )}
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
+      {nav && nav.length > 0 && <SubNav items={nav} />}
     </div>
+  );
+}
+
+/** Klíčové údaje záznamu pod nadpisem (v1.38, ADR-135): krátké páry popisek – hodnota v jednom řádku. */
+export type FactItem = { label: string; value: ReactNode; tone?: "red" | "amber" } | false | "" | 0 | null | undefined;
+export function Facts({ items, className }: { items: FactItem[]; className?: string }) {
+  const list = items.filter((x): x is { label: string; value: ReactNode; tone?: "red" | "amber" } => !!x);
+  if (!list.length) return null;
+  return (
+    <dl className={cn("mt-3 flex flex-wrap gap-x-8 gap-y-2 text-sm", className)} data-testid="facts">
+      {list.map((x) => (
+        <div key={x.label} className="min-w-0">
+          <dt className="text-xs text-slate-500">{x.label}</dt>
+          <dd className={cn("mt-0.5 font-medium", x.tone === "red" ? "text-red-700" : x.tone === "amber" ? "text-amber-700" : "text-slate-800")}>{x.value}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export type SubNavItem = { to: string; label: string; icon?: ReactNode; exact?: boolean };
+/** Podsekce modulu (Registr · Roční hodnocení · Scénáře…) – odkazy, aktivní podle adresy. */
+export function SubNav({ items }: { items: SubNavItem[] }) {
+  const t = useT();
+  return (
+    <nav aria-label={t("ui.sections")} className="-mb-1 mt-4 flex gap-1 overflow-x-auto pb-1" data-testid="subnav">
+      {items.map((x) => (
+        <Link
+          key={x.to}
+          to={x.to as never}
+          activeOptions={{ exact: x.exact ?? false }}
+          className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300"
+          activeProps={{ className: "!bg-brand-600 !text-white" }}
+        >
+          {x.icon}
+          {x.label}
+        </Link>
+      ))}
+    </nav>
   );
 }
 

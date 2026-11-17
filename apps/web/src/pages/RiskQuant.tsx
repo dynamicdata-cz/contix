@@ -1,3 +1,4 @@
+import { useRiskNav } from "@/components/riskNav";
 import { useT } from "@/lib/i18n";
 import { CompanyCell, useGroupView } from "@/components/company";
 import { STATUS_COLORS } from "@/components/health";
@@ -12,6 +13,7 @@ import { AlertTriangle, CheckCircle2 } from "lucide-react";
 
 /** Kvantitativní přehled rizik (FAIR) – portfolio, ochota nést riziko, návratnost opatření. */
 export function RiskQuantPage() {
+  const riskNav = useRiskNav();
   const t = useT();
   const group = useGroupView();
   const q = useQuery({ queryKey: ["risks", "quant"], queryFn: api.risks.quant });
@@ -25,7 +27,7 @@ export function RiskQuantPage() {
           {t("rsk.rizika")}
         </Link>
       </div>
-      <PageHeader
+      <PageHeader nav={riskNav}
         title={t("rsk.kvantitativniAnalyzaRizik")}
         subtitle={t("rsk.fairRocniZtratyZKvantifikovanych")}
       />

@@ -58,3 +58,41 @@ export const DEFAULT_DOC_FOLDERS: { name: string; codePrefix: string; children?:
   { name: "Plány", codePrefix: "PL" },
   { name: "Záznamy a evidence", codePrefix: "ZA" },
 ];
+
+/* ---------- průvodce prvním nastavením nové instalace (v1.73, ADR-166) ---------- */
+
+/** Výchozí název organizace na nové instalaci (kořenová společnost). */
+export const DEFAULT_ORG_NAME = "Moje organizace";
+
+export const WIZARD_STEPS = ["organization", "users", "structure", "ranges", "assets"] as const;
+export type WizardStep = (typeof WIZARD_STEPS)[number];
+
+export interface WizardStepDto {
+  key: WizardStep;
+  done: boolean;
+  /** Krok se netýká (modul vypnutý). */
+  skipped: boolean;
+  /** Počet záznamů kroku (uživatelé, útvary, rozsahy, aktiva). */
+  count: number;
+}
+export interface SetupWizardDto {
+  steps: WizardStepDto[];
+  done: number;
+  total: number;
+  /** Kdy správce průvodce dokončil (nebo přeskočil) – pak se už nenabízí na přehledu. */
+  finishedAt: string | null;
+  organizationName: string;
+  company: { id: string; name: string; ico: string | null; address: string | null } | null;
+  /** Přihlašování: zda je nastavené SSO / AD (nový uživatel pak nepotřebuje heslo). */
+  login: { oidc: boolean; ad: boolean };
+}
+
+/** Dočasné heslo pro nového uživatele z průvodce (16 znaků, bez zaměnitelných znaků). */
+export function temporaryPassword(rand: (n: number) => Uint8Array): string {
+  const abc = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const b = rand(16);
+  let s = "";
+  for (let i = 0; i < 16; i++) s += abc[b[i]! % abc.length];
+  // aspoň jedna číslice a velké / malé písmeno
+  return `${s.slice(0, 13)}A7k`;
+}

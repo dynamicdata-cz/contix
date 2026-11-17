@@ -1,12 +1,15 @@
 import { profileOf, periodOf, type TrendValues } from "@contix/shared";
-import { and, count, eq, gt, inArray, lt } from "drizzle-orm";
+import { GUIDES, compliancePathSummary, evaluateGuide } from "@contix/shared";
+import { guideFacts } from "../guides/routes";
+import { and, count, eq, gt, inArray, isNotNull, lt } from "drizzle-orm";
 import { settingsFor, getCompanies } from "../../auth/scope";
 import type { Db } from "../../db/client";
-import { assets, assetVulnerabilities, trendSnapshots } from "../../db/schema";
+import { assets, assetVulnerabilities, hostFindings, secTestFindings, tasks, trendSnapshots } from "../../db/schema";
 import { loadExceptions } from "../exceptions/service";
 import { appetiteDto } from "../risks/appetite";
 import { capabilityDtos, detectionFor, measureCompany, threatCoverage } from "../risks/scenarios";
 import { managementReport } from "../reports/routes";
+import { qualityOfCompany } from "../quality/routes";
 
 /* Trendy (ADR-042): hodnoty snímku se počítají ze stejných zdrojů jako Zpráva pro vedení (`managementReport`). */
 
@@ -41,6 +44,14 @@ export async function computeTrendValues(db: Db, companyId: string, now = new Da
     const det = await detectionFor(db, companyId, now);
     if (det.measured) v.detection_blind = det.summary.blind;
   }
+  // postup krok za krokem (v1.44, ADR-141) – průměr průvodců zapnutých modulů
+  {
+    const list = GUIDES.filter((g) => on(g.module));
+    if (list.length) {
+      const facts = await guideFacts(db, companyId, new Set(list.map((g) => g.id)), now);
+      v.compliance_path = compliancePathSummary(list.filter((g) => !g.applies || g.applies(facts)).map((g) => evaluateGuide(g, facts))).progress;
+    }
+  }
   if (r.plan) v.plan_overdue = r.plan.overdue;
   if (r.audits) {
     v.findings_open = r.audits.openFindings;
@@ -68,6 +79,33 @@ export async function computeTrendValues(db: Db, companyId: string, now = new Da
     v.vulns_critical = rows.find((x) => x.sev === "critical")?.n ?? 0;
     v.vulns_high = rows.find((x) => x.sev === "high")?.n ?? 0;
   }
+  // náprava nálezů ze všech zdrojů za 12 měsíců (v1.69, ADR-162)
+  if (r.findings) {
+    v.findings_critical_high = r.findings.total.bySeverity.critical.open + r.findings.total.bySeverity.high.open;
+    v.findings_ontime_pct = r.findings.total.onTimePct;
+    v.findings_fix_days = r.findings.total.avgDays;
+    v.findings_escalated = r.findings.total.escalated;
+  }
+  // kvalita dat (v1.71, ADR-164)
+  {
+    const q = await qualityOfCompany(db, companyId, s.enabledModules as string[]);
+    v.quality_score = q.score;
+    v.quality_issues = q.issues;
+  }
+  // nálezy testů a serverů (v1.66, ADR-159)
+  if (on("sectests")) {
+    const [x] = await db.select({ n: count() }).from(secTestFindings).where(and(eq(secTestFindings.companyId, companyId), eq(secTestFindings.status, "open"), inArray(secTestFindings.severity, ["critical", "high"])));
+    v.sectest_critical_high = x?.n ?? 0;
+  }
+  if (on("assets")) {
+    const [x] = await db.select({ n: count() }).from(hostFindings).where(and(eq(hostFindings.companyId, companyId), eq(hostFindings.status, "open"), eq(hostFindings.severity, "high")));
+    v.server_findings_high = x?.n ?? 0;
+    const [y] = await db
+      .select({ n: count() })
+      .from(tasks)
+      .where(and(eq(tasks.companyId, companyId), inArray(tasks.sourceKind, ["sectest_finding", "host_finding"]), inArray(tasks.status, ["open", "in_progress"]), isNotNull(tasks.dueDate), lt(tasks.dueDate, now.toISOString().slice(0, 10))));
+    v.finding_tasks_overdue = y?.n ?? 0;
+  }
   const ids = [companyId];
   const ex = await loadExceptions(db, {
     identity_finding: on("identity") ? ids : [],
@@ -75,6 +113,9 @@ export async function computeTrendValues(db: Db, companyId: string, now = new Da
     vulnerability: on("vulnerabilities") ? ids : [],
     risk_accepted: on("risks") ? ids : [],
     requirement_na: on("controls") ? ids : [],
+    soc_suppression: on("soc") ? ids : [],
+    sectest_finding: on("sectests") ? ids : [],
+    host_finding: on("assets") ? ids : [],
   });
   v.exceptions_total = ex.filter((e) => e.state !== "expired").length;
   v.exceptions_expired = ex.filter((e) => e.state === "expired").length;

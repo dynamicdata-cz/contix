@@ -2,6 +2,7 @@
  * Výjimky a přijatá rizika (v0.43, ADR-039): jednotný přehled výjimek napříč moduly – nálezy identit, SoD,
  * zranitelnosti, přijatá rizika a neaplikovaná ustanovení; platnost, odůvodnění, kdo udělil, kompenzační opatření (v1.11).
  */
+import { ProcessGuide } from "@/components/processGuide";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { Badge, Button, Card, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea, type Tone } from "@/components/ui";
 import { toast } from "@/components/ui/overlay";
@@ -50,6 +51,7 @@ export function ExceptionsPage() {
           </a>
         }
       />
+      <ProcessGuide id="exceptions" />
       <ErrorBox error={q.error} />
       {sm && (
         <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

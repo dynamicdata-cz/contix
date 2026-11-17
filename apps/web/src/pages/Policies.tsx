@@ -1,4 +1,5 @@
 import { Tabs, useTab } from "@/components/ui/tabs";
+import { ProcessGuide } from "@/components/processGuide";
 import { askConfirm } from "@/components/ui/overlay";
 import { TasksCard } from "@/components/tasks";
 import { FrameworkOptions } from "@/components/frameworkOptions";
@@ -14,7 +15,8 @@ import { TransferButton } from "@/components/transfer";
 import { AudienceEditor, audienceSummary } from "@/components/audience";
 import { CompanyCell, useGroupView } from "@/components/company";
 import { STATUS_COLORS } from "@/components/health";
-import { IdMultiSelect, PositionSelect } from "@/components/pickers";
+import { IdMultiSelect, PositionSelect, UnitSelect } from "@/components/pickers";
+import { useUrlParam } from "@/lib/urlState";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, type Tone } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan, useMe, useModule } from "@/lib/auth";
@@ -54,7 +56,9 @@ export function PoliciesPage() {
   const [q, setQ] = useState("");
   const [folder, setFolder] = useState(ALL);
   const [showRetired, setShowRetired] = useState(false);
-  const list = useQuery({ queryKey: ["policies"], queryFn: api.policies.list });
+  // útvar z adresy (odkaz z Organizace, v1.80)
+  const [unit, setUnit] = useUrlParam("unit");
+  const list = useQuery({ queryKey: unit ? ["policies", "unit", unit] : ["policies"], queryFn: () => (unit ? api.policies.listByUnit(unit) : api.policies.list()) });
   const folders = useQuery({ queryKey: ["policies", "folders"], queryFn: api.policies.folders });
   const decree = useDecree();
   const [covFw, setCovFw] = useState<FrameworkId | "">("");
@@ -91,6 +95,7 @@ export function PoliciesPage() {
           )
         }
       />
+      <ProcessGuide id="policies" />
       <ErrorBox error={list.error ?? cov.error} />
       <Tabs
         value={tab}
@@ -115,6 +120,7 @@ export function PoliciesPage() {
         <Card className="min-w-0 overflow-hidden">
           <div className="flex flex-wrap items-center gap-4 border-b border-slate-100 p-4">
             <Input className="max-w-xs" placeholder={t("pol.hledatVNazvuIObsahu")} value={q} onChange={(e) => setQ(e.target.value)} />
+            <UnitSelect className="w-56" value={unit || null} onChange={(v) => setUnit(v ?? "")} emptyLabel={t("org.f.anyUnit")} ariaLabel={t("org.f.unit")} />
             {systems.length > 1 && (
               <Select className="w-64" value={system} onChange={(e) => setSystem(e.target.value as ManagementSystem | "")} aria-label={t("pol.systemRizeni")}>
                 <option value="">{t("pol.vsechnySystemyRizeni")}</option>
@@ -176,7 +182,10 @@ export function PoliciesPage() {
                     <td className="px-3 py-2.5 tabular-nums">{p.currentVersion ?? <span className="text-slate-400">—</span>}</td>
                     <td className={cn("px-3 py-2.5 whitespace-nowrap", p.reviewOverdue ? "font-medium text-red-700" : "text-slate-600")}>{p.nextReviewDue ? fmtDay(p.nextReviewDue) : "—"}</td>
                     <td className="px-3 py-2.5 tabular-nums text-slate-600">{p.currentVersion && p.ack.required ? `${p.ack.done}/${p.ack.required}` : "—"}</td>
-                    <td className="px-3 py-2.5 text-xs text-slate-600">{p.ownerPositionName ?? <span className="text-amber-700">{t("pol.neurceno")}</span>}</td>
+                    <td className="px-3 py-2.5 text-xs text-slate-600">
+                      {p.ownerPositionName ?? <span className="text-amber-700">{t("pol.neurceno")}</span>}
+                      {p.ownerUnitName && <div className="text-slate-400">{p.ownerUnitName}</div>}
+                    </td>
                     <td className="px-3 py-2.5">
                       <Badge tone={statusTone[p.status]}>{t.lbl(POLICY_LABELS.status[p.status])}</Badge>
                     </td>
@@ -284,6 +293,7 @@ function PolicyEditor({ p }: { p: PolicyDetail | null }) {
     description: p?.description ?? "",
     sections: p?.sections ?? [],
     ownerPositionId: p?.ownerPositionId ?? null,
+    ownerUnitId: p?.ownerUnitId ?? null,
     reviewerPositionId: p?.reviewerPositionId ?? null,
     approverPositionId: p?.approverPositionId ?? null,
     ackDueDays: p?.ackDueDays ?? 14,
@@ -408,6 +418,9 @@ function PolicyEditor({ p }: { p: PolicyDetail | null }) {
             </Field>
             <Field label={t("pol.slozka")}>
               <FolderSelect value={f.folderId} onChange={(v) => set("folderId", v)} companyId={p?.companyId} disabled={!can("policies:write")} />
+            </Field>
+            <Field label={t("pol.ownerUnit")} hint={t("pol.ownerUnitHint")}>
+              <UnitSelect value={f.ownerUnitId} onChange={(v) => set("ownerUnitId", v)} companyId={p?.companyId} disabled={!can("policies:write")} ariaLabel={t("pol.ownerUnit")} emptyLabel={t("pol.ownerUnitNone")} />
             </Field>
             <Field label={t("pol.popisAUcel")}>
               <Textarea rows={2} value={f.description} onChange={(e) => set("description", e.target.value)} />

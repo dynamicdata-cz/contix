@@ -32,6 +32,7 @@ export const RECORD_ACCESS: Record<Exclude<RecordKind, "exception">, { perm: Per
   legal_review: { perm: "legislation:read", module: "legislation" },
   qa_answer: { perm: "trust:read", module: "trust" },
   knowledge: { perm: "knowledge:read", module: "knowledge" },
+  sectest_finding: { perm: "sectests:read", module: "sectests" },
 };
 const READ_PERMS = [...new Set([...Object.values(RECORD_ACCESS).map((a) => a.perm), ...Object.values(EXCEPTION_ACCESS).map((a) => a.perm)])];
 

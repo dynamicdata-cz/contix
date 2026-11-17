@@ -65,6 +65,10 @@ const Env = z.object({
     .transform((v) => (v?.trim() && v.trim() !== "off" ? v.trim().replace(/\/+$/, "") : undefined))
     .pipe(z.string().url().optional()),
 
+  // Žádosti o přístup (ADR-124): adresář s exporty z personálního systému (PERM…) pro automatický import osob.
+  // V kontejneru připojen jen pro čtení (./import → /import). Prázdné = automatický import vypnut.
+  ACCESS_IMPORT_DIR: z.string().optional(),
+
   // Identity a přístupy (ADR-029): koncové body Microsoftu – změna jen pro národní cloudy (US Gov, Čína).
   ENTRA_LOGIN_URL: z.string().url().optional(),
   GRAPH_URL: z.string().url().optional(),
@@ -75,6 +79,8 @@ const Env = z.object({
   /** Zdroj předpisů: auto (REST API s klíčem, jinak otevřená data), api, opendata, off. */
   /** Odkaz na zdrojový kód této instalace (AGPL-3.0 čl. 13, v1.15) – zobrazí se v aplikaci; upravená verze = odkaz na upravený kód. */
   CONTIX_SOURCE_URL: z.string().url().optional(),
+  /** Kontakt pro hlášení zranitelností této instalace v /.well-known/security.txt (mailto: nebo https:, v1.48). */
+  SECURITY_CONTACT: z.string().regex(/^(mailto:|https:\/\/)\S+$/).optional(),
   ESBIRKA_SOURCE: z.enum(["auto", "api", "opendata", "off"]).optional(),
   ESBIRKA_SPARQL_URL: z.string().url().optional(),
   ESBIRKA_RSS_URL: z.string().url().optional(),

@@ -1,3 +1,4 @@
+import { TOPBAR_COLORS, type TopbarColor } from "@contix/shared";
 /** Barevné motivy CONTIX – volba uživatele, uložená jen v prohlížeči (vzhled není citlivý ani sdílený). */
 export const THEMES = [
   { key: "blue", label: "Modrá", hint: "Svěží modrá, chladné šedé tóny", swatch: ["#2c54d6", "#f6f8fb", "#ffffff"] },
@@ -56,4 +57,24 @@ export function setMode(m: ModeKey) {
     /* úložiště nedostupné */
   }
   applyMode(m);
+}
+
+/* ---------- barva horní lišty (v1.45, ADR-142) ---------- */
+const TOPBAR_KEY = "contix.topbar";
+export const TOPBAR_EVENT = "contix-topbar";
+export function getTopbar(): TopbarColor {
+  try {
+    const v = localStorage.getItem(TOPBAR_KEY);
+    return (TOPBAR_COLORS as readonly string[]).includes(v ?? "") ? (v as TopbarColor) : "default";
+  } catch {
+    return "default";
+  }
+}
+export function setTopbar(c: TopbarColor) {
+  try {
+    localStorage.setItem(TOPBAR_KEY, c);
+  } catch {
+    /* úložiště nedostupné */
+  }
+  window.dispatchEvent(new Event(TOPBAR_EVENT));
 }

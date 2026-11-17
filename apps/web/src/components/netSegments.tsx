@@ -36,16 +36,18 @@ export function NetSegmentsSection() {
   const remove = useMutation({ mutationFn: (id: string) => api.discovery.deleteSegment(id), onSuccess: refresh });
   const write = can("discovery:run");
   const d = q.data;
-  // po doběhnutí skenu načíst nalezená zařízení znovu
+  // po doběhnutí skenu načíst nalezená zařízení znovu – podle konce posledního běhu (rychlý sken může doběhnout
+  // dřív, než seznam segmentů stihne zachytit stav „běží“)
   const anyRunning = !!d?.segments.some((s) => s.running);
-  const wasRunning = useRef(false);
+  const lastRuns = (d?.segments ?? []).map((s) => `${s.id}:${s.lastRunId ?? ""}:${s.lastRunAt ?? ""}:${s.running ? 1 : 0}`).join("|");
+  const seen = useRef<string | null>(null);
   useEffect(() => {
-    if (wasRunning.current && !anyRunning) {
+    if (seen.current !== null && seen.current !== lastRuns && !anyRunning) {
       qc.invalidateQueries({ queryKey: ["netobs"] });
       qc.invalidateQueries({ queryKey: ["runs"] });
     }
-    wasRunning.current = anyRunning;
-  }, [anyRunning, qc]);
+    seen.current = lastRuns;
+  }, [lastRuns, anyRunning, qc]);
   return (
     <>
       <Card className="mb-6 overflow-hidden" data-testid="net-segments">

@@ -1,3 +1,4 @@
+import { ContixMark, ContixWordmark } from "@/components/logo";
 import { rememberLocale, useT } from "@/lib/i18n";
 import { Button, ErrorBox, Field, Input } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -18,20 +19,30 @@ const SSO_ERRORS: Record<string, string> = {
   sso_invalid: "Neplatná odpověď poskytovatele identity.",
 };
 
+/**
+ * Přihlašovací obrazovky v duchu loga (v1.77, ADR-170): tmavý zaoblený rámeček jako značka „cx“, inkoustová hlavní
+ * tlačítka a zaměření polí místo barvy motivu, logo nad kartou na střed. Barvy jen slate (tmavý režim je přepíše).
+ */
+export const AUTH_PRIMARY = "bg-slate-900 text-slate-50 shadow-none hover:bg-slate-700 focus-visible:ring-slate-400";
+
 export function AuthShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   const t = useT();
   return (
-    <div className="flex min-h-full items-center justify-center bg-slate-100 px-4 py-12">
-      <div className="w-full max-w-md">
-        <div className="mb-6 flex items-center justify-center gap-2.5">
-          <div className="grid h-10 w-10 place-items-center rounded-lg bg-brand-600 text-lg font-bold text-white">C</div>
-          <div>
-            <div className="text-lg font-semibold leading-tight">{t("my.contix")}</div>
-            <div className="text-xs text-slate-500">{t("auth.tagline")}</div>
+    <div className="auth-ink relative flex min-h-full items-center justify-center overflow-hidden bg-slate-100 px-4 py-12">
+      {/* značka jako jemný vodoznak – opakuje rámeček loga */}
+      <div aria-hidden className="pointer-events-none absolute -bottom-40 -right-40 opacity-[0.045]">
+        <ContixMark className="h-[34rem] w-[34rem]" title="" />
+      </div>
+      <div className="relative w-full max-w-[26rem]">
+        <div className="mb-7 flex flex-col items-center gap-3">
+          <ContixMark className="h-16 w-16" />
+          <div className="flex flex-col items-center gap-1">
+            <ContixWordmark className="block h-6 w-auto" title={t("my.contix")} />
+            <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">{t("auth.tagline")}</div>
           </div>
         </div>
-        <div className="rounded-xl border border-slate-200 bg-white p-7 shadow-sm">
-          <h1 className="text-lg font-semibold">{title}</h1>
+        <div className="rounded-[1.75rem] border-2 border-slate-900 bg-white p-8 shadow-[0_18px_40px_-24px_rgb(15_23_42/0.45)]">
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">{title}</h1>
           {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
           <div className="mt-6 space-y-4">{children}</div>
         </div>
@@ -84,7 +95,7 @@ export function LoginScreen() {
           <Input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         <ErrorBox error={login.error} />
-        <Button type="submit" className="w-full" disabled={login.isPending}>
+        <Button type="submit" className={`w-full py-2.5 ${AUTH_PRIMARY}`} disabled={login.isPending}>
           <LogIn size={16} /> {t("auth.signInBtn")}
         </Button>
       </form>
@@ -122,7 +133,7 @@ export function MfaVerifyScreen() {
           />
         </Field>
         <ErrorBox error={verify.error} />
-        <Button type="submit" className="w-full" disabled={verify.isPending}>
+        <Button type="submit" className={`w-full py-2.5 ${AUTH_PRIMARY}`} disabled={verify.isPending}>
           <ShieldCheck size={16} /> {t("auth.verify")}
         </Button>
       </form>
@@ -166,7 +177,7 @@ export function ChangePasswordForm({ onDone, forced }: { onDone?: () => void; fo
         <Input type="password" autoComplete="new-password" required value={again} onChange={(e) => setAgain(e.target.value)} />
       </Field>
       <ErrorBox error={local ?? change.error} />
-      <Button type="submit" disabled={change.isPending}>
+      <Button type="submit" className={AUTH_PRIMARY} disabled={change.isPending}>
         {t("auth.pwChange")}
       </Button>
     </form>
@@ -207,7 +218,7 @@ function LanguageSwitch() {
     <div className="mt-4 flex justify-center">
       <select
         aria-label={t("profile.language")}
-        className="rounded-md border-0 bg-transparent px-2 py-1 text-xs text-slate-500 hover:text-slate-800"
+        className="ctx-select rounded-md border-0 bg-transparent px-2 py-1 text-xs text-slate-500 hover:text-slate-800"
         value={t.locale}
         onChange={(e) => {
           rememberLocale(e.target.value);

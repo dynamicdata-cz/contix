@@ -1,11 +1,18 @@
 import { processDefectDojo } from "../vulnerabilities/defectdojo";
+import { autoNetboxSync } from "../connections/netbox";
+import { syncJiraIssues } from "../connections/jira";
 import { processMonitors } from "../controls/monitors";
 import { processInfoService } from "../infoservice/routes";
 import { processScenarioRefresh } from "../risks/scenarios";
+import { processSecTestSchedules } from "../sectests/schedules";
 import { processKriRefresh } from "../risks/appetite";
+import { processAccessLifecycle } from "../access/routes";
+import { processPeopleAutoImport } from "../access/review";
+import { verifyByDirectory } from "../access/provisioning";
 import { processLegislationSync } from "../legislation/service";
 import { OBLIGATION_LABELS, URGENCY_LABELS, type NotificationSettingsDto, type NotificationSettingsInput, type ObligationItem, type Permission, type Translate } from "@contix/shared";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import nodemailer from "nodemailer";
 import { processTrendSnapshots, pruneTrendSnapshots } from "../trends/service";
 import { processRecordIndex } from "../search/records";
@@ -244,6 +251,38 @@ async function once(db: Db, key: string, channel: string, recipient: string, urg
   }
 }
 
+/** Týden ISO (rok-Wnn) pro opakování dalšího kroku v souhrnu. */
+function isoWeek(d: Date) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7;
+  t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return `${t.getUTCFullYear()}-W${Math.ceil(((t.getTime() - y.getTime()) / 86_400_000 + 1) / 7)}`;
+}
+
+/**
+ * Další krok průvodce v souhrnu (v1.46, ADR-143): jen při změně kroku nebo počtu, jinak nejvýš jednou týdně.
+ * Odeslání se zapíše do notification_log (kanál „guide“) až po úspěšném odeslání (`commit`).
+ */
+export async function guideStepsFresh(db: Db, items: ObligationItem[], recipient: string, now: Date) {
+  const week = isoWeek(now);
+  const keyOf = (i: ObligationItem) => `guide:${createHash("sha1").update(`${i.key}|${i.title}|${i.detail ?? ""}`).digest("hex").slice(0, 24)}:${week}`;
+  const steps = items.filter((i) => i.kind === "guide_step");
+  if (!steps.length) return { items, commit: async () => {} };
+  const keys = steps.map(keyOf);
+  const seen = new Set(
+    (await db.select({ key: notificationLog.key }).from(notificationLog).where(and(eq(notificationLog.channel, "guide"), eq(notificationLog.recipient, recipient), inArray(notificationLog.key, keys)))).map((x) => x.key),
+  );
+  const keep = items.filter((i) => i.kind !== "guide_step" || !seen.has(keyOf(i)));
+  const fresh = keep.filter((i) => i.kind === "guide_step").map(keyOf);
+  return {
+    items: keep,
+    commit: async () => {
+      if (fresh.length) await db.insert(notificationLog).values(fresh.map((key) => ({ key, channel: "guide", recipient, urgency: "soon" }))).onConflictDoNothing();
+    },
+  };
+}
+
 /** Uživatelé s oprávněním `isms:write` ve společnosti = bezpečnostní tým pro týmový souhrn (SOC: `soc:write`). */
 async function securityTeam(db: Db, companyIds: string[], perm: Permission = "isms:write") {
   const us = await db.select({ id: users.id, email: users.email, name: users.displayName, locale: users.locale }).from(users).where(eq(users.isActive, true));
@@ -400,13 +439,16 @@ export async function runNotifications(d: RunDeps): Promise<{ emails: number; te
     if (mailer)
       for (const r of team) {
         const L = await forLocale(r.locale);
-        const items = L.all.filter((i) => r.companies.includes(i.companyId));
+        const g = await guideStepsFresh(db, L.all.filter((i) => r.companies.includes(i.companyId)), r.email, now);
+        const items = g.items;
         if (!items.length) continue;
         const m = renderDigest(items, appUrl, L.t("srv.mail.teamTitle"), names, L.t);
-        await guard(`e-mail ${r.email}`, () => once(db, `${key}:team`, "email", r.email, "digest", () => mailer.send({ to: r.email, subject: L.t("srv.mail.teamSubject", { n: items.length }), ...m })), "emails");
+        await guard(`e-mail ${r.email}`, () => once(db, `${key}:team`, "email", r.email, "digest", async () => (await mailer.send({ to: r.email, subject: L.t("srv.mail.teamSubject", { n: items.length }), ...m }), await g.commit())), "emails");
       }
-    if (teams && teamsUrl && all.length)
-      await guard("Teams", () => once(db, key, "teams", "teams", "digest", () => teams.post(teamsUrl, teamsCard(all, appUrl, tDef("srv.mail.teamsTitle", { n: all.length }), names, tDef))), "teams");
+    if (teams && teamsUrl && all.length) {
+      const g = await guideStepsFresh(db, all, "teams", now);
+      if (g.items.length) await guard("Teams", () => once(db, key, "teams", "teams", "digest", async () => (await teams.post(teamsUrl, teamsCard(g.items, appUrl, tDef("srv.mail.teamsTitle", { n: g.items.length }), names, tDef)), await g.commit())), "teams");
+    }
     // osobní souhrny: vlastníci (funkční místa), seznámení, školení
     if (mailer) {
       const us = await db.select({ id: users.id, email: users.email, locale: users.locale }).from(users).where(eq(users.isActive, true));
@@ -415,10 +457,35 @@ export async function runNotifications(d: RunDeps): Promise<{ emails: number; te
         const L = await forLocale(u.locale);
         const items = (await personalObligations(db, u.id, s.leadDays, base.enabledModules, now, false, L.t)).filter((i) => i.urgency !== "later");
         // členové týmu dostali týmový souhrn – osobní jen s položkami navíc (seznámení, školení)
-        const mine = teamMails.has(u.email) ? items.filter((i) => i.kind === "policy_ack" || i.kind === "training") : items;
+        const g = await guideStepsFresh(db, teamMails.has(u.email) ? items.filter((i) => i.kind === "policy_ack" || i.kind === "training") : items, u.email, now);
+        const mine = g.items;
         if (!mine.length) continue;
         const m = renderDigest(mine, appUrl, L.t("srv.mail.mineTitle"), names, L.t);
-        await guard(`e-mail ${u.email}`, () => once(db, `${key}:me`, "email", u.email, "digest", () => mailer.send({ to: u.email, subject: L.t("srv.mail.mineSubject", { n: mine.length }), ...m })), "emails");
+        await guard(`e-mail ${u.email}`, () => once(db, `${key}:me`, "email", u.email, "digest", async () => (await mailer.send({ to: u.email, subject: L.t("srv.mail.mineSubject", { n: mine.length }), ...m }), await g.commit())), "emails");
+      }
+    }
+    // týdenní souhrn (v1.69 ADR-162, v1.71 ADR-164) – v pondělí (nebo ručně vynucený souhrn): nálezy na aktivech garanta,
+    // eskalace nálezů po termínu na vedoucí a chybějící údaje, za které osoba odpovídá
+    if (mailer && (now.getDay() === 1 || d.forceDigest)) {
+      const { guarantorFindings, renderGuarantorDigest } = await import("../findings/digest");
+      const { findingEscalations, escalationsFor } = await import("../findings/escalation");
+      const { qualityGapsByUser } = await import("../quality/routes");
+      const mods = base.enabledModules as string[];
+      const findingsOn = mods.includes("sectests") || mods.includes("assets") || mods.includes("vulnerabilities");
+      const [rows, esc, gaps] = await Promise.all([findingsOn ? guarantorFindings(db) : [], findingsOn ? findingEscalations(db, companyIds, now) : [], qualityGapsByUser(db, mods)]);
+      const byUser = new Map(rows.map((r) => [r.userId, r]));
+      const userIds = new Set([...byUser.keys(), ...esc.flatMap((e) => e.managerUserIds), ...gaps.keys()]);
+      if (userIds.size) {
+        const us = new Map((await db.select({ id: users.id, email: users.email, locale: users.locale }).from(users).where(eq(users.isActive, true))).map((u) => [u.id, u]));
+        for (const uid of userIds) {
+          const u = us.get(uid);
+          if (!u?.email) continue;
+          const row = { userId: uid, assets: byUser.get(uid)?.assets ?? [], escalated: escalationsFor(esc, uid), gaps: gaps.get(uid) ?? [] };
+          if (!row.assets.length && !row.escalated.length && !row.gaps.length) continue;
+          const L = await forLocale(u.locale);
+          const m = renderGuarantorDigest(row, appUrl, L.t);
+          await guard(`e-mail ${u.email}`, () => once(db, `${key}:findings`, "email", u.email, "findings_weekly", async () => void (await mailer.send({ to: u.email, ...m }))), "emails");
+        }
       }
     }
     s.lastDigestDay = day;
@@ -469,6 +536,8 @@ export function startNotificationScheduler(db: Db, config: Config, intervalMs = 
       void processMonitors(db, config).catch((e) => console.error("Monitorování opatření:", (e as Error).message));
       // kontrola certifikátů a TLS jednou denně (ADR-070) – na pozadí
       if (((await getSettings(db)).enabledModules as string[]).includes("assets")) void processTlsScans(db).catch((e) => console.error("Kontrola TLS:", (e as Error).message));
+      // pravidelné bezpečnostní testy (v1.63, ADR-157) – založení sad pro sondy
+      if (((await getSettings(db)).enabledModules as string[]).includes("sectests")) await processSecTestSchedules(db).catch((e) => console.error("Pravidelné testy:", (e as Error).message));
       // plánované skeny síťových segmentů (ADR-072) – na pozadí, sken může trvat dlouho
       void processNetScans(db, config).catch((e) => console.error("Skeny segmentů:", (e as Error).message));
       // informační servis regulátora – RSS NÚKIB a otevřená data o incidentech (ADR-087) – na pozadí
@@ -482,6 +551,12 @@ export function startNotificationScheduler(db: Db, config: Config, intervalMs = 
         void processScenarioRefresh(db)
           .then(() => processKriRefresh(db))
           .catch((e) => console.error("Rizikové scénáře z dat / KRI:", (e as Error).message));
+      // žádosti o přístup: konec platnosti přidělení a odchody osob → žádosti o odebrání (v1.26, ADR-123)
+      if (((await getSettings(db)).enabledModules as string[]).includes("access"))
+        void processPeopleAutoImport(db, config)
+          .then(() => processAccessLifecycle(db))
+          .then(() => verifyByDirectory(db))
+          .catch((e) => console.error("Žádosti o přístup:", (e as Error).message));
       // konektor DefectDojo (ADR-097) – jen čtení, podle intervalu, na pozadí
       void processDefectDojo(db, config);
       // offline databáze OSV pro komponenty produktů (CRA, ADR-093) jednou denně – na pozadí
@@ -491,6 +566,9 @@ export function startNotificationScheduler(db: Db, config: Config, intervalMs = 
         error = `Wazuh synchronizace: ${(e as Error).message}`;
         console.error(error);
       });
+      // NetBox (aktiva) a stav issue v JIRA – v1.53, ADR-150
+      await autoNetboxSync(db, config).catch((e) => console.error("NetBox:", (e as Error).message));
+      await syncJiraIssues(db, config).catch((e) => console.error("JIRA:", (e as Error).message));
       // převody souborů dokumentace (PDF, text) – dávka s časovým limitem
       await processPendingFiles(db, Math.min(5 * 60_000, intervalMs / 3)).catch((e) => {
         error = `Převody dokumentů: ${(e as Error).message}`;

@@ -84,6 +84,7 @@ import {
 } from "../../db/schema";
 import type { Dispatch } from "../import/routes";
 import { getVulnSla, vulnOverdueSql } from "../vulnerabilities/intel";
+import { threatLandscape } from "./landscape";
 import { riskBaselineSql, riskTriggers } from "./triggers";
 
 /* ============================================================
@@ -462,6 +463,8 @@ export async function generateProposals(db: Db, companyId: string, now = new Dat
   };
 
   const det = await detectionFor(db, companyId, now);
+  const land = await threatLandscape(db, companyId, det, now);
+  const sectorOf = (key: string) => land.templates.find((x) => x.key === key) ?? null;
   const blindOf = (attack: string[]) => (det.measured ? { blind: attack.filter((id) => det.techniques.find((x) => x.id === id)?.state === "blind").length, total: attack.length } : null);
   const existing = await db.select().from(riskScenarioProposals).where(eq(riskScenarioProposals.companyId, companyId));
   const seen = new Set<string>();
@@ -507,7 +510,7 @@ export async function generateProposals(db: Db, companyId: string, now = new Dat
       }
       const capList = t.capabilities.map((k) => ({ key: k, status: caps[k] ?? ("unknown" as CapabilityStatus) }));
       const al = alertCount(t.attack);
-      const ev: ScenarioEvaluation = evaluateScenario(t, { levels, cia: { c: primary.c, i: primary.i, a: primary.a }, criticality: primary.criticality, hits: relevant, capabilities: caps, alerts: al, detection: blindOf(t.attack) });
+      const ev: ScenarioEvaluation = evaluateScenario(t, { levels, cia: { c: primary.c, i: primary.i, a: primary.a }, criticality: primary.criticality, hits: relevant, capabilities: caps, alerts: al, detection: blindOf(t.attack), sector: sectorOf(t.key) });
       const fp = scenarioFingerprint(relevant, caps, t);
       const evidence = { hits: relevant, capabilities: capList, alerts: al, reasons: ev.reasons, controls: controlsFor(t.capabilities), supportingAssets: supp.map((id) => ({ id, name: m.assets.get(id)!.name })) };
       const values = { levels, impact: ev.impact, threatLevel: ev.threatLevel, vulnLevel: ev.vulnLevel, likelihood: ev.likelihood, lowConfidence: ev.lowConfidence, evidence, fingerprint: fp, generatedAt: now, updatedAt: now };

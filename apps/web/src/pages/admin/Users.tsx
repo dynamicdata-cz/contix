@@ -4,7 +4,7 @@ import { Badge, Button, Card, Checkbox, EmptyState, ErrorBox, Field, Input, Moda
 import { api } from "@/lib/api";
 import { useCan, useMe } from "@/lib/auth";
 import { fmtDate } from "@/lib/utils";
-import { PASSWORD_MIN, ROOT_COMPANY_ID, type UserDto } from "@contix/shared";
+import { PASSWORD_MIN, ROOT_COMPANY_ID, USER_HANDOVER_KINDS, USER_HANDOVER_LABELS, type UserDto, type UserHandoverKind } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock, Plus, Search, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -35,7 +35,7 @@ export function AdminUsersPage() {
         </Button>
       </div>
       <ErrorBox error={users.error} />
-      <Card className="overflow-x-auto">
+      <Card className="overflow-x-auto" tabIndex={0} aria-label={t("adm.tab.users")}>
         <table className="w-full text-sm">
           <thead className="border-b border-slate-200 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
             <tr>
@@ -391,6 +391,8 @@ function UserEditModal({ user, onClose }: { user: UserDto; onClose: () => void }
       )}
       <ErrorBox error={save.error} />
 
+      <UserHandover user={user} deactivating={user.isActive && !isActive} />
+
       <div className="space-y-3 rounded-md border border-slate-200 p-4">
         <p className="flex items-center gap-2 text-sm font-medium">
           <Lock size={15} /> {t("usr.zabezpeceniUctu")}
@@ -432,5 +434,79 @@ function AuthProviderSelect({ value, onChange, disabled }: { value: "local" | "o
       <option value="ad">{t("usr.authAd")}</option>
       <option value="oidc">{t("usr.firemniUcetEntraIdAd")}</option>
     </Select>
+  );
+}
+
+/** Odpovědnosti uživatele a předání jiné osobě (v1.65) – aktiva (vlastník, garant, zástupce) a otevřené úkoly. */
+function UserHandover({ user, deactivating }: { user: UserDto; deactivating: boolean }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["admin", "users", user.id, "responsibilities"], queryFn: () => api.admin.responsibilities(user.id) });
+  const all = useQuery({ queryKey: ["admin", "users"], queryFn: api.admin.users });
+  const [to, setTo] = useState("");
+  const [kinds, setKinds] = useState<UserHandoverKind[]>([]);
+  const [msg, setMsg] = useState<string | null>(null);
+  const d = q.data;
+  const present = d ? USER_HANDOVER_KINDS.filter((k) => d.counts[k] > 0) : [];
+  const chosen = kinds.length ? kinds : present;
+  const m = useMutation({
+    mutationFn: () => api.admin.handover(user.id, { toUserId: to, kinds: chosen }),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["admin", "users", user.id, "responsibilities"] });
+      qc.invalidateQueries({ queryKey: ["assets"] });
+      qc.invalidateQueries({ queryKey: ["actions"] });
+      setMsg(t("usr.ho.done", { n: Object.values(r.moved).reduce((a, b) => a + b, 0) }));
+      setKinds([]);
+    },
+  });
+  if (!d) return null;
+  if (!present.length && !d.positions.length) return msg ? <SuccessBox>{msg}</SuccessBox> : null;
+  const label = (k: UserHandoverKind) => t.lbl(USER_HANDOVER_LABELS[k]);
+  return (
+    <div className={`space-y-3 rounded-md border p-4 ${deactivating ? "border-amber-300 bg-amber-50/60" : "border-slate-200"}`} data-testid="user-handover">
+      <p className="text-sm font-medium">{t("usr.ho.title")}</p>
+      {deactivating && present.length > 0 && <p className="text-sm text-amber-900">{t("usr.ho.deactivateWarn")}</p>}
+      {msg && <SuccessBox>{msg}</SuccessBox>}
+      <ul className="text-sm text-slate-700">
+        {present.map((k) => (
+          <li key={k}>
+            {label(k)}: <b>{d.counts[k]}</b>
+          </li>
+        ))}
+        {d.positions.length > 0 && (
+          <li className="text-slate-500">
+            {t("usr.ho.positions")}: {d.positions.map((p) => p.name).join(", ")}
+          </li>
+        )}
+      </ul>
+      {present.length > 0 && (
+        <>
+          <div className="flex flex-wrap gap-4">
+            {present.map((k) => (
+              <Checkbox key={k} checked={chosen.includes(k)} onChange={(v) => setKinds(v ? [...new Set([...chosen, k])] : chosen.filter((x) => x !== k))} label={label(k)} />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label={t("usr.ho.to")} className="min-w-64 flex-1">
+              <Select value={to} onChange={(e) => setTo(e.target.value)} aria-label={t("usr.ho.to")}>
+                <option value="">{t("usr.ho.pick")}</option>
+                {(all.data ?? [])
+                  .filter((u) => u.isActive && u.id !== user.id)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.displayName} ({u.email})
+                    </option>
+                  ))}
+              </Select>
+            </Field>
+            <Button variant="secondary" disabled={!to || !chosen.length || m.isPending} onClick={() => m.mutate()} data-testid="user-handover-go">
+              {t("usr.ho.go")}
+            </Button>
+          </div>
+          <p className="text-xs text-slate-500">{t("usr.ho.hint")}</p>
+        </>
+      )}
+      <ErrorBox error={m.error} />
+    </div>
   );
 }

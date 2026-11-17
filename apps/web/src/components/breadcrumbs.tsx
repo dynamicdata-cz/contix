@@ -8,17 +8,24 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 const PAGES: [string, MsgKey][] = [
   ["/my", "nav.myObligations"],
   ["/management", "nav.managementReport"],
+  ["/compliance-path", "nav.compliancePath"],
+  ["/compliance-path/audit", "gd.audit.title"],
   ["/ask", "nav.askAi"],
   ["/group", "nav.groupOverview"],
+  ["/tags", "nav.tags"],
+  ["/suppliers/locations", "loc.title"],
   ["/isms", "nav.isms"],
   ["/risks", "nav.risks"],
   ["/risks/scenarios", "rsc.title"],
+  ["/risks/modeling", "tm.title"],
   ["/risks/appetite", "rap.title"],
   ["/controls", "nav.controls"],
   ["/controls/coverage", "nav.coverage"],
   ["/controls/library", "fwl.title"],
   ["/controls/monitoring", "mon.title"],
   ["/exceptions", "nav.exceptions"],
+  ["/findings", "nav.findings"],
+  ["/quality", "nav.quality"],
   ["/actions", "nav.actions"],
   ["/audit-portal", "nav.auditPortal"],
   ["/audits", "nav.audits"],
@@ -27,10 +34,13 @@ const PAGES: [string, MsgKey][] = [
   ["/bia", "nav.continuity"],
   ["/continuity/exercises", "nav.exercises"],
   ["/assets", "nav.assets"],
+  ["/assets/maps", "map.title"],
   ["/vulnerabilities", "nav.vulnerabilities"],
   ["/processes", "nav.processes"],
   ["/suppliers", "nav.suppliers"],
   ["/identity", "nav.identity"],
+  ["/access", "nav.access"],
+  ["/projects", "nav.projects"],
   ["/gdpr", "nav.gdpr"],
   ["/aiact", "nav.aiact"],
   ["/soc2", "nav.soc2"],
@@ -44,10 +54,12 @@ const PAGES: [string, MsgKey][] = [
   ["/legislation", "nav.legislation"],
   ["/awareness", "nav.awareness"],
   ["/discovery", "nav.discovery"],
+  ["/security-tests", "st.title"],
   ["/import", "nav.import"],
   ["/profile", "profile.title"],
   ["/admin", "nav.admin"],
   ["/admin/setup", "adm.tab.setup"],
+  ["/setup-wizard", "wiz.title"],
   ["/admin/users", "adm.tab.users"],
   ["/admin/groups", "adm.tab.groups"],
   ["/admin/roles", "adm.tab.roles"],
@@ -88,9 +100,9 @@ export function Breadcrumbs() {
     else router.navigate({ to: parent });
   };
   return (
-    <nav aria-label={t("crumb.nav")} className="mb-4 flex flex-wrap items-center gap-1.5 text-sm text-slate-500" data-testid="breadcrumbs">
-      <button type="button" onClick={back} className="mr-2 inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 hover:bg-slate-50" title={t("crumb.back")}>
-        <ArrowLeft size={14} /> {t("crumb.back")}
+    <nav aria-label={t("crumb.nav")} className="mb-3 flex flex-wrap items-center gap-1.5 text-[13px] text-slate-500" data-testid="breadcrumbs">
+      <button type="button" onClick={back} className="-ml-1.5 mr-1 inline-flex items-center rounded-md p-1 text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300" title={t("crumb.back")} aria-label={t("crumb.back")}>
+        <ArrowLeft size={15} />
       </button>
       {items.map((x, i) => (
         <span key={`${x.key}-${i}`} className="inline-flex items-center gap-1.5">

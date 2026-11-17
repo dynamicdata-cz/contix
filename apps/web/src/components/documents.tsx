@@ -102,7 +102,7 @@ function DocumentVersionsInner({ kind, framework = null, writePerm }: { kind: Do
         action={
           <div className="flex shrink-0 gap-2">
             {kind === "soa" && (langs.data?.locales.length ?? 0) > 1 && (
-              <select className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs" value={lang} onChange={(e) => setLang(e.target.value)} aria-label={t("doc.outputLang")} title={t("doc.outputLang")}>
+              <select className="ctx-select rounded-md border border-slate-300 bg-white px-2 py-1 text-xs" value={lang} onChange={(e) => setLang(e.target.value)} aria-label={t("doc.outputLang")} title={t("doc.outputLang")}>
                 <option value="">{t("doc.outputLangMine")}</option>
                 {langs.data!.locales.map((l) => (
                   <option key={l.locale} value={l.locale}>

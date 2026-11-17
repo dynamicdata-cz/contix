@@ -8,6 +8,8 @@
 # Proměnné: PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE (standard libpq)
 #           BACKUP_DIR (/backups) BACKUP_KEEP_DAYS (14) BACKUP_TIME (02:30)
 #           BACKUP_AGE_RECIPIENT (veřejný klíč age → šifrování) BACKUP_COPY_DIR (kopie mimo server)
+#           BACKUP_RESTORE_TEST (weekly = v neděli, daily, off) – automatický test obnovy čerstvé zálohy
+#           do dočasné databáze s ověřením obsahu (před šifrováním, klíč k dešifrování na serveru není potřeba)
 set -euo pipefail
 
 export PGHOST="${PGHOST:-db}" PGUSER="${PGUSER:-contix}" PGDATABASE="${PGDATABASE:-contix}"
@@ -43,6 +45,12 @@ run_backup() {
     rm -f "$tmp"
     record error "" "" false "Archiv zálohy není čitelný (pg_restore --list)"
     return 1
+  fi
+
+  # automatický test obnovy (v1.72, ADR-165) – výsledek se zapíše zvlášť (kind restore_test), záloha se uloží i při chybě testu
+  local rt="${BACKUP_RESTORE_TEST:-weekly}"
+  if [[ "$rt" == daily || ( "$rt" == weekly && "$(date +%u)" == 7 ) || -n "${FORCE_RESTORE_TEST:-}" ]]; then
+    RESTORE_LABEL="contix-$ts.dump${BACKUP_AGE_RECIPIENT:+.age}" "$(dirname "$0")/restore.sh" --test "$tmp" || echo "VAROVÁNÍ: test obnovy zálohy selhal (Administrace → Provoz)" >&2
   fi
 
   if [[ -n "${BACKUP_AGE_RECIPIENT:-}" ]]; then

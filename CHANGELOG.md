@@ -2,6 +2,407 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.83.0
+
+- **Příručka vedoucího útvaru a garanta** (ADR-176): nová role v nápovědě a v příručce ke stažení – za co odpovídá vedoucí, vlastník a technický garant, Moje práce, týdenní souhrn, lhůty a eskalace nálezů, přehled útvaru, chybějící údaje a hromadné úpravy, změny lidí, práce z telefonu. Role se nabídne každému, kdo vidí aktiva, procesy nebo úkoly.
+- Nápověda doplněna o novinky 1.78–1.82 (import útvarů a štítků, hromadné úpravy procesů, dodavatelů a úkolů, útvar dodavatele).
+- **Předvolba Mistral AI** v Administrace → AI: adresa OpenAI-kompatibilního rozhraní, model `mistral-small-latest` a vektory `mistral-embed` jedním kliknutím (cloudová služba – texty odcházejí ke zpracovateli).
+
+## 1.82.0
+
+- **Přístupnost (WCAG 2.1 AA)** (ADR-175): kontrola 80 obrazovek nástrojem axe na mobilu i počítači, ve světlém i tmavém režimu – opraveno vše nalezené. Tlumený text má dostatečný kontrast (dříve 2,6 : 1), výběrové filtry v lištách mají přístupný název (i budoucí – automaticky z první volby), posuvné tabulky jdou ovládat klávesnicí, graf vazeb a ukazatel stavu aktiva mají správné role, aktivní podsekce a odkazy čitelné i v tmavém režimu.
+- **Mobil**: ověřeno, že žádná z kontrolovaných obrazovek na šířce telefonu (390 px) nevytváří vodorovný posun stránky; tabulky se posouvají uvnitř karty.
+- Nový test hlídá obojí (posun stránky na mobilu a ovládací prvky bez názvu) na hlavních obrazovkách.
+
+## 1.81.0
+
+- **Ukázková data z Administrace** (ADR-174): v Administrace → Společnosti tlačítko *Založit ukázku* (fiktivní „Vzorová strojírna a.s. (ukázka)“ přes stejná API jako z aplikace) a *Odstranit ukázku* – smaže ukázkovou společnost se všemi jejími záznamy, ostatní společnosti se nedotkne. Odstranit lze jen společnost označenou jako ukázka.
+- **Bohatší ukázka**: aktiva, dodavatelé a dokumenty mají odpovědné útvary, štítky a umístění – přehled útvaru, filtry a vazby jsou při předvádění hned vidět.
+
+## 1.80.0
+
+- **Odpovědný útvar dodavatele a dokumentu** (ADR-173): u dodavatele útvar, který vztah řídí; u dokumentu útvar, kterému patří (nový dokument bez volby převezme útvar gestora, stávající dokumenty se doplnily stejně). Útvar se vybírá ze struktury organizace a musí patřit do stejné společnosti.
+- **Filtry a přehled útvaru**: seznamy dodavatelů a dokumentů se filtrují podle útvaru včetně podřízených; přehled útvaru v Organizaci ukazuje i počet aktivních dodavatelů a platných dokumentů s odkazem do filtrovaného seznamu.
+- Útvar dodavatele lze nastavit i hromadně v seznamu a importem (sloupec *Útvar*).
+
+## 1.79.0
+
+- **Hromadné úpravy procesů a dodavatelů** (ADR-172): v seznamu procesů (zobrazení Seznam) zaškrtnout procesy a najednou nastavit vlastníka (funkční místo), útvar, kritičnost, typ procesu nebo přidat / odebrat štítky; u dodavatelů významnost, data mimo ČR, stav spolupráce, interval a datum posledního přezkumu a štítky. Stav procesu se dál mění jen schválením verze.
+- **Úkoly**: hromadná lišta nově nastaví i prioritu a odpovědnou osobu (aktivní uživatel).
+
+## 1.78.0
+
+- **Import útvarů a štítků** (ADR-171): import aktiv rozpozná sloupec *Útvar* / *Odpovědný útvar* a přiřadí útvar ze struktury organizace (podle názvu nebo kódu, bez ohledu na diakritiku a velikost písmen); neznámý útvar se založí jednou a náhled na to upozorní. Dosavadní textový sloupec je nově *Správce (text)*, staré šablony se dál načtou.
+- **Štítky v importu rizik, procesů, opatření a dodavatelů**: sloupec *Štítky* (oddělené čárkou) se zapíše do společného katalogu; při opakovaném importu vyplněný sloupec štítky záznamu nahradí.
+
+## 1.77.0
+
+- **Přihlášení v duchu loga** (ADR-170): logo nad kartou na střed, karta s tmavým zaobleným rámečkem jako značka „cx“, inkoustové tlačítko a zaměření polí bez ohledu na barevný motiv, jemný vodoznak značky; totéž u ověření MFA a změny hesla, světlý i tmavý režim a mobil.
+
+## 1.76.0
+
+- **Útvar jako centrum** (ADR-169): u útvaru v Organizaci počty aktiv, procesů, otevřených rizik, opatření a úkolů (s počtem po termínu) včetně podřízených útvarů – odkazy do seznamů filtrovaných podle útvaru; filtr *Útvar* v seznamech procesů, rizik a opatření.
+- **Volné texty na výběry**: tým hodnoticího cyklu z funkčních míst (a nově vidět v detailu), dodavatel AI systému z evidence dodavatelů (doplní i vazbu), systémy kroku procesu nabízejí aktiva, umístění aktiva nabízí dosavadní lokality a místa z map.
+- **Rychlé založení z výběru**: chybějící útvar, dodavatele nebo aktivum založíte přímo z rozbalovacího seznamu (napsat název → *Založit*).
+- **Kontrola dat po aktualizaci**: v Kvalitě dat aktiva s útvarem jen jako text (hromadné přiřazení útvaru) a se štítky mimo katalog (sjednocení jedním tlačítkem); souhrn i v kontrole po aktualizaci serveru.
+
+## 1.75.0
+
+- **Vazby u všech hlavních evidencí** (ADR-168): detail procesu ukazuje podprocesy a smlouvy dodavatelů, které funkci pokrývají; riziko zranitelnosti produktů (CRA), útočné cesty a scénář, ze kterého vzniklo; opatření úkoly ze změn předpisů a automatické testy; dodavatel umístění dat a projekty i podle nákladů.
+- **Hlídání vazeb testem**: každá tabulka s vazbou na aktivum, proces, riziko, opatření nebo dodavatele má určené místo zobrazení – nová vazba bez zobrazení neprojde testy.
+- **Hromadné úpravy v seznamech** aktiv, rizik a opatření: zaškrtnout záznamy a najednou nastavit útvar, vlastníka, garanta, kritičnost, životní cyklus, prostředí, stav opatření nebo přidat / odebrat štítky; záznamy z jiné společnosti nebo bez oprávnění se přeskočí s důvodem, každá změna jde do auditu.
+
+## 1.74.0
+
+- **Kontrola vazeb** (ADR-167): **odpovědný útvar aktiva** se vybírá z organizační struktury (dřívější text se přiřadí, pokud název útvaru jednoznačně sedí), seznam aktiv se filtruje podle útvaru včetně podřízených a v Organizaci je u útvaru odkaz na jeho aktiva.
+- **Štítky aktiv ze společného katalogu**: výběr ve formuláři (existující nebo nový), úprava přímo v detailu, štítky v seznamu aktiv s filtrem; nové štítky z formuláře i importu se objeví na stránce Štítky, různé pravopisy se sjednotí.
+- **Výběry s vyhledáváním** ve všech formulářích s vazbami: útvary (strom s cestou), funkční místa (podle útvarů, s držiteli), osoby, opatření, rizika, procesy, dodavatelé a aktiva (rozbalení bez psaní, skupiny podle typu, hostname / IP); ovládání klávesnicí.
+- **Detail aktiva** ukazuje i certifikáty (TLS), oprávnění ze žádostí o přístup a otevřené návrhy rizik ze scénářů.
+
+## 1.73.0
+
+- **Průvodce prvním nastavením** (ADR-166): na nové instalaci ho Přehled nabídne správci – pět kroků s ukazatelem postupu: organizace (název, IČO a sídlo z ARES), klíčoví uživatelé s rolí (SSO / AD bez hesla, jinak dočasné heslo), organizační struktura s vedoucími funkcemi, síťové rozsahy a první import aktiv ze šablony. Kroky lze přeskočit, stav se počítá z dat; kontrolní seznam a předávací protokol zůstávají.
+
+## 1.72.0
+
+- **Výkon při velkém objemu** (ADR-165): vypnutý JIT v PostgreSQL (přehledy s mnoha poddotazy byly kvůli překladu pomalé) – při 20 000 aktivech a 160 000 zranitelnostech průvodci 3× rychlejší, průvodce rizik 7×, eskalace 10×; seznam nálezů se načítá po 300 podle priority (*Zobrazit další*); zátěžový test s větším objemem.
+- **Ověřený test obnovy**: služba záloh jednou týdně (`BACKUP_RESTORE_TEST`) obnoví čerstvou zálohu do dočasné databáze a ověří obsah (klíčové evidence nejsou prázdné, migrace sedí); doba a počty jdou do záznamu – doklad v Administrace → Provoz.
+- **Bezpečnostní průchod**: omezení velikosti požadavku na API, esbuild na opravenou verzi (audit závislostí bez nálezů), test oprávnění rout přidaných ve verzích 1.65–1.71.
+
+## 1.71.0
+
+- **Úkoly z plánu oprav** (ADR-164): u kroku plánu tlačítko *Založit úkol* (nebo *Úkoly ze všech kroků*) – jeden úkol za krok se seznamem nálezů, řešitel = garant aktiva, termín podle náročnosti, priorita podle nejzávažnějšího nálezu. Karta ukazuje **plnění** (splněné kroky, vyřešené nálezy).
+- **Lhůty a eskalace nálezů**: nález testu nebo serveru bez úkolu má lhůtu podle závažnosti od zjištění; nález po termínu déle než týden **eskaluje na vedoucího garanta** (každý další týden o úroveň výš) – karta *Eskalováno na vás* na stránce Nálezy a oddíl v pondělním souhrnu. Sloupec **Eskalováno** v nápravě nálezů, ve Zprávě pro vedení a nový trend.
+- **Kvalita dat průběžně**: skóre a počet slabin v měsíčních **trendech** a vývoj na stránce Kvalita dat; v pondělním souhrnu každý dostane **své chybějící údaje** (aktiva bez hodnocení CIA, aktiva s nálezy bez technického garanta, jeho úkoly bez řešitele).
+
+## 1.70.0
+
+- **Kvalita dat** (nová stránka v menu Řízení, ADR-163): souhrnné kontroly slabin v evidenci – aktiva bez vlastníka, aktiva s nálezy bez technického garanta, primární aktiva bez CIA, rizika bez vlastníka / hodnocení, opatření bez odpovědné funkce / testu, procesy bez vlastníka, nálezy a servery bez aktiva, úkoly bez řešitele, významní dodavatelé bez smlouvy; **hromadné nastavení** osoby nebo funkčního místa vybraným položkám (s auditem).
+- **Priorita oprav nálezů**: seznam Nálezy seřazený podle priority (závažnost, internet, kritičnost aktiva, po termínu); karta **Plán oprav** – lokální AI seskupí nálezy podle společné opravy a navrhne pořadí kroků (bez názvů serverů, aktiv a IP adres; jen doporučení).
+- **Kontrola před vydáním**: aktualizace závislostí s bezpečnostními opravami (Hono 4.13.17, fast-xml-parser 5.12); z kódu, testů a dokumentace odstraněny interní adresy a názvy serverů (příklady z 192.0.2.0/24); výkonnostní test rozšířen o nálezy, nápravu, zprávu pro vedení a kvalitu dat; AGENTS.md doplněn o pravidla nálezů a kvality dat.
+
+## 1.69.0
+
+- **Náprava nálezů** (ADR-162): po zdrojích (testy, servery, zranitelnosti, audity) a závažnosti otevřené nálezy, po termínu, opravené za období, **průměrná doba opravy** a **podíl oprav v termínu** – karta na stránce Nálezy, oddíl a ukazatel ve **Zprávě pro vedení** (tisk i Word) a nové **trendy** (kritické a vysoké nálezy, opravy v termínu, doba opravy).
+- **Moje nálezy a můj tým**: filtr odpovědnosti na stránce Nálezy – nálezy na aktivech, kde je uživatel garant / zástupce / vlastník, s jeho úkolem nebo funkcí; tým = podřízené útvary, které vede.
+- **Týdenní souhrn garantům aktiv**: v pondělí e-mail *Nálezy na vašich aktivech* (počty podle aktiv, úkoly po termínu, odkaz na moje nálezy).
+- **Přesun rozsahu bezpečnostních testů** do jiné společnosti skupiny včetně plánů pravidelných testů (schválení se ruší – pověření platí pro zdrojovou společnost).
+- **Logo ve výstupech**: tiskové výstupy a Word bez vlastního vzhledu společnosti mají v záhlaví malé logo CONTIX; ikony pro mobil a připnutí na plochu (manifest).
+- Oprava: seznam neevidovaných zařízení se po rychlém skenu segmentu nenačetl znovu.
+
+## 1.68.0
+
+- **Logo CONTIX v brandu DynamicData** (ADR-161): zaoblený rámeček a geometrické písmo z loga DynamicData, značka „cx“ a slovní značka *contix* dvoubarevně (con / tix jako dynamic / data). V menu, mobilní liště, na přihlášení a jako ikona prohlížeče; světlý i tmavý panel a tmavý režim. Zdrojové SVG v `docs/brand/`.
+- **Nové uspořádání menu** podle práce s GRC: nahoře Přehled, Moje práce, Akce a úkoly a Zeptat se AI; skupiny *Řízení* (ISMS, cesta k souladu, zpráva pro vedení, skupina, projekty), *Evidence* (organizace, procesy, aktiva, mapy, dodavatelé, štítky), *Rizika a nálezy* (rizika, nálezy, zranitelnosti, bezpečnostní testy, výjimky), *Shoda a audit*, *Bezpečnostní provoz* (incidenty, SOC, identity, přístupy, discovery, kontinuita), *Regulace* (informační servis NÚKIB, legislativa, GDPR, AI Act, CRA), *Dokumentace* a *Nástroje a správa*.
+
+## 1.67.1
+
+- **Vzhled výstupů**: tlačítko Uložit počká na načtení vybraného loga – na pomalejším počítači se jinak uložilo bez loga (oprava i stabilita e2e testu v CI).
+
+## 1.67.0
+
+- **Nálezy jako důkaz účinnosti opatření** (ADR-160): otevřený kritický nález testu nebo zásadní zjištění auditu navázané na opatření = opatření se nezapočítá do návrhu zbytkového rizika, plán zvládání navrhne obnovit účinnost a pokrytí předpisu ukáže mezeru *Závažný nález k opatření*; vysoký nález nebo menší zjištění = nejvýš částečně účinné. Počet nálezů v seznamu opatření a u účinnosti v detailu.
+- **CVE z bezpečnostních testů ve Zranitelnostech**: nález testu s CVE na aktivu se zrcadlí jako zranitelnost aktiva (zdroj *sectest*) se stavem nálezu; stejná CVE z jiného zdroje = automatická duplicita (a zpět na otevřenou, když se původní záznam vyřeší). Lhůty oprav, P1/KEV a semafor tak platí i pro CVE z testů.
+- **Test TLS → inventář certifikátů**: testované TLS cíle se zapíší do kontroly certifikátů (s aktivem), takže se platnost hlídá průběžně.
+- **Detail serveru ze sběrače**: stav nálezů (úkol, přijaté riziko, ověřená oprava); filtr nálezů podle serveru.
+
+## 1.66.0
+
+- **Nálezy v celém ekosystému** (ADR-159): rychlé hledání (Ctrl+K) najde nález testu podle názvu / IP a server ze sběrače podle hostname; nové nástroje pro dotazy v přirozeném jazyce a MCP *Nálezy bezpečnostních testů* a *Nálezy konfigurace serverů*; nálezy testů ve vektorovém indexu (hledání podle významu).
+- **Trendy**: kritické a vysoké nálezy testů, vysoké nálezy serverů, úkoly z nálezů po termínu; výjimky v trendu zahrnují i přijaté nálezy testů, serverů a potlačení SOC.
+- **Postup krok za krokem**: nový průvodce *Bezpečnostní testy* (schválený rozsah, testy za 90 dní, pravidelné testy, garanti aktiv s nálezy, úkoly k závažným nálezům, lhůty) a krok *Nálezy konfigurace serverů* u aktiv.
+- **Balíček pro auditora** obsahuje zprávu z bezpečnostních testů (HTML a Word) za období balíčku.
+
+## 1.65.0
+
+- **Jednotný přehled nálezů** (stránka *Nálezy*, ADR-158): bezpečnostní testy, konfigurace serverů ze sběrače, zranitelnosti a zjištění auditů na jedné stupnici závažnosti a stavů, s odpovědnou osobou, úkolem, termínem a přijatým rizikem; filtry podle zdroje, stavu a závažnosti, souhrn otevřených nálezů. Na detailu aktiva záložka **Nálezy a úkoly**.
+- **Nálezy serveru s životním cyklem** (migrace 0120): nález ze sběrače se ukládá, chybí-li v dalším hlášení, je opravený a jeho úkol se uzavře; znovu nalezený se otevře. Vysoké nálezy dostanou úkol technickému garantovi automaticky, ostatní ručně (i hromadně). Přijetí rizika se zdůvodněním a platností → Výjimky; falešný nález.
+- **Semafor aktiva** zahrnuje otevřené nálezy testů (kritický = červená, vysoký = oranžová) a vysoké nálezy serveru; nové nálezy serveru na aktivech rizika jsou podnětem k přehodnocení rizika.
+- **Předání odpovědností uživatele**: v kartě uživatele (Administrace → Uživatelé) přehled aktiv (business vlastník, garant, zástupce), úkolů a funkčních míst; při deaktivaci upozornění a předání jiné osobě – úkoly z nálezů se přepočítají.
+- **Přesun aktiva do jiné společnosti** přesune i nálezy testů, inventáře a nálezy serveru a jejich úkoly.
+- **Ohlášení NÚKIB**: režim vždy z regulatorního profilu společnosti s upozorněním na nesoulad s posledním posouzením; odpovědné funkční místo je v evidenci funkčních míst (lze předat).
+
+## 1.64.0
+
+- **Přijaté nálezy bezpečnostních testů ve Výjimkách a přijatých rizicích**: přijetí rizika u nálezu vyžaduje zdůvodnění a volitelně platnost; ukládá se kdo a kdy přijal (migrace 0119). Nález je ve Výjimkách (filtr, stav platnosti, kompenzační opatření, upozornění před vypršením) a po termínu ho další test znovu otevře. Úkol na odstranění se při přijetí zruší.
+
+## 1.63.0
+
+- **Zpráva z bezpečnostních testů** (PDF / Word, s logem společnosti): shrnutí, rozsah a podklad testů, přehled a popis nálezů s doporučením, stav nápravy (úkoly, odpovědné osoby) a ověřené opravy – za sadu nebo za období.
+- **Ověření opravy opakovaným testem**: splněný úkol k nálezu zařadí opakovaný test sondou na cíl a port nálezu; nález zmizí → úkol splněn a nález opraven, nález trvá → úkol zpět odpovědné osobě s poznámkou.
+- **Pravidelné testy**: plán sady (denně, týdně, 2 týdny, měsíčně, čtvrtletně), spuštění plánovačem i ručně, u sady nové a opravené nálezy proti minulému stavu, úkoly k novým nálezům automaticky.
+- **Ohlášení regulované služby NÚKIB** (§ 6 zákona): údaje k ohlášení, podklad PDF / Word, záznam podaného ohlášení, změny k ohlášení (údaje, služby, režim) se lhůtou 30 dní a povinnost v Moje práce (ohlášení do 60 dní od posouzení).
+- **Nálezy testů v rizicích a shodě**: vazba nálezu na opatření (ručně nebo z AI rozboru), nálezy na detailu opatření; nové závažné nálezy na aktivech nebo opatřeních rizika jsou podnětem k přehodnocení rizika (zranitelnost).
+
+## 1.62.0
+
+- **Úkoly z nálezů Kali na odpovědné osoby**: úkol dostane přímo technický garant aktiva (jinak business vlastník) jako osoba – i bez funkčního místa (nový sloupec `tasks.assignee_user_id`); zástupce garanta úkol vidí a může ho plnit; funkční místo osoby (nebo vlastníka) zůstává kvůli eskalaci. Nález ukazuje garanta, zástupce a business vlastníka z karty aktiva; po změně odpovědných osob nebo přiřazení nálezu k aktivu se otevřené úkoly přesunou; opakované „Založit úkoly“ doplní osobu i ke starším úkolům. Automatické úkoly v sadě testů jsou zapnuté ve výchozím stavu.
+- **Formuláře**: jednotný vzhled výběrů (stejná výška jako pole i v Safari, vlastní šipka, zkrácení dlouhých voleb), popisky polí na jednom řádku (pole v řádku lícují), oddíly ve formuláři aktiva (Odpovědnost, Klasifikace, Provoz a označení), kritičnost a CIA v jednom řádku.
+
+## 1.61.0
+
+- **Určení regulace podle vyhlášky 408/2025** (ADR-156): údaje z Registru ekonomických subjektů ČSÚ přes ARES (činnosti CZ-NACE, institucionální sektor, kategorie zaměstnanců), návrh služeb z přílohy vyhlášky, velikost podniku podle doporučení 2003/361/ES (zaměstnanci, obrat, bilanční suma, kurz ČNB), potvrzení podmínek významnosti u všech 102 služeb a výpočet režimu (vyšší / nižší / neregulovaná, přednost vyšších povinností). Historie posouzení se snímkem RES; u vlastní společnosti volitelný zápis režimu a seznamu služeb do regulatorního profilu, u dodavatele zjištění, zda je sám regulovaný.
+
+## 1.60.0
+
+- **Rozšířené testy pro Kali Linux** (ADR-153, ADR-155): UDP služby (SNMP, TFTP, IPMI, SSDP, Memcached), citlivé soubory na webu (/.git, /.env, zálohy, phpinfo, server-status, Spring Actuator, administrace – jen GET), RDP a NLA, anonymní FTP, poštovní server (open relay, STARTTLS), databáze bez hesla (MySQL / MariaDB, MS SQL, MongoDB, Redis, Elasticsearch), SNMP s komunitou public, NFS exporty, VNC bez hesla, přenos DNS zóny (AXFR). Nové předvolby *Služby a databáze* a *Kompletní server*; navazující testy podle nalezených služeb. Sonda 1.1 (nový instalátor) – UDP sken jen se schopností CAP_NET_RAW, bez roota.
+- **Úrovně vlastnictví aktiv**: business vlastník, **technický garant** a jeho **zástupce**; garant a zástupce upravují aktivum jako vlastník, opravy zranitelností jdou garantovi (jinak vlastníkovi). Sloupec v importu, filtr aktiv podle odpovědné osoby.
+- **Úkoly na odstranění nálezů z Kali**: jednotlivě, hromadně nebo automaticky po sadě testů – na funkci technického garanta (zástupce, business vlastníka), termín podle závažnosti (7 / 14 / 30 / 90 dní). Opakovaný test, který nález nenajde, úkol sám uzavře; přijetí / falešně pozitivní úkol zruší. Odkaz z úkolu na nález.
+- **Zjištění z auditu k aktivu** – bez odpovědné funkce připadne business vlastníkovi aktiva (jinak vlastníkovi opatření).
+- **Eskalace v hierarchii**: povinnost 7 dní po termínu vidí vedoucí útvaru, každý další týden vedoucí o úroveň výš (fronta Moje práce i e-mail, štítek s úrovní a počtem dní). Počítá se z organizační struktury.
+
+## 1.59.0
+
+- **Logo a vzhled výstupů** (ADR-154, Administrace → Společnosti → Vzhled výstupů): logo, barva nadpisů a čar, text zápatí a název v záhlaví; náhled stránky; dceřiná společnost dědí od nadřazené. Platí pro všechny tiskové výstupy / PDF i Word (zpráva pro vedení, SoA, zprávy o rizicích, plán zvládání, přezkoumání ISMS, hlášení incidentů, oznámení dodavatelům a další).
+- **Word – zpráva pro vedení**: souhrn stavů jako jednoduchá podbarvená tabulka (dřív rozpadlá), podbarvení řádků ukazatelů, vývoj ukazatelů jako kompaktní tabulka s malým grafem, hodnotou na začátku a teď, změnou a rozsahem (místo grafu přes celou šířku na každý ukazatel).
+- Převod do Wordu umí podbarvení buněk a řádků; záhlaví tabulek v barvě společnosti.
+
+## 1.58.1
+
+- **Jednotný a lehčí vzhled stavu**: místo těžkých semaforů jemná barevná tečka a podbarvený štítek – stejně na Přehledu i ve Zprávě pro vedení (komponenta `StatusDot` / `StatusPill`).
+- Zpráva pro vedení: ukazatele rozdělené na *Vyžaduje pozornost* (plně) a *V pořádku* (kompaktně, ztlumeně ve dvou sloupcích); souhrn tří stavů jako jemně podbarvené dlaždice; tisk a Word stejně (řádky v pořádku bez podbarvení a šedě).
+- Nuly ztlumeně i na kartách Přehledu.
+- Ukazatel *Aktiva v červeném stavu*: v podrobnostech i počet červených, celkem a hranice (pozor od 1, rozhodnutí od 5).
+
+## 1.58.0
+
+- **Zpráva pro vedení – semafory**: v záhlaví semafor celkového stavu, skóre a tři „světla“ s počty (vyžaduje rozhodnutí / pozor / v pořádku); karty k rozhodnutí s barevným okrajem a štítkem; **všechny ukazatele jako jedna přehledná tabulka se semaforem**, seřazená od nejhoršího (místo opakovaných karet); shoda s rámci s pruhem splněno / částečně / nesplněno / neposouzeno.
+- Tisk / PDF a Word: souhrn tří světel, ukazatele od nejhoršího s podbarvením řádku a semaforem.
+- Nový ukazatel **Kritické a vysoké nálezy bezpečnostních testů** (kritický nález = vyžaduje rozhodnutí, vysoký / střední = pozor; testy a opravy v období).
+
+## 1.57.0
+
+- **Přehled**: oblasti rozdělené na *Technická bezpečnost* a *Řízení a shoda* s počtem oblastí, které vyžadují pozornost; nevyplněné oblasti v jedné kompaktní kartě s odkazy.
+- Nové karty **Bezpečnostní testy** (otevřené nálezy podle závažnosti, testy za 30 dní, opravené nálezy, sondy online) a **Servery ze sběrače** (servery s nálezy, čekající bezpečnostní aktualizace, servery, které se nehlásí).
+- Vzhled karet: barevný proužek a štítek stavu, ikona v barvě stavu, zvýrazněné problémové hodnoty; míra shody jako prstenec s rozpadem splněno / částečně / nesplněno / neposouzeno. Stav „Po termínu“ přejmenován na „Vyžaduje řešení“.
+- **Bezpečnostní testy**: dlaždice nahoře (nálezy podle závažnosti, testy za 30 dní, sondy); API `GET /api/security-tests/summary`.
+
+## 1.56.1
+
+- **Víc testů najednou** (sady): výběr testů nebo předvolba (Linux server, Webová aplikace, Windows a řadič domény, Průzkum sítě), cíle i z aktiv (IP adresy aktiva); webové testy si z IP / názvu udělají https://…; stránka sady s průběhem, nálezy a shrnutím.
+- **Navazující testy**: po průzkumu portů sonda sama spustí SSH audit, TLS, hlavičky webu, SMB, anonymní sdílení a LDAP podle nalezených služeb – jen v rozsahu a bez duplicit.
+- **Automatická AI** (volitelná u sady): po každém testu rozbor závažných nálezů (až 10), shrnutí testu; po dokončení sady shrnutí celé sady s doporučenými testy a tlačítkem **Spustit navržené testy** (i u rozboru nálezu).
+- **Přiřazení nálezu k aktivu** ručně (i všech nálezů stejného cíle); adresa se aktivu doplní, takže další testy se spárují samy; ruční přiřazení nepřepíše další běh.
+
+## 1.56.0
+
+- **Bezpečnostní testy** (ADR-153, nový modul, menu Nástroje → Bezpečnostní testy): katalog testů – otevřené porty a verze služeb (nmap), TLS (testssl.sh), SSH (ssh-audit), bezpečnostní hlavičky webu, webový server (nikto), SMB podepisování a SMBv1, anonymní sdílené složky a LDAP podepisování (netexec).
+- **Rozsah testů se schválením**: cíle (IP, CIDR, servery, *.doména, URL), výjimky, platnost a podklad; testovat lze jen ve schváleném a platném rozsahu, každá změna ruší schválení. Nová oprávnění *Číst / Spouštět bezpečnostní testy* a *Schvalovat rozsah*.
+- **Sonda na Kali Linuxu** (Administrace → Konektory → Sondy bezpečnostních testů): instalátor jedním souborem, služba systemd pod uživatelem bez práv roota; sonda dostává jen ID testu, cíle a porty – příkaz si sestaví z vlastního katalogu.
+- **Ruční import** výstupů nástrojů (nmap XML, testssl / ssh-audit / nikto JSON, netexec), nálezy s historií (opakovaný test opravené nálezy uzavře), přijetí rizika, falešně pozitivní, nálezy u aktiva.
+- **AI (lokální model)**: vysvětlení nálezu s postupem nápravy a ověřením, navazující testy, vazba na opatření organizace, shrnutí běhu pro zprávu – bez názvů a IP serverů.
+
+## 1.55.0
+
+- **Detail serveru ze sběrače** (ADR-152, Discovery → Servery ze sběrače → název serveru): přehled v dlaždicích a záložky Nálezy (rozklik s vysvětlením a postupem nápravy), Účty a klíče (rozklik účtu s jeho klíči a posledním přihlášením), Kontejnery a image (použité / nepoužité), Porty a služby (porty na všech rozhraních, filtr služeb), Systém a SSH, Historie změn.
+- **Sběrač 1.1**: efektivní nastavení SSH serveru (`sshd -T`), čekající a bezpečnostní aktualizace (apt / dnf), automatické aktualizace, potřeba restartu, doba běhu, poslední přihlášení; nové nálezy – root přes SSH heslem, přihlášení heslem, prázdná hesla, bezpečnostní aktualizace, restart, služba s chybou.
+- **Historie změn**: při každém hlášení CONTIX uloží, co se od minula změnilo (nové účty, sudo, klíče, porty, kontejnery, firewall, nastavení SSH, nové a vyřešené nálezy).
+
+## 1.54.0
+
+- **Instalátor sběrače** (ADR-151, Administrace → Konektory → Sběrač ze serverů → Instalátor): jeden soubor `install-contix-collect.sh` pro všechny servery připojení – nainstaluje skript, adresu, token, certifikát CA, podle potřeby záznam do `/etc/hosts` a plán spouštění, hned pošle první inventář a smaže se. `--uninstall` sběrač odebere.
+- Kořenový certifikát interní CA na `/.well-known/contix-ca.pem` (režim TLS `internal`) – instalátor ho načte sám.
+- Token sběrače se nově ukládá šifrovaně (kvůli instalátoru); u připojení z doby před 1.54 vygenerujte nový token.
+
+## 1.53.0
+
+- **NetBox** (ADR-150, Administrace → Konektory): zařízení a virtuální stroje jako aktiva (výrobce, model, sériové číslo, lokalita, IP, platforma, štítky), tenant → společnost, synchronizace podle intervalu nebo z Discovery.
+- **JIRA**: u úkolu tlačítko Založit v JIRA (Cloud i Data Center); stav issue se čte zpět a „hotovo“ úkol v CONTIXu uzavře.
+
+## 1.52.0
+
+- **Společné štítky** (ADR-149): jeden katalog pro aktiva, rizika, dodavatele, procesy, opatření a umístění dat; štítky nad detailem záznamu a stránka Štítky se všemi označenými záznamy.
+- **Umístění dat** (Dodavatelé → Umístění dat): hosting, cloud a SaaS se zemí, druhy dat, zárukou předání a smlouvou o zpracování; pravidla podle země – EU/EHP, odpovídající ochrana, USA (DPF / SCC), třetí země bez záruk, čl. 28 GDPR, země se zvýšeným rizikem, DORA.
+
+## 1.51.0
+
+- **Sběrač ze serverů** (ADR-148, Administrace → Konektory): skript `contix-collect.py` (Python 3, jen čte) posílá z linuxových serverů účty, otisky SSH klíčů, Docker kontejnery a image, služby, porty a stav firewallu.
+- **Shoda serveru u aktiva**: další účet s UID 0, slabé a neoznačené klíče, klíče roota, privilegované kontejnery, chybějící firewall, výchozí ACCEPT a pravidla, která se po restartu ztratí.
+- Přehled serverů v Discovery; návod v docs/04_operations/collector.md.
+
+## 1.50.0
+
+- **Smluvní požadavky zákazníka** (ADR-147): nový typ rámce v knihovně rámců se zákazníkem, službou, číslem smlouvy a platností; požadavky se mapují na opatření a ukazují pokrytí jako předpis.
+- **Doklady firmy jako důkazy**: nové typy Certifikát, Zpráva z penetračního testu a Bug bounty – s platností a upozorněním před koncem.
+
+## 1.49.0
+
+- **Víc Wazuhů** (ADR-146, Administrace → Konektory → Přidat Wazuh): každý Wazuh manager je samostatné připojení s názvem, rozsahem (jedna společnost, nebo celá skupina s přiřazením skupin agentů ke společnostem) a vlastním nastavením alertů a Active Response.
+- Stejné ID agenta ve dvou Wazuzích už nekoliduje – aktivum si pamatuje připojení; párování s existujícími aktivy jen uvnitř přiřazené společnosti.
+- Zranitelnosti, shoda konfigurace (SCA), alerty, hledání hrozeb, IOC a threat intel ze všech připojení; blokace IP do Wazuhu, ze kterého alert přišel.
+- Discovery: synchronizace jednoho připojení nebo všech; Provoz ukazuje výsledek alertů za každé připojení.
+- Stávající nastavení Wazuhu se při aktualizaci samo převede na první připojení.
+
+## 1.48.0
+
+- **Test obnovy v Provozu** (ADR-145): `restore.sh --test` zapíše výsledek, Administrace → Provoz upozorní, když test chybí, selhal nebo je starší než 92 dní.
+- **CONTIX jako produkt (CRA)**: SBOM CONTIXu ve formátu CycloneDX 1.6 ke stažení v Provozu (i jako artefakt CI), `/.well-known/security.txt` s kontaktem pro hlášení zranitelností (`SECURITY_CONTACT`).
+- **Kontrola závislostí v CI**: pipeline se zastaví při vysoké nebo kritické zranitelnosti (`bun audit`).
+- **Přehled skupiny do Excelu**: ukazatele společností a Cesta k souladu po oblastech.
+- **Import útvarů a funkčních míst** z Excelu / CSV: chybějící útvary se založí, držitelé podle e-mailu.
+- Kontrolní seznam pilotního nasazení (docs/04_operations/pilot.md).
+
+## 1.47.0
+
+- **Průvodci SOC 2 a Trust Center** (ADR-144): panel „Jak postupovat“ na stránkách Zprávy SOC 2 (zakázka, popis systému, opatření ke kritériím, testy, výjimky, zpráva) a Dotazníky zákazníků / Trust Center (knihovna odpovědí, termíny, rozpracované dotazníky, zveřejnění, žádosti o přístup).
+- **Koncept politiky s osnovou**: startovací balíček vytvoří verzi 0.1 s kapitolami podle hlavního předpisu společnosti (účel a rozsah, závazek vedení, cíle, role, rizika, zásady, výjimky, přezkum).
+- **Export a import nastavení průvodců** (nabídka Další na Cestě k souladu): garanti podle názvu funkčního místa a profil hrozeb, pro přenos mezi instalacemi nebo pilotní zákazníky.
+- Úvodní prohlídka manažera má krok Cesta k souladu; nápověda doplněna.
+- Aktualizace závislostí (bezpečnostní opravy seroval, zod, nodemailer).
+
+## 1.46.1
+
+- Startovací balíček je dostupný vždy v nabídce **Další** na stránce Cesta k souladu (dosud jen ve fázi Základy).
+
+## 1.46.0
+
+- **Balíček pro auditora z Přípravy na audit** (ADR-143): ZIP se zprávou o připravenosti (HTML + Word), prohlášením o aplikovatelnosti, testy, důkazy, platnými dokumenty po oddílech předpisu a kontrolními součty.
+- **Přesnější připravenost**: požadavky bez opatření a bez ručního posouzení jsou „neposouzené“, ne „nesplněné“.
+- **Startovací balíček** na Cestě k souladu (fáze Základy): složky dokumentace, katalog opatření podle vyhlášky, koncept bezpečnostní politiky a vzorové cíle ISMS – jen co chybí.
+- **Souhrnný e-mail**: další krok průvodce jen při změně kroku nebo počtu, jinak nejvýš jednou týdně.
+- **Odkazy na předpisy u GDPR, AI Act a CRA** (např. GDPR čl. 30, AI Act čl. 4, CRA čl. 14).
+- Výkon průvodců ověřen zátěžovým testem (5 000 aktiv, 40 000 zranitelností, 800 rizik): Cesta k souladu ~0,3 s, panel modulu ~0,1 s.
+
+## 1.45.0
+
+- **Příprava na audit** (ADR-142, Cesta k souladu → Příprava na audit): po oddílech vyhlášky 409 / 410, NIS2, ISO 27001 nebo DORA připravenost (shoda požadavků), opatření, dokumenty, mezery a kroky průvodců k dokončení; výstup do Wordu a k tisku.
+- **Odkazy na předpis u kroků** průvodců (např. § 8, čl. 21 NIS2, A.5.9) podle hlavního rámce společnosti.
+- **Doporučené pořadí zavádění** na Cestě k souladu: základy → analýza → opatření → provoz → ověření, s odkazem na Průvodce nastavením.
+- **Kontrola kvality záznamů**: rizika bez úplného scénáře, neúplné plány kontinuity, dodavatelé s nedostatky § 9, dokumenty s nedostatky.
+- **Průvodci Organizace a procesy a Výjimky**; přehled skupiny se počítá nejvýš jednou za 2 minuty.
+- **Barva horní lišty**: volba v Můj profil → Vzhled; správce ji může nastavit celé společnosti (Administrace → Společnosti), např. pro rozlišení prostředí.
+
+## 1.44.0
+
+- **Garant postupu a Moje práce** (ADR-141): u každého průvodce lze určit funkční místo; jeho držitelé dostávají další krok (např. „Řízení rizik: Ochota riskovat“) do Moje práce a souhrnného e-mailu.
+- **Vývoj Cesty k souladu v čase**: nový ukazatel „Cesta k souladu (%)“ v měsíčních snímcích a ve Zprávě pro vedení (graf i Word).
+- **Průvodci SOC a Žádosti o přístup**: zdroje alertů, triáž do 24 h, hledání hrozeb, pokrytí detekcí; osoby, katalog oprávnění, vlastníci, business role, vyřizování žádostí, odchody, recertifikace.
+
+## 1.43.0
+
+- **Další průvodci „Jak postupovat“** (ADR-140): Aktiva, Zranitelnosti, Politiky a dokumentace, Povědomí a školení, Identity a přístupy, Významné změny a DORA (jen u finančního subjektu).
+- **Přesnější kroky**: zvládání jen u rizik nad akceptovatelnou úrovní, přehodnocení rizik podle intervalu politiky, přezkum dokumentů, dodavatelů, záznamů o zpracování a testy plánů podle jejich vlastních intervalů, zmeškané lhůty hlášení incidentů, osoby po termínu školení, chybějící seznámení s dokumenty, zranitelnosti po lhůtě oprav.
+- **Cesta k souladu za skupinu**: tabulka postupu každé společnosti po oblastech s přepnutím na společnost.
+
+## 1.42.0
+
+- **Postup krok za krokem v modulech** (ADR-139): panel „Jak postupovat“ na stránce Řízení ISMS, Rizik, Opatření, Auditů, Kontinuity (BIA), Incidentů, Dodavatelů, GDPR, AI Act, CRA a Legislativy – kroky v doporučeném pořadí, stav z dat (např. „2 rizika bez vlastníka“, „1 významný dodavatel bez smlouvy“) a tlačítko „Další krok“.
+- **Cesta k souladu** (nová položka menu): stav všech oblastí na jednom místě – procento hotových kroků, další krok a co zbývá vyřídit.
+
+## 1.41.0
+
+- **Modelování hrozeb – postup krok za krokem** (ADR-138): panel „Jak postupovat“ s pěti kroky (odvětví → připravenost dat → útočné cesty → kalibrace → threat modely), stavem, počty k vyřízení a tlačítkem „Další krok“.
+- **Připravenost dat**: co chybí pro přesné výsledky (korunní klenoty, aktiva z internetu, vazby, segmenty, zranitelnosti, identity, EDR, BIA, testovaná opatření) s odkazem, kde to doplnit.
+- **Nápověda „Jak na to“** v každé záložce (lze skrýt) a vysvětlení pojmů.
+- **Fronta rozhodnutí**: útočné cesty a odchylky kalibrace seřazené podle priority se značkou „Začněte tímto“, filtr k rozhodnutí / rozhodnuté a počty v záložkách.
+
+## 1.40.0
+
+- **Modelování hrozeb podle reality prostředí** (ADR-137, Rizika → Modelování hrozeb).
+- **Útočné cesty**: z vazeb aktiv, segmentů, zranitelností KEV, EDR a identit nejschůdnější cesta z internetu nebo z phishingu ke korunním klenotům, kroky ATT&CK se zdůvodněním, úzká hrdla s doporučením, riziko z cesty jedním klikem.
+- **Kalibrace z dat**: návrh dopadu a pravděpodobnosti rizik z BIA (MTPD), osobních údajů, incidentů, alertů, expozice a doložené účinnosti opatření; odchylky zvýrazněné, použití se zdůvodněním v historii.
+- **Hrozby pro odvětví**: aktéři (ransomware, státní skupiny, hacktivisté) podle odvětví, zmínek NÚKIB / CERT, MISP a technik v SOC; posun úrovně hrozby scénářů z dat.
+- **Threat model STRIDE**: průvodce pro aplikaci, aktivum, proces nebo projekt (předvyplnění z grafu aktiv) – prvky a toky se zónami důvěry, hrozby STRIDE, bezpečnostní požadavky, rizika a zpráva ve Wordu.
+
+## 1.39.0
+
+- **Volitelný formát grafů** (ADR-136): u karet Vývoj ukazatelů typ čára / plocha / sloupce / tabulka, období 6 / 12 / 24 měsíců, měřítko hodnoty nebo změna od začátku, výběr a pořadí ukazatelů – pamatuje si prohlížeč.
+- **Export grafu** jako PNG, SVG (do prezentací) nebo CSV (Excel).
+- **Grafy ve zprávě pro vedení** podle nastavení karty: v tisku vektorový graf, ve Wordu obrázek grafu u každého ukazatele s rozpětím min–max.
+
+## 1.38.0
+
+- **Klíčové údaje pod nadpisem** detailu rizika, aktiva, incidentu a projektu (vlastník, stav, termíny, kritičnost, rozpočet) – ADR-135.
+- **Řídicí panel ve zprávě pro vedení**: celkový stav 0–100, souhrnná věta, karty „K rozhodnutí“ a schválení čekající na vás s akcemi v řádku.
+- Oprava: pevné záhlaví detailu rizika a opatření se schovávalo pod horní lištu.
+
+## 1.37.0
+
+- **Moje práce jako fronta** (ADR-134): položky podle naléhavosti (po termínu → dnes → brzy), filtry s počty, schválení / zamítnutí žádosti o přístup a změny projektu a „Hotovo“ u úkolů přímo v řádku, ovládání klávesnicí (J / K, Enter, A).
+- **Přehled – „Dnes pro vás“**: pět nejnaléhavějších osobních položek s akcemi nahoře na úvodní stránce.
+
+## 1.36.0
+
+- **Nový vzhled – kostra** (ADR-133): horní lišta s výběrem společnosti, hledáním (Ctrl K), počtem úkolů a nabídkou uživatele; o pruh méně nad obsahem.
+- **Oblíbené** v menu (hvězdička u položky) a počet žádostí ke schválení u Žádostí o přístup.
+- **Záhlaví stránek**: jedna hlavní akce, ostatní v nabídce „Další“; části modulu jako řádek odkazů (Rizika: registr, roční hodnocení, scénáře, ochota riskovat, kvantitativně, plán zvládání, katalog).
+- Záložky se nezalamují, kompaktní drobečková navigace, ukazatele bez šumu „první měsíc“.
+
+## 1.35.0
+
+- **Projekty – portfolio** (ADR-132): karty projektů se semaforem stavu, postupem bran, úkoly, riziky, dalším milníkem a čerpáním; ukazatele (kritický stav, po termínu, překročený rozpočet, brány a změny ke schválení) a filtry.
+- **Detail projektu v záložkách** s přehledem (stav, ukazatele, tým, co vyžaduje pozornost).
+- **Tým a úkoly**: tým s RACI, tabule úkolů (K řešení / Probíhá / Blokováno / Hotovo) s přetahováním; řešitel vidí úkol v Moje práce a mění jeho stav.
+- **Milníky** v harmonogramu, **rizika a problémy** projektu s mapou rizik.
+- **Hlášení stavu (RAG)** předvyplněné návrhem z dat; **žádosti o změnu** termínu / rozpočtu / rozsahu se schválením sponzorem a automatickou úpravou projektu.
+- **Stavová a závěrečná zpráva** do Wordu / k tisku (cs, en) a **poučení** (lessons learned).
+
+## 1.34.0
+
+- **Přehledné IDM** (ADR-131): nová záložka **Přehled** v Žádostech o přístup – co čeká na mě, tok žádostí (schválení → zápis do AD → vyřízeno) a rizika (členství bez schválení, odešlí v AD, SoD, recertifikace po termínu, chybějící přidělení z rolí, konce platnosti), vše proklikatelné.
+- **Business role**: balíček oprávnění přiřazený podle útvaru a funkce z personalistiky; chybějící přidělení jedním kliknutím jako žádosti.
+- **Matice osoby × oprávnění** s barevnými stavy (přiděleno, chybí v AD, v AD bez schválení, žádost běží, role očekává) a akcemi z buňky.
+- **Detail osoby 360°**: role, oprávnění s důvodem a stavem v AD, účet a skupiny v AD, žádosti, podřízení, historie; rychlé odebrání a prodloužení.
+- **Průvodce nástup / přesun / odchod**: návrh z rolí, při přesunu odebrání oprávnění ze starých rolí, odchod k datu.
+- **Toxické kombinace (SoD) už při žádosti**: varování žadateli i schvalovatelům, žádost s konfliktem vždy schvaluje správce se zdůvodněním.
+
+## 1.33.0
+
+- **Skupiny z AD do katalogu oprávnění** (ADR-130): synchronizace zdroje identit nově načítá skupiny AD (DN, popis, privilegovaná / chráněná, počet členů); v katalogu výběr podle OU, hromadné založení oprávnění a volitelně převzetí stávajících členů.
+- **Nové skupiny v AD**: oprávnění „skupina ještě neexistuje“ s názvem a OU ze seznamu; CONTIX ji vytvoří skriptem (`New-ADGroup`) nebo zápisem před přidáním členů.
+- Snazší a bezpečnější nastavení zápisu do AD: povolená OU výběrem ze seznamu OU, odmítnutí neúplného DN a vestavěného účtu správce; při psaní DN skupiny se nabízejí skupiny z AD.
+
+## 1.32.0
+
+- **Projekty – harmonogram** (ADR-129): plánovaný začátek a konec fází, Gantt fází se značkou schválení brány a čarou dneška; společný harmonogram všech projektů v přehledu.
+- **Rozpočet a náklady**: rozpočet v Kč, náklady s fází a dodavatelem (dobropis zápornou částkou), čerpání s varováním od 90 % a překročením nad 100 %.
+- **Vlastní šablony** organizace (fáze a požadované dokumenty, kopie vestavěné šablony, vyřazení místo smazání).
+- **Vazby projektu** na aktiva, rizika, dodavatele a procesy; projekt se zobrazí ve zpětných vazbách těchto záznamů.
+
+## 1.31.0
+
+- **Projekty** (nový modul, ADR-128): projekt ze šablony (IT projekt, bezpečnostní projekt, pořízení) s fázemi a branami; v každé fázi požadované dokumenty včetně bezpečnostních požadavků (security by design, § 13 vyhl. 409/2025).
+- Dokumenty: nahrání souboru nebo odkaz = předložení; schvaluje jiný uživatel než předkladatel, vrácení i „netýká se“ s důvodem.
+- Brány: schvaluje sponzor (stačí čtení projektů), jen bez chybějících povinných dokumentů; další fáze začne automaticky; Moje práce (sponzor – brána ke schválení, manažer – termín fáze); úkoly navázané na projekt.
+- Oprávnění `projects:read` / `projects:write` doplněna systémovým rolím.
+
+## 1.30.0
+
+- **CRA – dokumenty výrobce** (ADR-127): EU prohlášení o shodě (příloha V), zjednodušené prohlášení (příloha VI), informace a pokyny pro uživatele – bezpečnostní informace o produktu (příloha II) a přehled technické dokumentace (příloha VII s plněním požadavků přílohy I); česky i anglicky, tisk do PDF nebo Word, chybějící povinné údaje zvýrazněné jako koncept.
+- Údaje pro dokumenty u produktu (adresa výrobce, identifikace, podepisující osoba, pokyny pro instalaci, aktualizace a vyřazení, adresa prohlášení, SBOM…).
+
+## 1.29.0
+
+- **Nastavení skupin v AD** (Žádosti o přístup, ADR-126): režimy vypnuto / jen skript PowerShell / přímo v AD odděleným zapisovacím účtem; náhled změn s kontrolou (povolená OU, nikdy privilegované skupiny podle názvu, SID a adminCount, účet osoby), zápis jen po výběru a potvrzení, denní limit, záznam každého zápisu.
+- Ověření podle AD: schválené žádosti, které už v AD platí, se po synchronizaci zdroje identit vyřídí samy (i pro režim skript).
+- Návod k instalaci 8c: zapisovací účet s delegací jen „Write Members“ na OU.
+
+## 1.28.0
+
+- **Soulad s AD** (Žádosti o přístup, ADR-125): členství ve skupinách AD / Entra ID z posledního načtení zdroje identit porovnané s evidovanými přiděleními – člen bez schválení, odešlá osoba ve skupině, účet bez osoby, přidělení chybějící ve skupině, osoba bez účtu. Převzetí stávajícího členství do evidence a žádost o odebrání; do AD se nezapisuje.
+- Menu: na stránce Mapy a půdorysy už není zvýrazněná i položka Aktiva.
+
+## 1.27.0
+
+- **Automatický import osob z personalistiky** (PERM a jiné, ADR-124): export CSV / XLSX v adresáři `import/` na serveru se načte při změně; volitelně se chybějící osoby označí jako odešlé (s pojistkou proti neúplnému exportu). Nová kapitola 8b návodu k instalaci; `docker-compose.yml` připojuje `./import` do API jen pro čtení.
+- Import pozná záhlaví pod titulkem sestavy, celé jméno v jednom sloupci (tituly vynechá), středisko a jeho název; sloupce s citlivými údaji (rodné číslo, adresa, mzda, účet…) nikdy nenačte a upozorní na ně.
+- **Recertifikace oprávnění**: pravidelný přezkum přidělení vlastníkem oprávnění nebo nadřízeným, „Odebrat“ rovnou založí žádost o odebrání; položky v Moje práce, protokol CSV pro auditora.
+
+## 1.26.0
+
+- **Žádosti o přístup** (nový modul, ADR-123): žádost o přidělení nebo odebrání oprávnění za sebe nebo přímé podřízené, schválení vedoucím a vlastníkem oprávnění, vyřízení správcem přístupů, evidence přidělených oprávnění; čtyři oči (žadatel ani dotčená osoba neschvalují, nikdo nevyřizuje sám sobě).
+- Katalog oprávnění: skupiny AD, aplikace, role a fyzické přístupy s vlastníkem, pravidly schválení, nejdelší platností a příznakem privilegovaného přístupu.
+- Evidence osob a **import z personalistiky** (CSV / XLSX, např. export z PERM) s náhledem změn, párováním podle osobního čísla nebo e-mailu a nadřízenými.
+- Denní kontrola: přidělení po platnosti a oprávnění odešlých osob → žádosti o odebrání.
+- Čekající schválení v Moje práce a v souhrnném e-mailu; nová oprávnění `access:request` a `access:manage` doplněna systémovým rolím.
+
+## 1.25.0
+
+- **Mapy a půdorysy** (Aktiva → Mapy a půdorysy, ADR-122): nahrání půdorysu nebo mapy areálu v PDF, DWG, DXF nebo jako obrázek, seskupení podle areálu, budovy a podlaží, zoom, stažení původního souboru.
+- Umísťování aktiv kliknutím a tažením; barva bodu podle stavu – červená (incident, závažný alert SOC, zranitelnost KEV, kritický stav), oranžová (alert, kritické / vysoké zranitelnosti, nepřijatelné riziko), zelená (v pořádku), šedá (bez dat); důvody a odkaz na aktivum, filtr barev, obnova každou minutu.
+- Karta „Na mapě“ v detailu aktiva; nové typy aktiv **Datová zásuvka** a **Rack / rozvaděč**.
+- Převodní služba: nový endpoint `/image` (PDF → PNG, DXF přes LibreOffice Draw, DWG přes LibreDWG, je-li k dispozici); obraz převodní služby nově obsahuje `libreoffice-draw-nogui` – po aktualizaci se znovu sestaví.
+
 ## 1.24.6
 
 - README: postup instalace Dockeru (oficiální skript get.docker.com, ruční instalace v návodu), požadavky na server a příprava adresáře `/opt/contix` před `git clone`; instalace zůstává na větvi `main` (aktualizace přes `update.sh`).

@@ -1,3 +1,4 @@
+import { secTestPackageExtras } from "../sectests/report";
 import {
   AuditPackageQuery,
   CompleteTestInput,
@@ -41,11 +42,12 @@ import {
   hasPermIn,
   inScope,
   scopeOf,
+  getCompanies,
   soleCompany,
   targetCompany,
 } from "../../auth/scope";
 import { buildAuditPackage } from "./package";
-import { audit, type AppEnv } from "../../auth/service";
+import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
 import {
   controlTestSamples,
@@ -431,6 +433,13 @@ export function assuranceRoutes(db: Db) {
     await evidenceRow(c, evidenceId);
   }
 
+  /** Zpráva z bezpečnostních testů do balíčku (v1.66) – jen s modulem a oprávněním ke čtení testů. */
+  const testExtras = async (c: Ctx, companyId: string, from: string, to: string) => {
+    if (!((await getSettings(db)).enabledModules as string[]).includes("sectests") || !hasPermIn(c, "sectests:read", companyId)) return [];
+    const name = (await getCompanies(db)).find((x) => x.id === companyId)?.name ?? "";
+    return secTestPackageExtras(db, companyId, name, from, to);
+  };
+
   return (
     new Hono<AppEnv>()
       .use("*", requireModule(db, "controls"))
@@ -446,7 +455,8 @@ export function assuranceRoutes(db: Db) {
         const periodFrom = q.periodFrom ?? new Date(new Date(periodTo).getTime() - 365 * 86_400_000).toISOString().slice(0, 10);
         if (periodFrom > periodTo) throw new HTTPException(400, { message: "Začátek období je po jeho konci" });
         const companyId = soleCompany(c, q.companyId);
-        const r = await buildAuditPackage(db, { companyId, framework: q.framework, periodFrom, periodTo, withFiles: q.files === "1", userName: currentUser(c).displayName });
+        const extras = await testExtras(c, companyId, periodFrom, periodTo);
+        const r = await buildAuditPackage(db, { companyId, framework: q.framework, periodFrom, periodTo, withFiles: q.files === "1", userName: currentUser(c).displayName, extras });
         await audit(db, { c, user: currentUser(c), action: "evidence.package_exported", details: { framework: q.framework, periodFrom, periodTo, ...r.stats } });
         return new Response(r.zip, {
           headers: {

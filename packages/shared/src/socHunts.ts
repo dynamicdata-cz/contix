@@ -21,6 +21,8 @@ export interface SocHuntBucket {
   agentName: string | null;
   first: string | null;
   last: string | null;
+  /** Wazuh, ze kterého skupina pochází (víc Wazuhů, v1.49). */
+  connectionId?: string | null;
 }
 export interface SocHuntRun {
   at: string;

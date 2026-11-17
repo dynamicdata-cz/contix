@@ -1,4 +1,15 @@
 import type {
+  FindingsQuery,
+  FindingPlanViewDto,
+  FindingEscalationDto,
+  QualityDto,
+  QualityFixInput,
+  FindingsRemediationDto,
+  RemediationQuery,
+  UnifiedFindingsDto,
+  HostFindingPatch,
+  UserHandoverInput,
+  UserResponsibilitiesDto,
   HealthDto,
   CapabilityDto,
   CapabilityDeclarationInput,
@@ -186,6 +197,15 @@ import type {
   PolicySearchHit,
   OfficeOpenDto,
   SetupDto,
+  SetupWizardDto,
+  OrgUnitOverviewDto,
+  AssetBulkInput,
+  RiskBulkInput,
+  ControlBulkInput,
+  DemoStatusDto,
+  ProcessBulkInput,
+  SupplierBulkInput,
+  BulkResultDto,
   DocQaAnswerDto,
   DocIndexStatusDto,
   PolicyInput,
@@ -211,6 +231,48 @@ import type {
   AssetPatch,
   AuditLogDto,
   ConnectorSettingsDto,
+  WazuhConnectionDto,
+  WazuhConnectionInput,
+  CollectorConnectionDto,
+  CollectorConnectionInput,
+  CollectorInstallerInput,
+  ProbeConnectionDto,
+  ProbeConnectionInput,
+  SecTestScopeDto,
+  SecTestScopeInput,
+  SecTestRunDto,
+  SecTestRunInput,
+  SecTestImportInput,
+  SecTestFindingDto,
+  SecTestFindingStatus,
+  SecTestBatchDto,
+  SecTestSummaryDto,
+  BrandingDto,
+  BrandingInput,
+  RegulationAssessmentDto,
+  RegistrationDto,
+  RegistrationData,
+  SecTestScheduleDto,
+  SecTestScheduleInput,
+  RegulationAssessmentInput,
+  ResLookupDto,
+  SecTestBatchInput,
+  SecTestTasksResult,
+  SecTestId,
+  HostInventoryDto,
+  HostDetailDto,
+  HostSummaryDto,
+  TagDto,
+  TagInput,
+  TagEntity,
+  TaggedObjectDto,
+  DataLocationDto,
+  DataLocationInput,
+  NetboxConnectionDto,
+  NetboxConnectionInput,
+  JiraConnectionDto,
+  JiraConnectionInput,
+  ExternalIssueDto,
   ConnectorTestResult,
   ScanSettingsInput,
   WazuhSettingsInput,
@@ -399,10 +461,78 @@ import type {
   LinkTarget,
   CraLinksDto,
   CraLinksInput,
+  TaskPriority,
   TaskStatus,
   ExceptionControlsInput,
   TuningProposalDto,
   TuningProposalInput,
+  SiteMapDto,
+  SiteMapDetailDto,
+  PersonDto,
+  PersonInput,
+  PeopleImportDto,
+  AccessResourceDto,
+  AccessResourceInput,
+  AccessRequestDto,
+  AccessRequestInput,
+  AccessGrantDto,
+  ImportSettingsDto,
+  ImportSettingsInput,
+  CertificationDto,
+  CertificationInput,
+  CertItemDto,
+  ReconDto,
+  ProvisioningSettingsDto,
+  ProvisioningSettingsInput,
+  ProvisioningPlanItem,
+  ProvisioningResult,
+  ProvisioningGroupOp,
+  AdGroupsDto,
+  ImportAdGroupsInput,
+  IdmOverviewDto,
+  BusinessRoleDto,
+  BusinessRoleInput,
+  MatrixDto,
+  PersonOverviewDto,
+  SodConflict,
+  JmlPreviewInput,
+  JmlPreviewDto,
+  JmlApplyInput,
+  JmlResultDto,
+  CraDocInfo,
+  CraDocInfoInput,
+  CraDocument,
+  ProjectTemplateDto,
+  ProjectTemplateInput,
+  ProjectMemberInput,
+  ProjectTaskInput,
+  ProjectTaskPatch,
+  MilestoneInput,
+  ProjectIssueInput,
+  StatusReportInput,
+  ChangeRequestInput,
+  ProjectCostInput,
+  ProjectDto,
+  ProjectDetailDto,
+  ProjectInput,
+  ProjectPatch,
+  AttackPathsDto,
+  AttackPathDecisionInput,
+  CalibrationDto,
+  ModelingOverviewDto,
+  GuideDto,
+  AuditReadinessDto,
+  StarterItem,
+  GuideConfigImportResult,
+  StarterResult,
+  GroupGuideRow,
+  ThreatLandscapeDto,
+  ThreatModelDto,
+  ThreatModelInput,
+  ThreatModelPatch,
+  ThreatProfileInput,
+  TmElement,
+  TmThreat,
 } from "@contix/shared";
 import { tt } from "./i18n";
 
@@ -506,6 +636,8 @@ export type AssetListItem = AssetDto & { ownerDisplayName: string | null };
 
 export type AssetDetail = AssetDto & {
   owner: { id: string; displayName: string; email: string } | null;
+  technicalOwner?: { id: string; displayName: string; email: string } | null;
+  technicalDeputy?: { id: string; displayName: string; email: string } | null;
   sources: { sourceType: string; sourceRef: string; lastSyncedAt: string }[];
   software: { name: string; version: string | null; vendor: string | null }[];
   supports: LinkedAssetDto[];
@@ -527,6 +659,8 @@ export interface ConnectorInfo {
   enabled: boolean;
   detail?: string;
   allowedCidrs?: string[];
+  /** Wazuh: připojení, která lze synchronizovat (v1.49). */
+  connections?: { id: string; name: string; url: string }[];
 }
 
 export interface DirectoryUser {
@@ -614,6 +748,7 @@ export const api = {
   assets: {
     /** withGroup = i aktiva nadřazených společností (sdílené služby holdingu) – pro výběr vazeb. */
     list: (q: Partial<AssetListQuery> & { withGroup?: "1" }) => request<Paged<AssetListItem>>(`/assets?${qs(q)}`),
+    locations: () => request<string[]>("/assets/locations"),
     stats: () => request<Stats>("/assets/stats"),
     get: (id: string) => request<AssetDetail>(`/assets/${id}`),
     create: (data: AssetInput) => post<AssetDto>("/assets", data),
@@ -630,6 +765,103 @@ export const api = {
     duplicates: () => request<AssetDuplicatePair[]>("/assets/duplicates"),
     dismissDuplicate: (a: string, b: string) => post<void>("/assets/duplicates/dismiss", { a, b }),
     merge: (data: AssetMergeInput) => post<{ keepId: string; moved: Record<string, number>; dropped: Record<string, number> }>("/assets/merge", data),
+  },
+
+  /** Žádosti o přístup (v1.26, ADR-123). */
+  access: {
+    summary: () => request<{ toApprove: number; pending: number; toFulfil: number; manage: boolean }>("/access/summary"),
+    people: () => request<PersonDto[]>("/access/people"),
+    createPerson: (data: PersonInput) => post<PersonDto>("/access/people", data),
+    updatePerson: (id: string, data: PersonInput) => put<PersonDto>(`/access/people/${id}`, data),
+    removePerson: (id: string) => del(`/access/people/${id}`),
+    importPeople: (file: File, commit: boolean, missingAsLeft = false) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (commit) fd.append("commit", "1");
+      if (missingAsLeft) fd.append("missingAsLeft", "1");
+      return request<PeopleImportDto>("/access/people/import", { method: "POST", body: fd });
+    },
+    resources: () => request<AccessResourceDto[]>("/access/resources"),
+    createResource: (data: AccessResourceInput) => post<AccessResourceDto>("/access/resources", data),
+    updateResource: (id: string, data: AccessResourceInput) => put<AccessResourceDto>(`/access/resources/${id}`, data),
+    removeResource: (id: string) => del(`/access/resources/${id}`),
+    requests: (status?: string) => request<AccessRequestDto[]>(`/access/requests${status ? `?status=${status}` : ""}`),
+    request: (id: string) => request<AccessRequestDto>(`/access/requests/${id}`),
+    createRequest: (data: AccessRequestInput) => post<AccessRequestDto>("/access/requests", data),
+    decide: (id: string, decision: "approved" | "rejected", comment?: string) => post<AccessRequestDto>(`/access/requests/${id}/decide`, { decision, comment }),
+    fulfil: (id: string, note?: string) => post<AccessRequestDto>(`/access/requests/${id}/fulfil`, { note }),
+    cancel: (id: string) => post<AccessRequestDto>(`/access/requests/${id}/cancel`),
+    reassign: (id: string, approvalId: string, approverId: string) => post<AccessRequestDto>(`/access/requests/${id}/approvals/${approvalId}/reassign`, { approverId }),
+    grants: (history = false) => request<AccessGrantDto[]>(`/access/grants${history ? "?history=1" : ""}`),
+    runLifecycle: () => post<{ expiry: number; leaver: number; cancelled: number }>("/access/lifecycle/run"),
+    importSettings: () => request<ImportSettingsDto>("/access/import-settings"),
+    saveImportSettings: (data: ImportSettingsInput) => put<ImportSettingsDto>("/access/import-settings", data),
+    runImport: () => post<ImportSettingsDto>("/access/import-settings/run"),
+    certifications: () => request<CertificationDto[]>("/access/certifications"),
+    certification: (id: string) => request<CertificationDto & { items: CertItemDto[] }>(`/access/certifications/${id}`),
+    createCertification: (data: CertificationInput) => post<CertificationDto>("/access/certifications", data),
+    certify: (id: string, itemId: string, decision: "keep" | "revoke", comment?: string) => post<CertificationDto & { items: CertItemDto[] }>(`/access/certifications/${id}/items/${itemId}`, { decision, comment }),
+    closeCertification: (id: string) => post<CertificationDto>(`/access/certifications/${id}/close`),
+    certificationCsvUrl: (id: string) => withCompany(`/api/access/certifications/${id}/export.csv`),
+    reconcile: () => request<ReconDto>("/access/reconcile"),
+    adopt: (resourceId: string, personIds: string[]) => post<ReconDto>("/access/reconcile/adopt", { resourceId, personIds }),
+    reconcileRevoke: (resourceId: string, personId: string) => post<{ requestId: string }>("/access/reconcile/revoke", { resourceId, personId }),
+    provisioning: () => request<ProvisioningSettingsDto>("/access/provisioning"),
+    saveProvisioning: (data: ProvisioningSettingsInput) => put<ProvisioningSettingsDto>("/access/provisioning", data),
+    provisioningPlan: () => request<ProvisioningPlanItem[]>("/access/provisioning/plan"),
+    provisioningApply: (requestIds: string[], resourceIds: string[] = []) => post<ProvisioningResult[]>("/access/provisioning/apply", { requestIds, resourceIds }),
+    provisioningGroups: () => request<ProvisioningGroupOp[]>("/access/provisioning/groups"),
+    adGroups: () => request<AdGroupsDto>("/access/ad-groups"),
+    importAdGroups: (data: ImportAdGroupsInput) => post<{ created: number; skipped: number; adopted: number }>("/access/resources/import-ad", data),
+    provisioningVerify: () => post<{ fulfilled: number }>("/access/provisioning/verify"),
+    /* IDM (v1.34, ADR-131) */
+    overview: () => request<IdmOverviewDto>("/access/idm/overview"),
+    roles: () => request<BusinessRoleDto[]>("/access/roles"),
+    createRole: (data: BusinessRoleInput) => post<BusinessRoleDto>("/access/roles", data),
+    updateRole: (id: string, data: BusinessRoleInput) => put<BusinessRoleDto>(`/access/roles/${id}`, data),
+    removeRole: (id: string) => del(`/access/roles/${id}`),
+    roleGaps: (id: string) => request<{ personId: string; personName: string; resourceId: string; resourceName: string }[]>(`/access/roles/${id}/gaps`),
+    fillRole: (id: string, personIds?: string[]) => post<{ requests: number; skipped: number }>(`/access/roles/${id}/fill`, { personIds }),
+    matrix: (f: { department?: string; roleId?: string; q?: string }) => {
+      const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]).toString();
+      return request<MatrixDto>(`/access/matrix${qs ? `?${qs}` : ""}`);
+    },
+    personOverview: (id: string) => request<PersonOverviewDto>(`/access/people/${id}/overview`),
+    sodCheck: (personId: string, resourceIds: string[]) => post<Record<string, SodConflict[]>>("/access/sod-check", { personId, resourceIds }),
+    jmlPreview: (data: JmlPreviewInput) => post<JmlPreviewDto>("/access/jml/preview", data),
+    jmlApply: (data: JmlApplyInput) => post<JmlResultDto>("/access/jml/apply", data),
+    /** Stáhne skript PowerShell (POST → soubor). */
+    provisioningScript: async (requestIds: string[], resourceIds: string[] = []) => {
+      const headers = new Headers({ "content-type": "application/json" });
+      if (activeCompany) headers.set("x-contix-company", activeCompany);
+      const res = await fetch("/api/access/provisioning/script", { method: "POST", credentials: "include", headers, body: JSON.stringify({ requestIds, resourceIds }) });
+      if (!res.ok) throw new ApiError(res.status, ((await res.json().catch(() => ({}))) as any)?.error ?? `HTTP ${res.status}`, null);
+      const blob = await res.blob();
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `contix-ad-${new Date().toISOString().slice(0, 10)}.ps1`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },
+  },
+
+  /** Mapy a půdorysy (v1.25, ADR-122). */
+  maps: {
+    list: () => request<SiteMapDto[]>("/assets/maps"),
+    get: (id: string) => request<SiteMapDetailDto>(`/assets/maps/${id}`),
+    byAsset: (assetId: string) => request<{ id: string; name: string; building: string | null; floor: string | null }[]>(`/assets/maps/by-asset/${assetId}`),
+    upload: (file: File, data: { name: string; site?: string; building?: string; floor?: string }) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      for (const [k, v] of Object.entries(data)) if (v) fd.append(k, v);
+      return request<SiteMapDetailDto>("/assets/maps", { method: "POST", body: fd });
+    },
+    update: (id: string, data: { name?: string; site?: string | null; building?: string | null; floor?: string | null }) => patch<SiteMapDetailDto>(`/assets/maps/${id}`, data),
+    remove: (id: string) => del(`/assets/maps/${id}`),
+    place: (id: string, assetId: string, x: number, y: number) => put<SiteMapDetailDto>(`/assets/maps/${id}/placements/${assetId}`, { x, y }),
+    unplace: (id: string, assetId: string) => request<SiteMapDetailDto>(`/assets/maps/${id}/placements/${assetId}`, { method: "DELETE" }),
+    imageUrl: (id: string, v?: string) => withCompany(`/api/assets/maps/${id}/image${v ? `?v=${encodeURIComponent(v)}` : ""}`),
+    originalUrl: (id: string) => withCompany(`/api/assets/maps/${id}/original`),
   },
 
   vulns: {
@@ -669,6 +901,7 @@ export const api = {
   org: {
     tree: () => request<OrgUnitDto[]>("/org"),
     createUnit: (data: OrgUnitInput) => post("/org/units", data),
+    unitOverview: (id: string) => request<OrgUnitOverviewDto>(`/org/units/${id}/overview`),
     updateUnit: (id: string, data: Partial<OrgUnitInput>) => patch(`/org/units/${id}`, data),
     deleteUnit: (id: string) => del(`/org/units/${id}`),
     createPosition: (data: PositionInput) => post("/org/positions", data),
@@ -685,7 +918,7 @@ export const api = {
   },
 
   processes: {
-    list: (q: { q?: string; status?: string; assetId?: string } = {}) => request<ProcessListItem[]>(`/processes?${qs(q)}`),
+    list: (q: { q?: string; status?: string; assetId?: string; unit?: string } = {}) => request<ProcessListItem[]>(`/processes?${qs(q)}`),
     get: (id: string) => request<ProcessDetail>(`/processes/${id}`),
     create: (data: ProcessInput) => post<{ id: string }>("/processes", data),
     update: (id: string, data: Partial<ProcessInput>) => patch<ProcessDetail>(`/processes/${id}`, data),
@@ -827,6 +1060,9 @@ export const api = {
     list: () => request<CraProductDto[]>("/cra"),
     reports: (open = true) => request<CraReportDto[]>(`/cra/reports?open=${open ? "1" : "0"}`),
     get: (id: string) => request<CraProductDto>(`/cra/${id}`),
+    docInfo: (id: string) => request<{ info: CraDocInfo; documents: { kind: CraDocument; allowed: boolean; missing: string[] }[] }>(`/cra/${id}/doc-info`),
+    saveDocInfo: (id: string, info: CraDocInfoInput) => put<{ ok: boolean }>(`/cra/${id}/doc-info`, info),
+    documentUrl: (id: string, kind: CraDocument, lang: string, format: "html" | "docx") => withCompany(`/api/cra/${id}/documents/${kind}?lang=${lang}&format=${format}`),
     create: (data: CraProductInput) => post<CraProductDto>("/cra", data),
     update: (id: string, data: Partial<CraProductInput>) => patch<CraProductDto>(`/cra/${id}`, data),
     remove: (id: string) => del(`/cra/${id}`),
@@ -908,6 +1144,38 @@ export const api = {
     ropaDocxUrl: () => withCompany("/api/gdpr/ropa.docx"),
   },
 
+  // postup krok za krokem (v1.42, ADR-139)
+  guides: {
+    list: () => request<{ guides: GuideDto[]; summary: { progress: number; todo: number; done: number }; onboarding: { phase: string | null; phases: { key: string; progress: number; guides: string[] }[] } }>("/guides"),
+    audit: (framework: string) => request<AuditReadinessDto>(`/guides/audit?framework=${framework}`),
+    configExportUrl: () => withCompany("/api/guides/config/export"),
+    groupXlsxUrl: "/api/guides/group.xlsx",
+    importConfig: (cfg: unknown) => post<GuideConfigImportResult>("/guides/config/import", cfg),
+    starter: (items: StarterItem[]) => post<StarterResult[]>("/guides/starter", { items }),
+    auditReportUrl: (framework: string, format: "html" | "docx" | "zip") => withCompany(`/api/guides/audit?framework=${framework}&format=${format}`),
+    get: (id: string) => request<GuideDto>(`/guides/${id}`),
+    group: () => request<GroupGuideRow[]>("/guides/group"),
+    setOwner: (id: string, positionId: string | null) => put<GuideDto>(`/guides/${id}/owner`, { positionId }),
+  },
+  // modelování hrozeb podle reality prostředí (v1.40, ADR-137)
+  modeling: {
+    overview: () => request<ModelingOverviewDto>("/risks/modeling/overview"),
+    paths: () => request<AttackPathsDto>("/risks/modeling/paths"),
+    decidePath: (key: string, data: AttackPathDecisionInput) => post<{ riskId?: string; ok?: boolean }>("/risks/modeling/paths/decision", { key, ...data }),
+    calibration: () => request<CalibrationDto[]>("/risks/modeling/calibration"),
+    applyCalibration: (riskId: string, data: { impact: number; threatLevel?: number; vulnLevel?: number; likelihood?: number; note?: string }) => post<{ ok: true }>(`/risks/modeling/calibration/${riskId}/apply`, data),
+    landscape: () => request<ThreatLandscapeDto>("/risks/modeling/landscape"),
+    saveProfile: (data: ThreatProfileInput) => put<ThreatLandscapeDto>("/risks/modeling/landscape/profile", data),
+    models: () => request<ThreatModelDto[]>("/risks/modeling/models"),
+    model: (id: string) => request<ThreatModelDto>(`/risks/modeling/models/${id}`),
+    seed: (assetId: string) => request<{ elements: TmElement[]; threats: TmThreat[] }>(`/risks/modeling/models/seed?assetId=${assetId}`),
+    createModel: (data: ThreatModelInput) => post<ThreatModelDto>("/risks/modeling/models", data),
+    updateModel: (id: string, data: ThreatModelPatch) => patch<ThreatModelDto>(`/risks/modeling/models/${id}`, data),
+    deleteModel: (id: string) => del<{ ok: true }>(`/risks/modeling/models/${id}`),
+    threatRisk: (id: string, key: string) => post<{ riskId: string; model: ThreatModelDto }>(`/risks/modeling/models/${id}/threats/risk`, { key }),
+    reportUrl: (id: string, format: "html" | "docx") => withCompany(`/api/risks/modeling/models/${id}/report?format=${format}`),
+  },
+
   risks: {
     // rizikové scénáře z dat (v1.17, ADR-114)
     capabilities: () => request<CapabilityDto[]>("/risks/scenarios/capabilities"),
@@ -933,7 +1201,7 @@ export const api = {
     fromPackage: (packageName: string, companyId?: string) => post<RiskDetail>("/risks/from-package", { packageName, companyId }),
     fromVulns: (assetId: string, vulnerabilityIds?: string[]) => post<RiskDetail>("/risks/from-vulns", { assetId, vulnerabilityIds }),
     quant: () => request<QuantOverview>("/risks/quant"),
-    list: (q: { q?: string; level?: string; status?: string; assetId?: string; processId?: string; triggers?: "1"; limit?: number } = {}) =>
+    list: (q: { q?: string; level?: string; status?: string; assetId?: string; processId?: string; triggers?: "1"; unit?: string; limit?: number } = {}) =>
       request<{ items: RiskListItem[]; total: number }>(`/risks?${qs(q)}`),
     summary: () => request<RiskSummaryDto>("/risks/summary"),
     get: (id: string) => request<RiskDetail>(`/risks/${id}`),
@@ -998,7 +1266,7 @@ export const api = {
     requirements: (q: { framework: FrameworkId; section?: string; q?: string }) => request<RequirementRow[]>(`/controls/requirements?${qs(q)}`),
     assess: (requirementId: string, data: RequirementAssessmentInput) => put<RequirementRow>("/controls/assessments", { requirementId, ...data }),
     soaCsvUrl: (framework: FrameworkId) => withCompany(`/api/controls/soa.csv?framework=${framework}`),
-    list: (q: { q?: string; status?: string; framework?: string; riskId?: string; withGroup?: "1" } = {}) => request<ControlListItem[]>(`/controls?${qs(q)}`),
+    list: (q: { q?: string; status?: string; framework?: string; riskId?: string; withGroup?: "1"; unit?: string } = {}) => request<ControlListItem[]>(`/controls?${qs(q)}`),
     get: (id: string) => request<ControlDetail>(`/controls/${id}`),
     create: (data: ControlInput) => post<ControlDetail>("/controls", data),
     update: (id: string, data: Partial<ControlInput>) => patch<ControlDetail>(`/controls/${id}`, data),
@@ -1081,7 +1349,7 @@ export const api = {
     createRisk: (id: string, itemId: string) => post<{ riskId: string; report: SupplierReportDetailDto }>(`/suppliers/reports/${id}/items/${itemId}/risk`),
   },
   suppliers: {
-    list: (q: { q?: string; significant?: "true" | "false"; withGroup?: "1" } = {}) => request<SupplierListItem[]>(`/suppliers?${qs(q)}`),
+    list: (q: { q?: string; significant?: "true" | "false"; withGroup?: "1"; unit?: string } = {}) => request<SupplierListItem[]>(`/suppliers?${qs(q)}`),
     dora: () => request<DoraRegisterDto>("/suppliers/dora"),
     doraContract: (id: string) => request<DoraContractInput>(`/suppliers/dora/contracts/${id}`),
     saveDoraContract: (id: string, data: DoraContractInput) => request<{ ok: true }>(`/suppliers/dora/contracts/${id}`, { method: "PUT", body: JSON.stringify(data) }),
@@ -1242,7 +1510,7 @@ export const api = {
       request<{ items: ActionItem[]; summary: ActionSummary; kinds: ActionKind[] }>(`/actions?${qs(q)}`),
     exportUrl: () => withCompany("/api/actions/export"),
     tasks: (sourceKind: TaskSource, sourceId?: string) => request<TaskDto[]>(`/actions/tasks?${qs({ sourceKind, sourceId })}`),
-    bulkTasks: (v: { ids: string[]; status?: TaskStatus; dueDate?: string | null; ownerPositionId?: string | null }) => post<{ updated: number; skipped: string[] }>("/actions/tasks/bulk", v),
+    bulkTasks: (v: { ids: string[]; status?: TaskStatus; dueDate?: string | null; ownerPositionId?: string | null; priority?: TaskPriority; assigneeUserId?: string | null }) => post<{ updated: number; skipped: string[] }>("/actions/tasks/bulk", v),
     task: (id: string) => request<TaskDto>(`/actions/tasks/${id}`),
     create: (data: TaskInput) => post<TaskDto>("/actions/tasks", data),
     update: (id: string, data: TaskPatch) => patch<TaskDto>(`/actions/tasks/${id}`, data),
@@ -1261,6 +1529,16 @@ export const api = {
   ares: {
     status: () => request<{ enabled: boolean }>("/ares/status"),
     search: (q: string) => request<AresSubject[]>(`/ares/search?${qs({ q })}`),
+    res: (ico: string) => request<ResLookupDto>(`/ares/res/${encodeURIComponent(ico)}`),
+  },
+  /** Určení regulace podle vyhl. 408/2025 (v1.61, ADR-156). */
+  regulation: {
+    list: (subjectKind: "company" | "supplier", subjectId: string) => request<RegulationAssessmentDto[]>(`/regulation/assessments?${qs({ subjectKind, subjectId })}`),
+    save: (d: RegulationAssessmentInput) => post<RegulationAssessmentDto>("/regulation/assessments", d),
+    registration: (companyId: string) => request<RegistrationDto>(`/regulation/registration/${companyId}`),
+    saveRegistration: (companyId: string, d: Partial<RegistrationData>) => put<RegistrationDto>(`/regulation/registration/${companyId}`, d),
+    notified: (companyId: string, d: { notifiedAt: string; notifiedRef: string }) => post<RegistrationDto>(`/regulation/registration/${companyId}/notified`, d),
+    registrationUrl: (companyId: string, fmt: "html" | "docx") => withCompany(`/api/regulation/registration/${companyId}/print.${fmt}`),
   },
   /** Veřejný dotazník pro dodavatele (bez přihlášení, token v odkazu). */
   trust: {
@@ -1357,6 +1635,8 @@ export const api = {
 
   policies: {
     list: () => request<PolicyListItem[]>("/policies"),
+    /** Dokumenty útvaru včetně podřízených (v1.80). */
+    listByUnit: (unit: string) => request<PolicyListItem[]>(`/policies?unit=${encodeURIComponent(unit)}`),
     coverage: (framework?: string) => request<PolicyCoverageRow[]>(`/policies/coverage${framework ? `?framework=${framework}` : ""}`),
     mine: () => request<MyPolicyItem[]>("/policies/mine"),
     get: (id: string) => request<PolicyDetail>(`/policies/${id}`),
@@ -1559,17 +1839,21 @@ export const api = {
 
   reports: {
     management: (q: { periodFrom?: string; periodTo?: string } = {}) => request<ManagementReport>(`/reports/management?${qs(q)}`),
-    managementHtmlUrl: (q: { periodFrom?: string; periodTo?: string } = {}) => withCompany(`/api/reports/management.html?${qs(q)}`),
-    managementDocxUrl: (q: { periodFrom?: string; periodTo?: string } = {}) => withCompany(`/api/reports/management.docx?${qs(q)}`),
+    managementHtmlUrl: (q: { periodFrom?: string; periodTo?: string; charts?: string; chart?: string; months?: string } = {}) => withCompany(`/api/reports/management.html?${qs(q)}`),
+    managementDocxUrl: (q: { periodFrom?: string; periodTo?: string; charts?: string; chart?: string; months?: string } = {}) => withCompany(`/api/reports/management.docx?${qs(q)}`),
   },
 
   ops: {
     status: () => request<SystemStatusDto>("/ops/status"),
     backups: () => request<BackupRunDto[]>("/ops/backups"),
+    sbomUrl: "/api/ops/sbom",
   },
 
   setup: {
     get: () => request<SetupDto>("/setup"),
+    wizard: () => request<SetupWizardDto>("/setup/wizard"),
+    wizardFinish: () => post<SetupWizardDto>("/setup/wizard/finish"),
+    wizardReopen: () => post<SetupWizardDto>("/setup/wizard/reopen"),
     docFolders: () => post<SetupDto>("/setup/doc-folders"),
     protocolUrl: (format: "html" | "docx") => withCompany(`/api/setup/protocol.${format}`),
   },
@@ -1578,9 +1862,110 @@ export const api = {
     manualUrl: (format: "html" | "docx", audience: string[]) => `/api/help/manual.${format}?audience=${encodeURIComponent(audience.join(","))}`,
   },
 
+  tags: {
+    list: () => request<TagDto[]>("/tags"),
+    create: (data: TagInput) => post<TagDto[]>("/tags", data),
+    update: (id: string, data: TagInput) => request<TagDto[]>(`/tags/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    remove: (id: string) => request<TagDto[]>(`/tags/${id}`, { method: "DELETE" }),
+    of: (type: TagEntity, id: string) => request<string[]>(`/tags/of/${type}/${id}`),
+    set: (type: TagEntity, id: string, names: string[]) => request<string[]>(`/tags/of/${type}/${id}`, { method: "PUT", body: JSON.stringify({ names }) }),
+    objects: (id: string) => request<TaggedObjectDto[]>(`/tags/${id}/objects`),
+  },
+
+  dataLocations: {
+    list: () => request<DataLocationDto[]>("/data-locations"),
+    create: (data: DataLocationInput) => post<DataLocationDto>("/data-locations", data),
+    update: (id: string, data: DataLocationInput) => request<DataLocationDto>(`/data-locations/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    remove: (id: string) => del(`/data-locations/${id}`),
+  },
+
+  jira: {
+    issues: (entityId: string) => request<ExternalIssueDto[]>(`/jira/issues?entityType=task&entityId=${entityId}`),
+    create: (entityId: string) => post<ExternalIssueDto[]>("/jira/issues", { entityType: "task", entityId }),
+  },
+
+  /** Vzhled výstupů – logo, barva, zápatí (v1.59, ADR-154). */
+  branding: {
+    get: (companyId: string) => request<BrandingDto>(`/branding/${companyId}`),
+    save: (companyId: string, d: BrandingInput) => request<BrandingDto>(`/branding/${companyId}`, { method: "PUT", body: JSON.stringify(d) }),
+    remove: (companyId: string) => request<BrandingDto>(`/branding/${companyId}`, { method: "DELETE" }),
+  },
+
+  /** Bezpečnostní testy (v1.56, ADR-153). */
+  secTests: {
+    scopes: () => request<SecTestScopeDto[]>("/security-tests/scopes"),
+    createScope: (d: SecTestScopeInput) => post<SecTestScopeDto>("/security-tests/scopes", d),
+    updateScope: (id: string, d: SecTestScopeInput) => request<SecTestScopeDto>(`/security-tests/scopes/${id}`, { method: "PUT", body: JSON.stringify(d) }),
+    approveScope: (id: string) => post<SecTestScopeDto>(`/security-tests/scopes/${id}/approve`),
+    deleteScope: (id: string) => del(`/security-tests/scopes/${id}`),
+    runs: () => request<SecTestRunDto[]>("/security-tests/runs"),
+    run: (id: string) => request<SecTestRunDto & { outputs: { target: string; port: number | null; exitCode: number | null; durationMs: number; stdout: string; truncated: boolean; stderr: string }[]; findings: SecTestFindingDto[] }>(`/security-tests/runs/${id}`),
+    createRun: (d: SecTestRunInput) => post<SecTestRunDto>("/security-tests/runs", d),
+    cancelRun: (id: string) => post<SecTestRunDto>(`/security-tests/runs/${id}/cancel`),
+    importOutput: (d: SecTestImportInput) => post<SecTestRunDto>("/security-tests/import", d),
+    summary: (id: string) => post<SecTestRunDto>(`/security-tests/runs/${id}/summary`),
+    findings: () => request<SecTestFindingDto[]>("/security-tests/findings"),
+    setFinding: (id: string, status: SecTestFindingStatus, note?: string | null, until?: string | null) => request<SecTestFindingDto>(`/security-tests/findings/${id}`, { method: "PATCH", body: JSON.stringify({ status, note, until }) }),
+    advice: (id: string) => post<SecTestFindingDto>(`/security-tests/findings/${id}/advice`),
+    probes: () => request<ProbeConnectionDto[]>("/security-tests/probes"),
+    overview: () => request<SecTestSummaryDto>("/security-tests/summary"),
+    batches: () => request<SecTestBatchDto[]>("/security-tests/batches"),
+    batch: (id: string) => request<SecTestBatchDto & { findings: SecTestFindingDto[] }>(`/security-tests/batches/${id}`),
+    createBatch: (d: SecTestBatchInput) => post<SecTestBatchDto & { skipped: string[] }>("/security-tests/batches", d),
+    batchSummary: (id: string) => post<SecTestBatchDto>(`/security-tests/batches/${id}/summary`),
+    batchNext: (id: string, testIds: SecTestId[]) => post<SecTestBatchDto>(`/security-tests/batches/${id}/next`, { testIds }),
+    assignFinding: (id: string, assetId: string | null, sameHost = true, rememberAddress = true) =>
+      request<{ updated: number; remembered: boolean; finding: SecTestFindingDto }>(`/security-tests/findings/${id}/asset`, { method: "PATCH", body: JSON.stringify({ assetId, sameHost, rememberAddress }) }),
+    followFinding: (id: string, testIds: SecTestId[]) => post<SecTestBatchDto>(`/security-tests/findings/${id}/follow`, { testIds }),
+    byAsset: (assetId: string) => request<SecTestFindingDto[]>(`/security-tests/asset/${assetId}`),
+    createTasks: (ids: string[]) => post<SecTestTasksResult>("/security-tests/findings/tasks", { ids }),
+    setControl: (id: string, controlId: string | null) => request<SecTestFindingDto>(`/security-tests/findings/${id}/control`, { method: "PATCH", body: JSON.stringify({ controlId }) }),
+    byControl: (controlId: string) => request<SecTestFindingDto[]>(`/security-tests/by-control/${controlId}`),
+    schedules: () => request<SecTestScheduleDto[]>("/security-tests/schedules"),
+    createSchedule: (d: SecTestScheduleInput) => post<SecTestScheduleDto>("/security-tests/schedules", d),
+    updateSchedule: (id: string, d: SecTestScheduleInput) => put<SecTestScheduleDto>(`/security-tests/schedules/${id}`, d),
+    deleteSchedule: (id: string) => del(`/security-tests/schedules/${id}`),
+    runSchedule: (id: string) => post<SecTestScheduleDto>(`/security-tests/schedules/${id}/run`),
+    reportUrl: (q: { batchIds?: string; from?: string; to?: string; all?: "1" }, fmt: "html" | "docx" = "html") => withCompany(`/api/security-tests/report.${fmt}?${qs(q)}`),
+  },
+
+  hosts: {
+    list: () => request<HostSummaryDto[]>("/hosts"),
+    byAsset: (assetId: string) => request<HostInventoryDto[]>(`/hosts/by-asset/${assetId}`),
+    get: (id: string) => request<HostDetailDto>(`/hosts/${id}`),
+    patchFinding: (id: string, data: HostFindingPatch) => patch<{ ok: true }>(`/hosts/findings/${id}`, data),
+    findingTasks: (ids: string[]) => post<SecTestTasksResult>("/hosts/findings/tasks", { ids }),
+  },
+  /** Hromadné úpravy v seznamech (v1.75, ADR-168). */
+  /** Ukázková data z Administrace (v1.81). */
+  demo: {
+    status: () => request<DemoStatusDto>("/demo"),
+    create: () => post<DemoStatusDto>("/demo"),
+    remove: () => del<DemoStatusDto>("/demo"),
+  },
+  bulk: {
+    assets: (d: AssetBulkInput) => post<BulkResultDto>("/bulk/assets", d),
+    risks: (d: RiskBulkInput) => post<BulkResultDto>("/bulk/risks", d),
+    controls: (d: ControlBulkInput) => post<BulkResultDto>("/bulk/controls", d),
+    processes: (d: ProcessBulkInput) => post<BulkResultDto>("/bulk/processes", d),
+    suppliers: (d: SupplierBulkInput) => post<BulkResultDto>("/bulk/suppliers", d),
+  },
+  quality: {
+    get: () => request<QualityDto>("/quality"),
+    fix: (data: QualityFixInput) => post<{ updated: number }>("/quality/fix", data),
+  },
+  findings: {
+    list: (q: FindingsQuery = {}) => request<UnifiedFindingsDto>(`/findings?${new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== "") as [string, string][]).toString()}`),
+    plan: () => request<FindingPlanViewDto | null>("/findings/plan"),
+    generatePlan: () => post<FindingPlanViewDto>("/findings/plan"),
+    planTasks: (steps: number[]) => post<{ created: number; skipped: number; taskIds: string[] }>("/findings/plan/tasks", { steps }),
+    escalations: () => request<FindingEscalationDto[]>("/findings/escalations"),
+    remediation: (q: RemediationQuery = {}) => request<FindingsRemediationDto>(`/findings/remediation?${new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== "") as [string, string][]).toString()}`),
+  },
+
   alerts: {
     list: (status: "new" | "accepted" | "dismissed" | "all" = "new") => request<AlertSuggestionDto[]>(`/alerts?status=${status}`),
-    settings: () => request<{ alertsEnabled: boolean; alertMinLevel: number; alertsIndexPattern: string; lastSyncAt: string | null; lastResult: string | null; indexerConfigured: boolean }>("/alerts/settings"),
+    settings: () => request<{ alertsEnabled: boolean; alertMinLevel: number; alertsIndexPattern: string; lastSyncAt: string | null; lastResult: string | null; indexerConfigured: boolean; connections?: { id: string; name: string; lastSyncAt: string | null; lastResult: string | null }[] }>("/alerts/settings"),
     saveSettings: (data: AlertSettingsInput) => put<unknown>("/alerts/settings", data),
     sync: () => post<{ created: number; updated: number; alerts?: number }>("/alerts/sync"),
     accept: (id: string, kind: "unassessed" | "event" | "incident" = "unassessed") => post<{ incidentId: string }>(`/alerts/${id}/accept`, { kind }),
@@ -1598,6 +1983,51 @@ export const api = {
 
   directory: { users: () => request<DirectoryUser[]>("/directory/users") },
 
+  /** Projekty s fázemi a branami (v1.31, ADR-128). */
+  projects: {
+    templates: () => request<ProjectTemplateDto[]>("/projects/templates"),
+    createTemplate: (data: ProjectTemplateInput) => post<{ id: string }>("/projects/templates", data),
+    updateTemplate: (id: string, data: ProjectTemplateInput) => put<{ ok: boolean }>(`/projects/templates/${id}`, data),
+    removeTemplate: (id: string) => del(`/projects/templates/${id}`),
+    addCost: (id: string, data: ProjectCostInput) => post<ProjectDetailDto>(`/projects/${id}/costs`, data),
+    removeCost: (id: string, costId: string) => request<ProjectDetailDto>(`/projects/${id}/costs/${costId}`, { method: "DELETE" }),
+    links: (id: string) => request<CraLinksDto>(`/projects/${id}/links`),
+    saveLinks: (id: string, data: CraLinksInput) => put<CraLinksDto>(`/projects/${id}/links`, data),
+    list: () => request<ProjectDto[]>("/projects"),
+    get: (id: string) => request<ProjectDetailDto>(`/projects/${id}`),
+    create: (data: ProjectInput) => post<ProjectDetailDto>("/projects", data),
+    update: (id: string, data: ProjectPatch) => patch<ProjectDetailDto>(`/projects/${id}`, data),
+    phase: (id: string, phaseId: string, data: { plannedStart?: string | null; plannedEnd?: string | null }) => patch<ProjectDetailDto>(`/projects/${id}/phases/${phaseId}`, data),
+    approveGate: (id: string, phaseId: string, comment?: string) => post<ProjectDetailDto>(`/projects/${id}/phases/${phaseId}/approve`, { comment }),
+    addDoc: (id: string, phaseId: string, name: string, required: boolean) => post<ProjectDetailDto>(`/projects/${id}/phases/${phaseId}/docs`, { name, required }),
+    updateDoc: (id: string, docId: string, data: { status?: string; note?: string | null; url?: string | null }) => patch<ProjectDetailDto>(`/projects/${id}/docs/${docId}`, data),
+    removeDoc: (id: string, docId: string) => request<ProjectDetailDto>(`/projects/${id}/docs/${docId}`, { method: "DELETE" }),
+    uploadDoc: (id: string, docId: string, file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return request<ProjectDetailDto>(`/projects/${id}/docs/${docId}/file`, { method: "POST", body: fd });
+    },
+    docFileUrl: (id: string, docId: string) => withCompany(`/api/projects/${id}/docs/${docId}/file`),
+    /* v1.35 */
+    addMember: (id: string, data: ProjectMemberInput) => post<ProjectDetailDto>(`/projects/${id}/members`, data),
+    removeMember: (id: string, mid: string) => request<ProjectDetailDto>(`/projects/${id}/members/${mid}`, { method: "DELETE" }),
+    addTask: (id: string, data: ProjectTaskInput) => post<ProjectDetailDto>(`/projects/${id}/tasks`, data),
+    updateTask: (id: string, tid: string, data: ProjectTaskPatch) => patch<ProjectDetailDto>(`/projects/${id}/tasks/${tid}`, data),
+    removeTask: (id: string, tid: string) => request<ProjectDetailDto>(`/projects/${id}/tasks/${tid}`, { method: "DELETE" }),
+    addMilestone: (id: string, data: MilestoneInput) => post<ProjectDetailDto>(`/projects/${id}/milestones`, data),
+    updateMilestone: (id: string, mid: string, data: MilestoneInput) => put<ProjectDetailDto>(`/projects/${id}/milestones/${mid}`, data),
+    removeMilestone: (id: string, mid: string) => request<ProjectDetailDto>(`/projects/${id}/milestones/${mid}`, { method: "DELETE" }),
+    addIssue: (id: string, data: ProjectIssueInput) => post<ProjectDetailDto>(`/projects/${id}/issues`, data),
+    updateIssue: (id: string, iid: string, data: ProjectIssueInput) => put<ProjectDetailDto>(`/projects/${id}/issues/${iid}`, data),
+    removeIssue: (id: string, iid: string) => request<ProjectDetailDto>(`/projects/${id}/issues/${iid}`, { method: "DELETE" }),
+    addReport: (id: string, data: StatusReportInput) => post<ProjectDetailDto>(`/projects/${id}/reports`, data),
+    addChange: (id: string, data: ChangeRequestInput) => post<ProjectDetailDto>(`/projects/${id}/changes`, data),
+    decideChange: (id: string, cid: string, decision: "approved" | "rejected", comment?: string) => post<ProjectDetailDto>(`/projects/${id}/changes/${cid}/decide`, { decision, comment }),
+    addLesson: (id: string, kind: "went_well" | "improve", text: string) => post<ProjectDetailDto>(`/projects/${id}/lessons`, { kind, text }),
+    removeLesson: (id: string, lid: string) => request<ProjectDetailDto>(`/projects/${id}/lessons/${lid}`, { method: "DELETE" }),
+    reportUrl: (id: string, kind: "status" | "closure", format: "html" | "docx", lang = "cs") => withCompany(`/api/projects/${id}/report?kind=${kind}&format=${format}&lang=${lang}`),
+  },
+
   discovery: {
     segments: () => request<{ segments: NetSegmentDto[]; scan: { enabled: boolean; allowedCidrs: string[]; nmap: boolean } }>("/discovery/segments"),
     createSegment: (data: NetSegmentInput) => post<NetSegmentDto>("/discovery/segments", data),
@@ -1611,7 +2041,8 @@ export const api = {
     linkObs: (id: string, assetId: string) => post<NetObservationDto>(`/discovery/segments/observations/${id}/link`, { assetId }),
     connectors: () => request<ConnectorInfo[]>("/discovery/connectors"),
     runs: () => request<DiscoveryRunDto[]>("/discovery/runs"),
-    wazuh: () => post<{ runId: string }>("/discovery/wazuh"),
+    wazuh: (connectionId?: string) => post<{ runId: string; runIds: string[] }>("/discovery/wazuh", connectionId ? { connectionId } : {}),
+    netbox: () => post<{ runId: string; runIds: string[] }>("/discovery/netbox", {}),
     scan: (body: NetworkScanRequest) => post<{ runId: string }>("/discovery/network-scan", body),
     importCsv: (file: File) => {
       const fd = new FormData();
@@ -1624,6 +2055,8 @@ export const api = {
     users: () => request<UserDto[]>("/admin/users"),
     createUser: (data: UserCreate) => post<UserDto>("/admin/users", data),
     updateUser: (id: string, data: UserUpdate) => patch<UserDto>(`/admin/users/${id}`, data),
+    responsibilities: (id: string) => request<UserResponsibilitiesDto>(`/admin/users/${id}/responsibilities`),
+    handover: (id: string, data: UserHandoverInput) => post<{ moved: Record<string, number> }>(`/admin/users/${id}/handover`, data),
     resetPassword: (id: string, password: string) => post(`/admin/users/${id}/reset-password`, { password }),
     resetMfa: (id: string) => post(`/admin/users/${id}/reset-mfa`),
     unlock: (id: string) => post(`/admin/users/${id}/unlock`),
@@ -1638,6 +2071,52 @@ export const api = {
     settings: () => request<AdminSettings>("/admin/settings"),
     updateSettings: (data: Partial<Settings>) => patch<Settings>("/admin/settings", data),
     connectors: () => request<ConnectorSettingsDto>("/admin/connectors"),
+    connections: () => request<{ wazuh: WazuhConnectionDto[]; collectors: CollectorConnectionDto[]; probes: ProbeConnectionDto[]; netbox: NetboxConnectionDto[]; jira: JiraConnectionDto[] }>("/admin/connections"),
+    createProbe: (data: ProbeConnectionInput) => post<{ id: string; token: string; probes: ProbeConnectionDto[] }>("/admin/connections/probe", data),
+    updateProbe: (id: string, data: ProbeConnectionInput) => request<{ probes: ProbeConnectionDto[] }>(`/admin/connections/probe/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    rotateProbe: (id: string) => post<{ token: string; probes: ProbeConnectionDto[] }>(`/admin/connections/probe/${id}/token`),
+    deleteProbe: (id: string) => request<{ probes: ProbeConnectionDto[] }>(`/admin/connections/probe/${id}`, { method: "DELETE" }),
+    /** Instalátor sondy (v1.56): POST → install-contix-probe.sh. */
+    probeInstaller: async (id: string, data: CollectorInstallerInput) => {
+      const res = await fetch(`/api/admin/connections/probe/${id}/installer`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
+      if (!res.ok) throw new ApiError(res.status, ((await res.json().catch(() => ({}))) as any)?.error ?? `HTTP ${res.status}`, null);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await res.blob());
+      a.download = "install-contix-probe.sh";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },
+    saveNetbox: (id: string | null, data: NetboxConnectionInput) => (id ? request<unknown>(`/admin/connections/netbox/${id}`, { method: "PUT", body: JSON.stringify(data) }) : post<unknown>("/admin/connections/netbox", data)),
+    testNetbox: (data: NetboxConnectionInput & { id?: string }) => post<ConnectorTestResult>("/admin/connections/netbox/test", data),
+    saveJira: (id: string | null, data: JiraConnectionInput) => (id ? request<unknown>(`/admin/connections/jira/${id}`, { method: "PUT", body: JSON.stringify(data) }) : post<unknown>("/admin/connections/jira", data)),
+    testJira: (data: JiraConnectionInput & { id?: string }) => post<ConnectorTestResult>("/admin/connections/jira/test", data),
+    deleteConnectionOf: (kind: "netbox" | "jira", id: string) => request<unknown>(`/admin/connections/${kind}/${id}`, { method: "DELETE" }),
+    createCollector: (data: CollectorConnectionInput) => post<{ id: string; token: string; collectors: CollectorConnectionDto[] }>("/admin/connections/collector", data),
+    updateCollector: (id: string, data: CollectorConnectionInput) => request<{ collectors: CollectorConnectionDto[] }>(`/admin/connections/collector/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    rotateCollector: (id: string) => post<{ token: string; collectors: CollectorConnectionDto[] }>(`/admin/connections/collector/${id}/token`),
+    deleteCollector: (id: string) => request<{ collectors: CollectorConnectionDto[] }>(`/admin/connections/collector/${id}`, { method: "DELETE" }),
+    collectorScriptUrl: "/api/admin/connections/collector/script",
+    /** Instalátor sběrače (v1.54): POST → soubor install-contix-collect.sh. */
+    collectorInstaller: async (id: string, data: CollectorInstallerInput) => {
+      const res = await fetch(`/api/admin/connections/collector/${id}/installer`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
+      if (!res.ok) throw new ApiError(res.status, ((await res.json().catch(() => ({}))) as any)?.error ?? `HTTP ${res.status}`, null);
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(await res.blob());
+      a.download = "install-contix-collect.sh";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    },
+    /** Kořenový certifikát interní CA Caddy (jen režim TLS internal); null = není k dispozici. */
+    contixCa: async (): Promise<string | null> => {
+      const res = await fetch("/.well-known/contix-ca.pem", { credentials: "omit" }).catch(() => null);
+      const text = res?.ok ? (await res.text()).trim() : "";
+      return /^-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----$/.test(text) ? text : null;
+    },
+    createConnection: (data: WazuhConnectionInput) => post<{ id: string; wazuh: WazuhConnectionDto[] }>("/admin/connections/wazuh", data),
+    updateConnection: (id: string, data: WazuhConnectionInput) => request<{ id: string; wazuh: WazuhConnectionDto[] }>(`/admin/connections/wazuh/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    deleteConnection: (id: string) => request<{ wazuh: WazuhConnectionDto[] }>(`/admin/connections/wazuh/${id}`, { method: "DELETE" }),
+    testConnection: (data: WazuhConnectionInput & { id?: string }) => post<ConnectorTestResult>("/admin/connections/wazuh/test", data),
+    testConnectionIndexer: (data: WazuhConnectionInput & { id?: string }) => post<ConnectorTestResult>("/admin/connections/wazuh/indexer-test", data),
     saveWazuh: (data: WazuhSettingsInput) => request<ConnectorSettingsDto>("/admin/connectors/wazuh", { method: "PUT", body: JSON.stringify(data) }),
     testWazuh: (data: WazuhSettingsInput) => post<ConnectorTestResult>("/admin/connectors/wazuh/test", data),
     testIndexer: (data: WazuhSettingsInput) => post<ConnectorTestResult>("/admin/connectors/wazuh/indexer-test", data),

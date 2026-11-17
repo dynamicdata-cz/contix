@@ -1,4 +1,5 @@
 import { useFormGuard } from "@/lib/unsaved";
+import { ProcessGuide } from "@/components/processGuide";
 import { Tabs, useTab } from "@/components/ui/tabs";
 import { askConfirm } from "@/components/ui/overlay";
 import { AiSuggestPanel } from "@/components/ai";
@@ -12,6 +13,10 @@ import { useCan, useModule } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { cn, fmtDay } from "@/lib/utils";
 import {
+  CRA_DOC_INFO_FIELDS,
+  CRA_DOC_INFO_LABELS,
+  CRA_DOC_LABELS,
+  type CraDocInfoInput,
   CRA_CATEGORIES,
   CRA_CATEGORY_ITEMS,
   CRA_LABELS,
@@ -48,7 +53,7 @@ import {
 } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { AlertTriangle, Copy, Download, FileUp, Plus, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, Copy, Download, ExternalLink, FileText, FileUp, Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const catTone: Record<CraCategory, Tone> = { default: "slate", important_1: "blue", important_2: "violet", critical: "red" };
@@ -94,6 +99,7 @@ export function CraPage() {
           )
         }
       />
+      <ProcessGuide id="cra" />
       <Card className="mb-4 p-4 text-sm text-slate-700">
         <b>{t("cra.datesTitle")}</b> {t("cra.dates")}
       </Card>
@@ -334,6 +340,7 @@ export function CraProductPage() {
       <ProductEditor key={q.data.id + q.data.updatedAt} p={q.data} />
       {q.data.supplyChecks.length > 0 && <SupplyChecksCard p={q.data} />}
       <RequirementsCard p={q.data} />
+      {(q.data.role === "manufacturer" || q.data.role === "oss_steward") && <CraDocumentsCard p={q.data} />}
       <CraLinksCard p={q.data} />
       <SbomCard p={q.data} />
       {q.data.openVulns > 0 && (
@@ -1511,6 +1518,104 @@ function NvdCard() {
         <p className="text-xs text-amber-800">{t("cra.nvd.privacy")}</p>
         <ErrorBox error={save.error} />
       </div>
+    </Card>
+  );
+}
+
+/* ---------------- dokumenty výrobce (v1.30, ADR-127) ---------------- */
+
+const DOC_LONG: (keyof CraDocInfoInput)[] = ["securityProperties", "foreseeableRisks", "supportType", "secureInstall", "changesImpact", "updateInstall", "autoUpdateOff", "decommission", "integration", "additionalInfo", "authorisedRep", "identification"];
+
+function CraDocumentsCard({ p }: { p: CraProductDto }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["cra", "doc-info", p.id, p.updatedAt], queryFn: () => api.cra.docInfo(p.id) });
+  const [lang, setLang] = useState<"cs" | "en">("cs");
+  const [edit, setEdit] = useState<CraDocInfoInput | null>(null);
+  const save = useMutation({
+    mutationFn: () => api.cra.saveDocInfo(p.id, edit!),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cra", "doc-info", p.id] });
+      setEdit(null);
+    },
+  });
+  const field = (f: string) => t.lbl((CRA_DOC_INFO_LABELS as Record<string, string>)[f] ?? f);
+  return (
+    <Card className="mt-6">
+      <CardHeader
+        title={t("craDoc.title")}
+        subtitle={t("craDoc.subtitle")}
+        action={
+          <div className="flex items-center gap-2">
+            <Select className="h-8 w-24 text-xs" aria-label={t("craDoc.lang")} value={lang} onChange={(e) => setLang(e.target.value as "cs" | "en")}>
+              <option value="cs">čeština</option>
+              <option value="en">English</option>
+            </Select>
+            {p.canEdit && q.data && (
+              <Button variant="secondary" className="text-xs" onClick={() => setEdit({ ...q.data!.info })}>
+                {t("craDoc.edit")}
+              </Button>
+            )}
+          </div>
+        }
+      />
+      <ErrorBox error={q.error} />
+      <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+        {q.data?.documents
+          .filter((d) => d.allowed)
+          .map((d) => (
+            <li key={d.kind} className="flex flex-wrap items-center gap-3 px-5 py-3">
+              <FileText size={16} className="text-slate-400" />
+              <div className="min-w-56 flex-1">
+                <div className="font-medium">{t.lbl(CRA_DOC_LABELS[d.kind].name)}</div>
+                <div className="text-xs text-slate-500">
+                  {t.lbl(CRA_DOC_LABELS[d.kind].ref)}
+                  {d.missing.length > 0 && <span className="ml-2 text-amber-700">{t("craDoc.missing", { n: d.missing.length })}</span>}
+                </div>
+              </div>
+              {d.missing.length > 0 ? <Badge tone="amber">{t("craDoc.draft")}</Badge> : <Badge tone="green">{t("craDoc.complete")}</Badge>}
+              <a href={api.cra.documentUrl(p.id, d.kind, lang, "html")} target="_blank" rel="noopener noreferrer">
+                <Button variant="ghost" className="px-2 text-xs">
+                  <ExternalLink size={14} /> {t("craDoc.open")}
+                </Button>
+              </a>
+              <a href={api.cra.documentUrl(p.id, d.kind, lang, "docx")}>
+                <Button variant="ghost" className="px-2 text-xs">
+                  <Download size={14} /> Word
+                </Button>
+              </a>
+            </li>
+          ))}
+      </ul>
+      <Modal
+        open={!!edit}
+        onClose={() => setEdit(null)}
+        wide
+        title={t("craDoc.edit")}
+        footer={
+          <Button disabled={save.isPending} onClick={() => save.mutate()}>
+            {t("craDoc.save")}
+          </Button>
+        }
+      >
+        {edit && (
+          <div className="space-y-3">
+            <ErrorBox error={save.error} />
+            <p className="text-sm text-slate-500">{t("craDoc.editHint")}</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {CRA_DOC_INFO_FIELDS.map((f) => (
+                <Field key={f} label={field(f)} className={DOC_LONG.includes(f) ? "sm:col-span-2" : ""}>
+                  {DOC_LONG.includes(f) ? (
+                    <Textarea rows={2} value={(edit[f] as string | null | undefined) ?? ""} onChange={(e) => setEdit({ ...edit, [f]: e.target.value })} />
+                  ) : (
+                    <Input value={(edit[f] as string | null | undefined) ?? ""} onChange={(e) => setEdit({ ...edit, [f]: e.target.value })} />
+                  )}
+                </Field>
+              ))}
+            </div>
+          </div>
+        )}
+      </Modal>
     </Card>
   );
 }

@@ -1,6 +1,7 @@
 /**
  * Tisková HTML podoba dokumentů ISMS (Tisk → Uložit jako PDF). Veškerý obsah se escapuje.
  */
+import { CONTIX_LOGO_PNG } from "../branding/contixLogo";
 import {
   BUILTIN_PACKS,
   CS,
@@ -48,6 +49,7 @@ import {
   type ReportBasis,
 } from "@contix/shared";
 import type { IsmsReviewSnapshot, PlanSnapshot, RiskReportSnapshot, Snapshot, SnapshotMeta, SoaSnapshot } from "./snapshots";
+import { currentBrand } from "../branding/service";
 
 export interface RenderInfo {
   kind: DocKind;
@@ -88,7 +90,8 @@ const LEVEL_COLOR: Record<RiskLevel | "unassessed", string> = { low: "#ee9a78", 
 const lvl = (l: RiskLevel | null) =>
   l ? `<span class="lv"><i style="background:${LEVEL_COLOR[l]}"></i>${esc(RISK_LABELS.level[l])}</span>` : `<span class="muted">nehodnoceno</span>`;
 
-const CSS = `
+
+const CSS = `.chart svg{max-width:100%;height:auto;margin:6px 0 12px}
 *{box-sizing:border-box} body{font:10.5pt/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#1e293b;margin:0;background:#f1f5f9}
 .page{max-width:1100px;margin:24px auto;background:#fff;padding:40px 48px;box-shadow:0 1px 3px rgba(0,0,0,.08);position:relative}
 h1{font-size:20pt;margin:0 0 4px} h2{font-size:13pt;margin:28px 0 8px;border-bottom:1px solid #e2e8f0;padding-bottom:4px} h3{font-size:11pt;margin:18px 0 6px}
@@ -140,9 +143,10 @@ ${acks}
 }
 
 function page(info: RenderInfo, body: string, t: Translate) {
+  const b = brandParts();
   return `<!doctype html><html lang="${esc(t.locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(info.title)}${info.version ? ` v${info.version}` : ""}</title><style>${CSS}</style></head>
-<body><div class="toolbar"><button onclick="window.print()">${esc(t("print.button"))}</button></div><div class="page">${body}</div></body></html>`;
+<title>${esc(info.title)}${info.version ? ` v${info.version}` : ""}</title><style>${CSS}${b.css}</style></head>
+<body><div class="toolbar"><button onclick="window.print()">${esc(t("print.button"))}</button></div><div class="page">${b.bar}${body}${b.foot}</div></body></html>`;
 }
 
 /* ---------- SoA ---------- */
@@ -629,7 +633,43 @@ export const html = { esc, nl, dt, day };
 export function printPage(title: string, body: string, locale = "cs") {
   const lang = locale.replace(/[^A-Za-z-]/g, "") || "cs";
   const btn = formatMessage(lang, BUILTIN_PACKS.find((p) => p.locale === lang)?.messages["print.button"] ?? CS["print.button"]);
+  const b = brandParts();
   return `<!doctype html><html lang="${esc(lang)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)}</title><style>${CSS}</style></head>
-<body><div class="toolbar"><button onclick="window.print()">${esc(btn)}</button></div><div class="page">${body}</div></body></html>`;
+<title>${esc(title)}</title><style>${CSS}${b.css}</style></head>
+<body><div class="toolbar"><button onclick="window.print()">${esc(btn)}</button></div><div class="page">${b.bar}${body}${b.foot}</div></body></html>`;
+}
+
+/* ---------- vzhled společnosti (v1.59, ADR-154): logo, barva, zápatí ---------- */
+
+/** CSS, záhlaví s logem a zápatí podle vzhledu aktuální společnosti (prázdné = výchozí vzhled). */
+export function brandParts(): { css: string; bar: string; foot: string } {
+  const b = currentBrand();
+  const css = `.brandbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:10px;margin-bottom:18px;border-bottom:2px solid ${b?.accent ?? "#e2e8f0"}}
+.brandbar img{max-height:44px;max-width:220px;object-fit:contain}.brandbar .bn{font-size:9pt;color:#64748b;text-align:right}
+.brandfoot{margin-top:28px;padding-top:6px;border-top:1px solid #e2e8f0;font-size:8.5pt;color:#64748b;text-align:center}
+@media print{.brandfoot{position:fixed;bottom:0;left:0;right:0;background:#fff;margin:0}}`;
+  // bez vlastního vzhledu: malé logo CONTIX v záhlaví (v1.69)
+  if (!b)
+    return {
+      css: `.contixbar{padding-bottom:8px;margin-bottom:16px;border-bottom:1px solid #e2e8f0}.contixbar img{height:20px;width:auto;display:block}`,
+      bar: `<div class="contixbar"><img src="data:image/png;base64,${CONTIX_LOGO_PNG}" alt="CONTIX"></div>`,
+      foot: "",
+    };
+  const accent = b.accent
+    ? `h1{color:${b.accent}} h2{border-bottom-color:${b.accent};color:${b.accent}} th{background:color-mix(in srgb,${b.accent} 8%,#fff)}`
+    : "";
+  const bar =
+    b.logo || b.showName
+      ? `<div class="brandbar">${b.logo ? `<img src="${b.logo.dataUrl}" alt="${esc(b.companyName)}">` : "<span></span>"}${b.showName ? `<span class="bn">${esc(b.companyName)}</span>` : ""}</div>`
+      : "";
+  return { css: css + accent, bar, foot: b.footerText ? `<div class="brandfoot">${esc(b.footerText)}</div>` : "" };
+}
+
+/** Vložení vzhledu do vlastní HTML stránky (výstupy mimo printPage). */
+export function withBrandHtml(doc: string): string {
+  const b = brandParts();
+  if (!b.bar && !b.foot && !b.css) return doc;
+  let out = doc.includes("</head>") ? doc.replace("</head>", `<style>${b.css}</style></head>`) : doc.replace(/<\/style>/, `${b.css}</style>`);
+  out = /<body[^>]*>/.test(out) ? out.replace(/<body[^>]*>/, (m) => `${m}${b.bar}`) : out.replace(/<\/style>/, `</style>${b.bar}`);
+  return out.includes("</body>") ? out.replace("</body>", `${b.foot}</body>`) : out + b.foot;
 }
