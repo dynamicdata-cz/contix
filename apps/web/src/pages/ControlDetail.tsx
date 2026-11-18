@@ -4,7 +4,7 @@ import { Tabs, useTab } from "@/components/ui/tabs";
 import { useFormGuard } from "@/lib/unsaved";
 import { askConfirm } from "@/components/ui/overlay";
 import { LinkedRecordsCard } from "@/components/linkedRecords";
-import { ControlMonitorsCard } from "@/pages/Monitoring";
+import { ControlHardeningCard, ControlMonitorsCard } from "@/pages/Monitoring";
 import { FrameworkOptions } from "@/components/frameworkOptions";
 import { TasksCard } from "@/components/tasks";
 import { ControlSecTestsCard } from "@/pages/SecurityTests";
@@ -254,6 +254,7 @@ function ControlEditor({
         <div className="space-y-6">
           <ControlAssurance controlId={detail.id} />
           <ControlMonitorsCard controlId={detail.id} />
+          <ControlHardeningCard controlId={detail.id} />
           {mod("sectests") && can("sectests:read") && <ControlSecTestsCard controlId={detail.id} />}
         </div>
       )}

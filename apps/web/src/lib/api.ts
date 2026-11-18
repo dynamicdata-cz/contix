@@ -319,6 +319,7 @@ import type {
   DefectDojoStatusDto,
   DefectDojoSettingsInput,
   ControlMonitorDto,
+  ControlHardeningDto,
   ControlMonitorInput,
   MonitorRunDto,
   MonitorPeriodTestInput,
@@ -1280,6 +1281,7 @@ export const api = {
   },
   monitors: {
     list: (controlId?: string) => request<ControlMonitorDto[]>(`/monitors?${qs({ controlId })}`),
+    controlHardening: (controlId: string) => request<ControlHardeningDto>(`/monitors/control-hardening/${controlId}`),
     create: (data: ControlMonitorInput) => post<ControlMonitorDto>("/monitors", data),
     update: (id: string, data: ControlMonitorInput) => put<ControlMonitorDto>(`/monitors/${id}`, data),
     remove: (id: string) => del(`/monitors/${id}`),

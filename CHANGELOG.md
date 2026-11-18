@@ -2,6 +2,12 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.87.0
+
+- **Hardening jako důkaz k opatřením** (ADR-182, fáze A): každá kontrola hardeningu je namapovaná na požadavky vyhlášky 409 a 410, ISO/IEC 27001:2022 (příloha A) a CIS Controls v8 – např. synchronizace času k § 22 odst. 6 vyhlášky 409, zamykání účtů k § 19 odst. 1 písm. b), slabé šifry SSH ke kryptografickým požadavkům.
+- **Nové monitory opatření**: *Hardening serverů – skóre* (průměrné skóre serverů s agentem CONTIX, výjimky = servery pod prahem) a *Hardening serverů – vybrané kontroly* (podíl splněných kontrol na všech serverech; bez výběru se použijí kontroly podle požadavků opatření). Volitelně jen produkční servery a jen hlášení z posledních N dní. Každý běh je záznam pro test provozní účinnosti (SOC 2 Type II).
+- **Detail opatření → Zajištění**: karta *Hardening serverů k opatření* – které kontroly patří k požadavkům opatření, kolik serverů je splňuje a které ne (s odkazem na server).
+
 ## 1.86.1
 
 - **Mapa propojení**: barva agenta a serveru ukazuje jen stav spojení. Nízké skóre hardeningu a vysoké nálezy jsou v panelu detailu jako informace a skóre je u uzlu barevně (červeně pod 65 %, oranžově pod 85 %, jinak zeleně). Dlouhý název serveru se už nepřekrývá se skóre.

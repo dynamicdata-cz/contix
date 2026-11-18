@@ -26,6 +26,9 @@ export const CONTROL_MONITOR_KINDS = [
   "policy_ack",
   "obligations_overdue",
   "external_check",
+  // v1.87 (ADR-182 fáze A): hardening serverů z agenta CONTIX jako průběžný důkaz k opatřením
+  "host_hardening",
+  "hardening_check",
 ] as const;
 export type ControlMonitorKind = (typeof CONTROL_MONITOR_KINDS)[number];
 
@@ -58,6 +61,8 @@ export const MonitorParams = z.object({
   sourceId: z.string().uuid().optional(),
   /** Druhy povinností sledované monitorem „povinnosti po termínu“ (prázdné = všechny). */
   obligationKinds: z.array(z.enum(OBLIGATION_KINDS)).max(OBLIGATION_KINDS.length).optional(),
+  /** Kontroly hardeningu (ID z katalogu); prázdné = kontroly namapované na požadavky opatření (v1.87). */
+  checkIds: z.array(z.string().trim().min(1).max(60)).max(100).optional(),
 });
 export type MonitorParams = z.infer<typeof MonitorParams>;
 type ParamKey = keyof MonitorParams;
@@ -71,7 +76,7 @@ export interface MonitorSpec {
   defaults: MonitorParams;
   params: ParamKey[];
   /** Odkud data pochází (zobrazení a postup testu). */
-  source: "identity" | "entra" | "vulnerabilities" | "sca" | "assets" | "tls" | "soc" | "awareness" | "policies" | "obligations" | "external";
+  source: "identity" | "entra" | "vulnerabilities" | "sca" | "assets" | "tls" | "soc" | "awareness" | "policies" | "obligations" | "external" | "hardening";
   /** Modul, který musí být zapnutý. */
   module: string;
 }
@@ -93,6 +98,10 @@ export const MONITOR_SPEC: Record<ControlMonitorKind, MonitorSpec> = {
   obligations_overdue: { metric: "count", direction: "max", thresholdKey: "maxCount", defaults: { maxCount: 0 }, params: ["maxCount", "obligationKinds"], source: "obligations", module: "controls" },
   /** Výsledek posílá externí skript (záloha, kontrola konfigurace…) přes token; když nedorazí včas, běh = chyba. */
   external_check: { metric: "count", direction: "max", thresholdKey: "maxCount", defaults: { maxCount: 0 }, params: ["maxCount"], source: "external", module: "controls" },
+  /** Průměrné skóre hardeningu serverů z agenta CONTIX (aktuální hlášení); výjimky = servery pod prahem. */
+  host_hardening: { metric: "score", direction: "min", thresholdKey: "minScore", defaults: { minScore: 80, staleDays: 7 }, params: ["minScore", "staleDays", "productionOnly"], source: "hardening", module: "assets" },
+  /** Podíl splněných vybraných kontrol (server × kontrola); bez výběru kontroly podle požadavků opatření. */
+  hardening_check: { metric: "pct", direction: "min", thresholdKey: "minPct", defaults: { minPct: 100, staleDays: 7 }, params: ["minPct", "checkIds", "staleDays", "productionOnly"], source: "hardening", module: "assets" },
 };
 
 /** Výsledek externí kontroly (`POST /api/public/monitors/result`, Bearer token monitoru). */
@@ -227,6 +236,8 @@ export const MONITOR_LABELS = {
     policy_ack: "Seznámení s platnými dokumenty",
     obligations_overdue: "Povinnosti a lhůty po termínu",
     external_check: "Externí kontrola (výsledek ze skriptu – zálohy, konfigurace…)",
+    host_hardening: "Hardening serverů – skóre (agent CONTIX)",
+    hardening_check: "Hardening serverů – vybrané kontroly (agent CONTIX)",
   } satisfies Record<ControlMonitorKind, string>,
   frequency: { daily: "Denně", weekly: "Týdně", monthly: "Měsíčně" } satisfies Record<MonitorFrequency, string>,
   result: { pass: "Splněno", fail: "Nesplněno", error: "Chyba – neproběhlo" } satisfies Record<MonitorResult, string>,
@@ -241,5 +252,6 @@ export const MONITOR_LABELS = {
     productionOnly: "Jen produkční aktiva",
     sourceId: "Zdroj identit",
     obligationKinds: "Druhy povinností",
+    checkIds: "Kontroly hardeningu",
   } satisfies Record<ParamKey, string>,
 } as const;

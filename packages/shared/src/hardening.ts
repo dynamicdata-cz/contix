@@ -55,6 +55,8 @@ export interface HardeningCheck {
   ref: string;
   /** Nález už hlásí jiná kontrola serveru (evaluateHost) – v nálezech se neopakuje. */
   dup?: boolean;
+  /** Požadavky rámců, ke kterým je kontrola důkazem (ID požadavku CONTIXu, v1.87 – ADR-182). */
+  reqs?: string[];
   run: (c: Ctx) => Outcome;
 }
 
@@ -899,6 +901,97 @@ function modules(c: Ctx, names: string[]): Outcome {
   if (!vals.length) return NA;
   const bad = vals.filter(([, v]) => v !== "blocked");
   return ok(!bad.length, bad.length ? bad.map(([n, v]) => `${n}: ${v === "loaded" ? "načten" : "povolen"}`).join(", ") : "zablokováno");
+}
+
+/**
+ * Mapování kontrol na požadavky rámců (v1.87, ADR-182): hardening jako důkaz k opatřením – vyhláška 409 / 410,
+ * ISO/IEC 27001:2022 příloha A, CIS Controls v8. ID odpovídají požadavkům v `frameworks` (ověřuje test).
+ */
+export const HARDENING_REQS: Record<string, string[]> = {
+  "ssh.root_login": ["cz409:13/2/b", "cz409:22/4/d", "cz410:7/1/a", "iso27001:A.8.2", "iso27001:A.8.5", "cis8:5.4"],
+  "ssh.password_auth": ["cz409:19/2/a", "cz409:19/2/b", "cz410:8/2", "cz410:8/3", "iso27001:A.8.5", "cis8:6.5"],
+  "ssh.empty_passwords": ["cz409:19/1/a", "cz410:8/1/c", "iso27001:A.8.5", "cis8:5.2"],
+  "ssh.max_auth_tries": ["cz409:19/1/b", "cz410:8/1/a", "iso27001:A.8.5"],
+  "ssh.weak_ciphers": ["cz409:25/1/a", "cz409:18/g", "cz410:13/1/a", "cz410:11/c", "iso27001:A.8.24", "cis8:3.10"],
+  "ssh.weak_macs": ["cz409:25/1/a", "cz409:18/g", "cz410:13/1/a", "cz410:11/c", "iso27001:A.8.24", "cis8:3.10"],
+  "ssh.weak_kex": ["cz409:25/1/a", "cz409:18/g", "cz410:13/1/a", "cz410:11/c", "iso27001:A.8.24", "cis8:3.10"],
+  "ssh.idle_timeout": ["cz409:19/1/d", "cz409:18/f", "cz410:8/1/b", "iso27001:A.8.5", "cis8:4.3"],
+  "ssh.login_grace": ["cz409:19/1/b", "cz410:8/1/a", "iso27001:A.8.5"],
+  "ssh.forwarding": ["cz409:18/b", "cz409:18/d", "cz410:11/d", "iso27001:A.8.20", "iso27001:A.8.22", "cis8:4.1"],
+  "ssh.hostbased": ["cz409:19/1/a", "cz410:8/1/c", "iso27001:A.8.5", "cis8:4.1"],
+  "ssh.access_list": ["cz409:13/2/b", "cz409:18/d", "cz410:7/1/a", "cz410:11/d", "iso27001:A.5.15", "iso27001:A.8.2", "cis8:5.4"],
+  "ssh.log_level": ["cz409:22/3/a", "cz410:9/2/a", "iso27001:A.8.15", "cis8:8.5"],
+  "acc.empty_password": ["cz409:19/1/a", "cz410:8/1/c", "iso27001:A.5.17", "cis8:5.2"],
+  "acc.uid0": ["cz409:13/2/c", "cz410:7/1/b", "iso27001:A.8.2", "cis8:5.4"],
+  "acc.sudo_nopasswd": ["cz409:13/2/b", "cz409:19/1/a", "cz410:7/1/a", "iso27001:A.8.2", "iso27001:A.8.18", "cis8:5.4"],
+  "acc.password_policy": ["cz409:19/4/a", "cz409:19/4/f", "cz410:8/4/a", "cz410:8/4/e", "iso27001:A.5.17", "cis8:5.2"],
+  "acc.lockout": ["cz409:19/1/b", "cz410:8/1/a", "iso27001:A.8.5"],
+  "acc.password_age": ["cz409:19/4/e", "cz410:8/4/d", "iso27001:A.5.17"],
+  "acc.hash": ["cz409:19/1/c", "cz410:8/1/c", "iso27001:A.5.17", "iso27001:A.8.24"],
+  "acc.umask": ["cz409:20/c", "cz410:8/1/d", "iso27001:A.8.3", "cis8:3.3"],
+  "net.firewall": ["cz409:18/b", "cz409:18/e", "cz410:11/b", "iso27001:A.8.20", "cis8:4.4"],
+  "net.ip_forward": ["cz409:18/a", "cz409:18/b", "cz410:11/a", "iso27001:A.8.22", "cis8:4.1"],
+  "net.redirects": ["cz409:18/h", "cz410:11/c", "iso27001:A.8.20", "cis8:4.1"],
+  "net.source_route": ["cz409:18/h", "cz410:11/c", "iso27001:A.8.20", "cis8:4.1"],
+  "net.rp_filter": ["cz409:18/h", "cz410:11/c", "iso27001:A.8.20", "cis8:4.1"],
+  "net.log_martians": ["cz409:22/2/b", "cz410:9/2/a", "iso27001:A.8.15", "cis8:8.2"],
+  "net.syncookies": ["cz409:26/1/b", "iso27001:A.8.20", "cis8:4.1"],
+  "net.icmp": ["cz409:18/h", "cz410:11/c", "iso27001:A.8.20", "cis8:4.1"],
+  "net.ipv6_ra": ["cz409:18/h", "cz410:11/c", "iso27001:A.8.20", "cis8:4.1"],
+  "net.risky_modules": ["cz409:18/e", "cz409:26/4", "iso27001:A.8.9", "cis8:4.8"],
+  "kernel.aslr": ["cz409:26/4", "iso27001:A.8.9", "cis8:4.1", "cis8:10.5"],
+  "kernel.ptrace": ["cz409:26/4", "iso27001:A.8.9", "cis8:4.1"],
+  "kernel.info_leak": ["cz409:26/4", "iso27001:A.8.9", "cis8:4.1"],
+  "kernel.bpf": ["cz409:26/4", "iso27001:A.8.9", "cis8:4.1"],
+  "kernel.links": ["cz409:26/4", "iso27001:A.8.9", "cis8:4.1"],
+  "kernel.core_dumps": ["cz409:26/4", "iso27001:A.8.9", "cis8:4.1"],
+  "fs.tmp": ["cz409:21/2/d", "cz409:26/4", "iso27001:A.8.9", "iso27001:A.8.19", "cis8:4.1"],
+  "fs.dev_shm": ["cz409:21/2/d", "cz409:26/4", "iso27001:A.8.9", "iso27001:A.8.19", "cis8:4.1"],
+  "fs.var_tmp": ["cz409:21/2/d", "cz409:26/4", "iso27001:A.8.9", "iso27001:A.8.19", "cis8:4.1"],
+  "fs.var_log": ["cz409:22/5/a", "iso27001:A.8.15", "iso27001:A.8.6", "cis8:8.3"],
+  "fs.perm_accounts": ["cz409:19/1/c", "cz409:20/c", "cz410:8/1/c", "cz410:8/1/d", "iso27001:A.5.17", "iso27001:A.8.3", "cis8:3.3"],
+  "fs.perm_config": ["cz409:20/c", "cz410:8/1/d", "iso27001:A.8.3", "iso27001:A.8.9", "cis8:3.3"],
+  "svc.risky": ["cz409:18/e", "cz409:26/4", "cz410:11/c", "iso27001:A.8.9", "iso27001:A.8.20", "cis8:4.8"],
+  "svc.timesync": ["cz409:22/6", "cz410:9/2/b", "iso27001:A.8.17", "cis8:8.4"],
+  "svc.security_agent": ["cz409:21/2/a", "cz409:21/2/f", "cz410:9/1/b", "iso27001:A.8.7", "iso27001:A.8.16", "cis8:10.1"],
+  "log.auditd": ["cz409:22/3/b", "cz409:22/3/c", "cz410:9/2/a", "iso27001:A.8.15", "cis8:8.2", "cis8:8.5"],
+  "log.journald": ["cz409:22/5/a", "cz410:9/3", "iso27001:A.8.15", "cis8:8.3"],
+  "log.central": ["cz409:22/5/b", "cz410:9/2/a", "iso27001:A.8.15", "cis8:8.9"],
+  "upd.security": ["cz409:24/1", "cz409:24/2/b", "cz410:12/a", "iso27001:A.8.8", "cis8:7.3"],
+  "upd.auto": ["cz409:24/1", "cz410:12/a", "iso27001:A.8.8", "cis8:7.3"],
+  "upd.reboot": ["cz409:24/2/b", "cz410:12/a", "iso27001:A.8.8", "cis8:7.3"],
+  "mac.enabled": ["cz409:21/2/d", "iso27001:A.8.7", "iso27001:A.8.9", "cis8:10.5"],
+  "mac.complain": ["cz409:21/2/d", "iso27001:A.8.9", "cis8:10.5"],
+  "boot.password": ["cz409:13/2/d", "iso27001:A.8.9", "cis8:4.1"],
+  "boot.usb_storage": ["cz409:21/2/b", "cz409:21/2/c", "cz410:9/1/c", "iso27001:A.7.10", "cis8:10.3"],
+  "boot.fs_modules": ["cz409:26/4", "iso27001:A.8.9", "cis8:4.1"],
+  "boot.banner": ["cz409:26/4", "iso27001:A.8.9"],
+  "ctr.tcp_socket": ["cz409:18/d", "cz409:13/2/d", "cz410:11/d", "iso27001:A.8.2", "iso27001:A.8.20", "cis8:4.1"],
+  "ctr.socket": ["cz409:13/2/c", "cz410:7/1/b", "iso27001:A.8.2", "cis8:4.1"],
+  "ctr.group": ["cz409:13/2/b", "cz409:13/2/h", "cz410:7/1/a", "cz410:7/1/d", "iso27001:A.8.2", "cis8:5.4"],
+  "ctr.userns": ["cz409:13/2/b", "cz410:7/1/a", "iso27001:A.8.2", "iso27001:A.8.9", "cis8:4.1"],
+  "ctr.daemon": ["cz409:26/4", "iso27001:A.8.9", "cis8:4.1"],
+  "ctr.privileged": ["cz409:13/2/b", "cz410:7/1/a", "iso27001:A.8.2", "iso27001:A.8.9", "cis8:4.1", "cis8:5.4"],
+  "ctr.engine_socket": ["cz409:13/2/b", "cz410:7/1/a", "iso27001:A.8.2", "iso27001:A.8.9", "cis8:4.1"],
+  "ctr.non_root": ["cz409:13/2/b", "cz410:7/1/a", "iso27001:A.8.2", "iso27001:A.8.9", "cis8:4.1"],
+  "ctr.readonly": ["cz409:26/4", "iso27001:A.8.9", "cis8:4.1"],
+  "ctr.limits": ["cz409:26/1/b", "iso27001:A.8.6", "cis8:4.1"],
+};
+for (const ch of HARDENING_CHECKS) ch.reqs = HARDENING_REQS[ch.id] ?? [];
+
+/** Hardening k opatření (GET /api/monitors/control-hardening/:id) – kontroly podle požadavků × aktuální servery. */
+export interface ControlHardeningDto {
+  /** Počet serverů s aktuálním hlášením (≤ 7 dní). */
+  hosts: number;
+  /** Podíl splněných (server × kontrola) v %, null = nic vyhodnotitelného. */
+  score: number | null;
+  checks: { id: string; reqs: string[]; pass: number; fail: number; na: number; failing: { inventoryId: string; host: string; actual: string | null }[] }[];
+}
+
+/** Kontroly, které jsou důkazem k některému z požadavků (např. požadavky přiřazené k opatření). */
+export function hardeningChecksForRequirements(requirementIds: Iterable<string>): HardeningCheck[] {
+  const set = new Set(requirementIds);
+  return HARDENING_CHECKS.filter((ch) => (ch.reqs ?? []).some((r) => set.has(r)));
 }
 
 export const HARDENING_BY_ID = new Map(HARDENING_CHECKS.map((x) => [x.id, x]));

@@ -927,6 +927,7 @@ For SOC 2 Type II (and increasingly ISO 27001) the auditor wants to see that a c
 - **Microsoft Secure Score** – the M365 / Entra tenant score (the app needs the SecurityEvents.Read.All permission, read-only).
 - **Vulnerabilities past their remediation deadline** and **actively exploited vulnerabilities (KEV)**.
 - **Configuration compliance (Wazuh SCA)**, **Wazuh agent coverage of assets**, **systems without support (EOL)**.
+- **Server hardening – score** and **Server hardening – selected checks** (CONTIX agent 0.3+): the average hardening score of servers, or the share of selected checks passed across all servers. If you select no check in the second monitor, the checks mapped to the control's requirements are used (Decree 409 / 410, ISO 27001, CIS Controls – marked ★ in the list). Only servers that reported in the last N days count. The control detail, *Assurance* tab, shows the card **Server hardening for this control** – which checks belong to the control's requirements and which servers fail them.
 - **Certificates** that are expired or expire soon and **SOC alerts past their deadline**.
 - **Mandatory training completion** and **acknowledgement of valid documents** (share in %).
 - **Overdue obligations** – deadlines from all modules (document reviews, suppliers, access reviews, tasks…), optionally only selected types.

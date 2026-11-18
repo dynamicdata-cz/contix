@@ -5,6 +5,11 @@ import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { cn, fmtDate } from "@/lib/utils";
 import {
+  HARDENING_BY_ID,
+  HARDENING_CATEGORIES,
+  HARDENING_CATEGORY_LABELS,
+  HARDENING_CHECKS,
+  hardeningChecksForRequirements,
   CONTROL_MONITOR_KINDS,
   MONITOR_FREQUENCIES,
   MONITOR_LABELS,
@@ -169,6 +174,8 @@ function MonitorModal({ monitor, onClose }: { monitor: ControlMonitorDto | null;
   const issue = useMutation({ mutationFn: () => api.monitors.token(monitor!.id), onSuccess: (r) => (setToken(r.token), qc.invalidateQueries({ queryKey: ["monitors"] })) });
   const [params, setParams] = useState<MonitorParams>(monitor?.params ?? monitorParamsOf("identity_mfa", {}));
   const spec = MONITOR_SPEC[kind];
+  const ctlDetail = useQuery({ queryKey: ["controls", controlId], queryFn: () => api.controls.get(controlId), enabled: !!controlId && spec.params.includes("checkIds") });
+  const mappedChecks = hardeningChecksForRequirements((ctlDetail.data?.requirements ?? []).map((r) => r.id));
   const save = useMutation({
     mutationFn: () => {
       const data = { controlId, kind, name: name.trim() || undefined, frequency, enabled, autoTask, params: monitorParamsOf(kind, params) };
@@ -297,6 +304,31 @@ function MonitorModal({ monitor, onClose }: { monitor: ControlMonitorDto | null;
                 label={t.lbl(OBLIGATION_LABELS[k])}
               />
             ))}
+          </div>
+        </Field>
+      )}
+      {spec.params.includes("checkIds") && (
+        <Field label={t.lbl(MONITOR_LABELS.param.checkIds)} hint={t("mon.checkIdsHint", { n: mappedChecks.length })}>
+          <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-slate-200 p-2" data-testid="mon-checks">
+            {HARDENING_CATEGORIES.map((cat) => {
+              const list = HARDENING_CHECKS.filter((c) => c.cat === cat);
+              if (!list.length) return null;
+              return (
+                <div key={cat}>
+                  <div className="text-xs font-semibold uppercase text-slate-500">{t.lbl(HARDENING_CATEGORY_LABELS[cat].cs)}</div>
+                  <div className="grid gap-1 sm:grid-cols-2">
+                    {list.map((c) => (
+                      <Checkbox
+                        key={c.id}
+                        checked={(params.checkIds ?? []).includes(c.id)}
+                        onChange={(v) => setParams({ ...params, checkIds: v ? [...(params.checkIds ?? []), c.id] : (params.checkIds ?? []).filter((x) => x !== c.id) })}
+                        label={`${t.lbl(c.title.cs)}${mappedChecks.some((m) => m.id === c.id) ? " ★" : ""}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </Field>
       )}
@@ -438,6 +470,53 @@ export function ControlMonitorsCard({ controlId }: { controlId: string }) {
             <span className="text-xs text-slate-500">{m.lastSummary}</span>
           </li>
         ))}
+      </ul>
+    </Card>
+  );
+}
+
+/** Hardening serverů k opatření (ADR-182 fáze A): kontroly namapované na požadavky opatření a jejich plnění. */
+export function ControlHardeningCard({ controlId }: { controlId: string }) {
+  const t = useT();
+  const q = useQuery({ queryKey: ["monitors", "control-hardening", controlId], queryFn: () => api.monitors.controlHardening(controlId), retry: false });
+  const [open, setOpen] = useState<string | null>(null);
+  const d = q.data;
+  if (!d?.checks.length) return null;
+  return (
+    <Card className="mb-6" data-testid="control-hardening">
+      <CardHeader
+        title={t("mon.hardTitle")}
+        subtitle={d.hosts ? t("mon.hardSub", { hosts: d.hosts, checks: d.checks.length, score: d.score ?? "–" }) : t("mon.hardNoHosts")}
+      />
+      <ul className="divide-y divide-slate-100 text-sm">
+        {d.checks.map((c) => {
+          const ch = HARDENING_BY_ID.get(c.id);
+          const tone: Tone = c.fail ? (ch?.sev === "high" ? "red" : "amber") : c.pass ? "green" : "slate";
+          return (
+            <li key={c.id} className="px-5 py-2">
+              <button type="button" className="flex w-full flex-wrap items-center gap-3 text-left" onClick={() => setOpen(open === c.id ? null : c.id)}>
+                <Badge tone={tone}>{c.fail ? t("mon.hardFail", { n: c.fail }) : c.pass ? t("mon.hardOk") : "n/a"}</Badge>
+                <span className="min-w-56 flex-1 text-slate-800">{ch ? t.lbl(ch.title.cs) : c.id}</span>
+                <span className="text-xs text-slate-500">{c.reqs.join(", ")}</span>
+                <span className="text-xs text-slate-500">
+                  {c.pass}/{c.pass + c.fail}
+                </span>
+              </button>
+              {open === c.id && c.failing.length > 0 && (
+                <ul className="mt-1 space-y-0.5 pl-4 text-xs">
+                  {c.failing.map((f) => (
+                    <li key={f.inventoryId}>
+                      <Link to="/discovery/hosts/$hostId" params={{ hostId: f.inventoryId }} className="text-brand-700 hover:underline">
+                        {f.host}
+                      </Link>
+                      {f.actual && <span className="text-slate-500"> – {f.actual}</span>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </Card>
   );

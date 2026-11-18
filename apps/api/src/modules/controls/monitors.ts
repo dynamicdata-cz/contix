@@ -6,9 +6,13 @@ import {
   MONITOR_SPEC,
   MonitorPeriodTestInput,
   MonitorPushInput,
+  evaluateHardening,
   evaluateMonitor,
+  HARDENING_BY_ID,
+  hardeningChecksForRequirements,
   monitorParamsOf,
   monitorPeriod,
+  type ControlHardeningDto,
   type ControlMonitorDto,
   type ControlMonitorKind,
   type MonitorParams,
@@ -32,7 +36,9 @@ import {
   assetVulnerabilities,
   controlMonitorRuns,
   controlMonitors,
+  controlRequirements,
   controls,
+  hostInventories,
   controlTests,
   controlTestSamples,
   evidence,
@@ -54,6 +60,7 @@ import { socSlaItems } from "../soc/service";
 import { loadCourses } from "../awareness/routes";
 import { collectObligations, kindsForModules } from "../notifications/obligations";
 import { loadPolicies } from "../policies/routes";
+import { normalizeInventory } from "../collector/service";
 import { getVulnSla, vulnOverdueSql, vulnPrioritySql } from "../vulnerabilities/intel";
 
 /* ============================================================
@@ -84,6 +91,7 @@ const DETAIL_PERM: Record<(typeof MONITOR_SPEC)[ControlMonitorKind]["source"], P
   policies: "policies:read",
   obligations: "isms:read",
   external: "controls:read",
+  hardening: "assets:read",
 };
 
 async function identityScope(db: Db, m: MonitorRow, p: MonitorParams, kinds?: ("ad" | "entra")[]) {
@@ -93,6 +101,23 @@ async function identityScope(db: Db, m: MonitorRow, p: MonitorParams, kinds?: ("
   const broken = sources.filter((s) => s.lastStatus !== "ok");
   if (broken.length) throw new MonitorError(`Zdroj bez úspěšné synchronizace: ${broken.map((s) => s.name).join(", ")} – běh se nevyhodnotí z neúplných dat.`);
   return sources;
+}
+
+/** Servery s aktuálním hlášením hardeningu (agent CONTIX 0.3+) a jejich vyhodnocení (ADR-182). */
+export async function hardeningHosts(db: Db, companyId: string, now: Date, staleDays: number, productionOnly: boolean) {
+  const stale = new Date(now.getTime() - staleDays * DAY);
+  const rows = await db
+    .select({ id: hostInventories.id, host: hostInventories.hostname, at: hostInventories.collectedAt, data: hostInventories.data })
+    .from(hostInventories)
+    .leftJoin(assets, eq(assets.id, hostInventories.assetId))
+    .where(and(eq(hostInventories.companyId, companyId), gte(hostInventories.collectedAt, stale), productionOnly ? eq(assets.environment, "production") : undefined))
+    .orderBy(asc(hostInventories.hostname));
+  return rows
+    .map((r) => {
+      const inv = normalizeInventory(r.data);
+      return inv?.hardening ? { id: r.id, host: r.host, at: r.at, sum: evaluateHardening(inv) } : null;
+    })
+    .filter((x) => x !== null);
 }
 
 export async function collectMonitor(db: Db, config: Config, m: MonitorRow, now = new Date()): Promise<Collected> {
@@ -174,6 +199,37 @@ export async function collectMonitor(db: Db, config: Config, m: MonitorRow, now 
       const avg = Math.round(rows.reduce((a, r) => a + (r.score ?? 0), 0) / rows.length);
       const low = rows.filter((r) => (r.score ?? 0) < (p.minScore ?? 80)).sort((a, b) => (a.score ?? 0) - (b.score ?? 0));
       return { value: avg, population: rows.length, exceptions: low.length, summary: `Průměrné skóre shody ${avg} % (${rows.length} politik na aktivech)`, details: top(low, (r) => ({ ref: r.asset, detail: `${r.policy}: ${r.score} %` })) };
+    }
+    case "host_hardening":
+    case "hardening_check": {
+      // ADR-182 fáze A: aktuální hlášení agentů CONTIX (ne starší než staleDays), produkční = aktivum v produkci
+      const hosts = await hardeningHosts(db, m.companyId, now, p.staleDays ?? 7, !!p.productionOnly);
+      if (!hosts.length) throw new MonitorError(`Žádný server s hlášením hardeningu za posledních ${p.staleDays ?? 7} dní – nasaďte agenta CONTIX 0.3+.`);
+      if (m.kind === "host_hardening") {
+        const scored = hosts.filter((h) => h.sum.score !== null);
+        if (!scored.length) throw new MonitorError("Agenti neposlali žádná vyhodnotitelná data hardeningu.");
+        const avg = Math.round(scored.reduce((a, h) => a + (h.sum.score ?? 0), 0) / scored.length);
+        const low = scored.filter((h) => (h.sum.score ?? 0) < (p.minScore ?? 80)).sort((a, b) => (a.sum.score ?? 0) - (b.sum.score ?? 0));
+        return { value: avg, population: scored.length, exceptions: low.length, summary: `Průměrné skóre hardeningu ${avg} % (${scored.length} serverů, pod ${p.minScore ?? 80} %: ${low.length})`, details: top(low, (h) => ({ ref: h.host, detail: `skóre ${h.sum.score} % · nesplněno ${h.sum.fail} kontrol` })) };
+      }
+      let ids = (p.checkIds ?? []).filter((id) => HARDENING_BY_ID.has(id));
+      if (!ids.length) {
+        const reqs = await db.select({ r: controlRequirements.requirementId }).from(controlRequirements).where(eq(controlRequirements.controlId, m.controlId));
+        ids = hardeningChecksForRequirements(reqs.map((x) => x.r)).map((c) => c.id);
+        if (!ids.length) throw new MonitorError("Vyberte kontroly hardeningu – k požadavkům opatření není namapovaná žádná kontrola.");
+      }
+      const want = new Set(ids);
+      let total = 0;
+      const bad: { host: string; id: string; actual: string | null }[] = [];
+      for (const h of hosts)
+        for (const r of h.sum.results) {
+          if (!want.has(r.id) || r.status === "na") continue;
+          total++;
+          if (r.status === "fail") bad.push({ host: h.host, id: r.id, actual: r.actual });
+        }
+      if (!total) throw new MonitorError("Vybrané kontroly nejsou na hlášených serverech vyhodnotitelné (n/a).");
+      const value = pct(total - bad.length, total);
+      return { value, population: total, exceptions: bad.length, summary: `Splněno ${value} % kontrol hardeningu (${ids.length} kontrol × ${hosts.length} serverů, nesplněno ${bad.length})`, details: top(bad, (b) => ({ ref: b.host, detail: `${HARDENING_BY_ID.get(b.id)?.title.cs ?? b.id}${b.actual ? ` – ${b.actual}` : ""}` })) };
     }
     case "agent_coverage": {
       const stale = new Date(now.getTime() - (p.staleDays ?? 7) * DAY);
@@ -446,6 +502,38 @@ export function monitorRoutes(deps: { db: Db; config: Config }) {
     .get("/", requirePerm("controls:read"), async (c) => {
       const controlId = c.req.query("controlId");
       return c.json(await list(c, and(inScope(c, controlMonitors.companyId), controlId ? eq(controlMonitors.controlId, controlId) : undefined)));
+    })
+    // Hardening podle opatření (ADR-182): kontroly namapované na požadavky opatření × aktuální servery
+    .get("/control-hardening/:controlId", requirePerm("controls:read"), async (c) => {
+      const [ctl] = await db.select({ id: controls.id, companyId: controls.companyId }).from(controls).where(eq(controls.id, c.req.param("controlId")));
+      if (!ctl) throw new HTTPException(404, { message: "Opatření nenalezeno" });
+      assertScope(c, ctl.companyId, "Opatření nenalezeno");
+      const reqs = await db.select({ r: controlRequirements.requirementId }).from(controlRequirements).where(eq(controlRequirements.controlId, ctl.id));
+      const checks = hardeningChecksForRequirements(reqs.map((x) => x.r));
+      const out: ControlHardeningDto = { hosts: 0, score: null, checks: [] };
+      if (!checks.length) return c.json(out);
+      const hosts = await hardeningHosts(db, ctl.companyId, new Date(), 7, false);
+      const showHosts = hasPermIn(c, "assets:read", ctl.companyId);
+      out.hosts = hosts.length;
+      let ok = 0;
+      let all = 0;
+      out.checks = checks.map((ch) => {
+        const per = hosts.map((h) => ({ inventoryId: h.id, host: h.host, r: h.sum.results.find((x) => x.id === ch.id) }));
+        const pass = per.filter((x) => x.r?.status === "pass").length;
+        const fail = per.filter((x) => x.r?.status === "fail");
+        ok += pass;
+        all += pass + fail.length;
+        return {
+          id: ch.id,
+          reqs: (ch.reqs ?? []).filter((r) => reqs.some((x) => x.r === r)),
+          pass,
+          fail: fail.length,
+          na: per.length - pass - fail.length,
+          failing: showHosts ? fail.map((x) => ({ inventoryId: x.inventoryId, host: x.host, actual: x.r?.actual ?? null })) : [],
+        };
+      });
+      out.score = all ? Math.round((ok / all) * 100) : null;
+      return c.json(out);
     })
     .post("/", requirePerm("controls:test"), zValidator("json", ControlMonitorInput), async (c) => {
       const input = c.req.valid("json");

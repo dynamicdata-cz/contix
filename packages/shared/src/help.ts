@@ -981,6 +981,7 @@ Auditor u SOC 2 Type II (a stále častěji i u ISO 27001) chce vidět, že opat
 - **Microsoft Secure Score** – skóre tenantu M365 / Entra (aplikace potřebuje oprávnění SecurityEvents.Read.All, jen čtení).
 - **Zranitelnosti po termínu opravy** a **aktivně zneužívané zranitelnosti (KEV)**.
 - **Shoda konfigurace (Wazuh SCA)**, **pokrytí aktiv agentem Wazuh**, **systémy bez podpory (EOL)**.
+- **Hardening serverů – skóre** a **Hardening serverů – vybrané kontroly** (agent CONTIX 0.3+): průměrné skóre hardeningu serverů, nebo podíl splněných vybraných kontrol na všech serverech. Když u druhého monitoru žádnou kontrolu nevyberete, použijí se kontroly namapované na požadavky opatření (vyhláška 409 / 410, ISO 27001, CIS Controls – v seznamu označené ★). Počítají se jen servery, které hlásily v posledních N dnech. V detailu opatření na záložce *Zajištění* je karta **Hardening serverů k opatření** – které kontroly k požadavkům opatření patří a které servery je nesplňují.
 - **Certifikáty** po platnosti nebo brzy končící a **alerty SOC po lhůtě**.
 - **Plnění povinných školení** a **seznámení s platnými dokumenty** (podíl v %).
 - **Povinnosti po termínu** – lhůty ze všech modulů (přezkum dokumentů, dodavatelé, přezkumy přístupů, úkoly…), volitelně jen vybrané druhy.

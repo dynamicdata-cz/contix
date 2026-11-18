@@ -1585,6 +1585,7 @@ test("import skenu zranitelností: náhled, import, triáž falešně pozitivní
 test("průběžné monitorování: nový monitor, běh, historie", async () => {
   const headers = { origin: new URL(page.url()).origin };
   await page.request.post("/api/controls", { data: { name: "E2E Aktualizace systémů", status: "implemented" }, headers });
+  await page.request.post("/api/controls", { data: { name: "E2E Řízení přístupu serverů", status: "implemented", requirementIds: ["cz409:13/2/b"] }, headers });
   await page.goto("/controls");
   await page.getByRole("main").getByRole("link", { name: "Průběžné monitorování", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: "Průběžné monitorování", level: 1 })).toBeVisible();
@@ -1600,6 +1601,17 @@ test("průběžné monitorování: nový monitor, běh, historie", async () => {
   await row.getByRole("button", { name: "Historie běhů" }).click();
   await expect(page.getByRole("dialog")).toContainText("aktivních systémů bez podpory výrobce");
   await page.keyboard.press("Escape");
+  // v1.87 (ADR-182): hardening – kontroly podle požadavků opatření označené ★
+  await page.getByRole("button", { name: "Nový monitor" }).click();
+  const dlg2 = page.getByRole("dialog");
+  await choose(dlg2.getByRole("combobox", { name: "Opatření" }), "E2E Řízení přístupu serverů");
+  await dlg2.getByLabel("Co se kontroluje").selectOption("hardening_check");
+  await expect(dlg2.getByTestId("mon-checks")).toContainText("Přihlášení roota přes SSH je zakázané ★");
+  await dlg2.getByRole("button", { name: "Uložit" }).click();
+  await expect(dlg2).toBeHidden();
+  const row2 = page.getByTestId("monitors").locator("tr", { hasText: "E2E Řízení přístupu serverů" });
+  await row2.getByRole("button", { name: "Spustit teď" }).click();
+  await expect(row2).toContainText("Chyba");
   expect(errors, errors.join("\n")).toEqual([]);
 });
 

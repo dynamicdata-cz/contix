@@ -3744,6 +3744,54 @@ describe.skipIf(!url)("API (integrace)", () => {
     await admin.json("/api/admin/settings", { method: "PATCH", json: { legalTextSource: "auto" } });
   });
 
+  test("hardening jako důkaz k opatření v1.87: monitory host_hardening / hardening_check a přehled podle požadavků (ADR-182)", async () => {
+    const { HARDENING_CHECKS, HARDENING_REQS, hardeningChecksForRequirements, requirementById } = await import("@contix/shared");
+    // každá kontrola je namapovaná a všechna ID požadavků v katalogu existují
+    for (const ch of HARDENING_CHECKS) expect(HARDENING_REQS[ch.id]?.length ?? 0).toBeGreaterThan(0);
+    for (const r of new Set(Object.values(HARDENING_REQS).flat())) expect(requirementById(r)).not.toBeNull();
+    expect(hardeningChecksForRequirements(["cz409:22/6"]).map((c) => c.id)).toContain("svc.timesync");
+    const root = ((await admin.json("/api/companies")).body as any[]).find((x) => !x.parentId);
+    const H = { "x-contix-company": root.id };
+    const ctl = (await admin.json("/api/controls", { method: "POST", headers: H, json: { code: "K-HARD", name: "Řízení přístupu na serverech", status: "implemented", requirementIds: ["cz409:13/2/b"] } })).body;
+    // bez serverů: monitor skončí chybou, přehled je prázdný
+    const mh = (await admin.json("/api/monitors", { method: "POST", headers: H, json: { controlId: ctl.id, kind: "host_hardening" } })).body;
+    expect((await admin.json(`/api/monitors/${mh.id}/run`, { method: "POST", headers: H })).body).toMatchObject({ result: "error" });
+    const conn = (await db.insert(schema.connections).values({ kind: "collector", name: "Hardening test", companyId: root.id }).returning())[0]!;
+    const inv = (host: string, root: string) => ({
+      collectorVersion: "agent/0.3.0",
+      collectedAt: new Date().toISOString(),
+      host: { hostname: host, machineId: `${host}-mid`, os: "Debian 12", kernel: "6.1", ips: [] },
+      users: [],
+      sshKeys: [],
+      hardening: { "sshd.permitrootlogin": root, "sshd.permitemptypasswords": "no", "sshd.allowusers": "", "sshd.allowgroups": "" },
+    });
+    for (const [h, r] of [["hard-a", "no"], ["hard-b", "yes"]] as const)
+      await db.insert(schema.hostInventories).values({ connectionId: conn.id, companyId: root.id, hostKey: h, hostname: h, collectedAt: new Date(), data: inv(h, r) as any });
+    // stará data se nepočítají
+    await db.insert(schema.hostInventories).values({ connectionId: conn.id, companyId: root.id, hostKey: "hard-old", hostname: "hard-old", collectedAt: new Date(Date.now() - 30 * 86_400_000), data: inv("hard-old", "yes") as any });
+    const r1 = (await admin.json(`/api/monitors/${mh.id}/run`, { method: "POST", headers: H })).body;
+    expect(r1.summary).toContain("2 serverů");
+    expect(r1.population).toBe(2);
+    // hardening_check bez výběru = kontroly podle požadavků opatření (§ 13/2/b → mimo jiné ssh.root_login)
+    const mc = (await admin.json("/api/monitors", { method: "POST", headers: H, json: { controlId: ctl.id, kind: "hardening_check" } })).body;
+    const r2 = (await admin.json(`/api/monitors/${mc.id}/run`, { method: "POST", headers: H })).body;
+    expect(r2.result).toBe("fail");
+    expect(r2.details.map((d: any) => d.ref)).toContain("hard-b");
+    expect(r2.details.map((d: any) => d.ref)).not.toContain("hard-old");
+    // výběr jedné kontroly, kterou oba servery splňují
+    await admin.json(`/api/monitors/${mc.id}`, { method: "PUT", headers: H, json: { controlId: ctl.id, kind: "hardening_check", params: { checkIds: ["ssh.empty_passwords", "neexistuje"], minPct: 100 } } });
+    const r3 = (await admin.json(`/api/monitors/${mc.id}/run`, { method: "POST", headers: H })).body;
+    expect(r3).toMatchObject({ result: "pass", value: 100, population: 2 });
+    // přehled hardeningu k opatření
+    const ov = (await admin.json(`/api/monitors/control-hardening/${ctl.id}`, { headers: H })).body;
+    expect(ov.hosts).toBe(2);
+    const rl = ov.checks.find((c: any) => c.id === "ssh.root_login");
+    expect(rl).toMatchObject({ pass: 1, fail: 1, reqs: ["cz409:13/2/b"] });
+    expect(rl.failing[0].host).toBe("hard-b");
+    expect((await admin.json(`/api/monitors/control-hardening/00000000-0000-0000-0000-000000000000`, { headers: H })).status).toBe(404);
+    await db.delete(schema.connections).where(eq(schema.connections.id, conn.id));
+  });
+
   test("automatické důkazy v1.13: monitory nad daty GRC, externí kontrola s tokenem, úkol při nesplnění (ADR-109)", async () => {
     const { processMonitors } = await import("../src/modules/controls/monitors");
     const root = ((await admin.json("/api/companies")).body as any[]).find((x) => !x.parentId);
