@@ -317,7 +317,7 @@ function MapSvg({
             {!core && <circle cx={b.w - 10} cy={10} r={4} className={STATUS_CLS[n.status].dot} />}
             <Icon x={10} y={core ? 22 : b.leaf ? 9 : 15} width={core ? 26 : 16} height={core ? 26 : 16} className={core ? "text-white" : "text-slate-500"} />
             <text x={core ? 44 : 32} y={core ? 38 : b.leaf ? 21 : 21} className={core ? "fill-white text-[17px] font-bold" : cn("fill-slate-900", b.leaf ? "text-[12px]" : "text-[13px] font-semibold")}>
-              {clip(titleOf(n), core ? 12 : b.leaf ? 18 : b.w > 300 ? 34 : 18)}
+              {clip(titleOf(n), core ? 12 : b.leaf ? (n.badge ? 15 : 19) : b.w > 300 ? 34 : 18)}
             </text>
             {core && (
               <text x={44} y={58} className="fill-white/80 text-[10px]">
@@ -330,7 +330,7 @@ function MapSvg({
               </text>
             )}
             {n.badge && !core && (
-              <text x={b.w - 20} y={b.leaf ? 22 : 38} textAnchor="end" className={cn("text-[10.5px] font-medium", b.leaf ? "fill-slate-500" : "fill-slate-400")}>
+              <text x={b.w - 20} y={b.leaf ? 22 : 38} textAnchor="end" className={cn("text-[10.5px] font-semibold", scoreFill(n.badge) ?? (b.leaf ? "fill-slate-500" : "fill-slate-400"))}>
                 {n.badge}
               </text>
             )}
@@ -350,8 +350,17 @@ function MapSvg({
   );
 }
 
+/** Odznak se skóre hardeningu barevně: < 65 % červeně, < 85 % oranžově, jinak zeleně. */
+function scoreFill(badge: string): string | null {
+  const m = /^(\d+) %$/.exec(badge);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return n >= 85 ? "fill-emerald-600" : n >= 65 ? "fill-amber-600" : "fill-red-600";
+}
+
 function subOf(n: MapNodeDto, t: ReturnType<typeof useT>) {
-  if (n.status !== "ok" && n.reasons[0]) return reasonText(n.reasons[0], t);
+  const r = n.reasons.find((x) => x.level !== "info");
+  if (n.status !== "ok" && r) return reasonText(r, t);
   if (n.kind === "service") return n.sub ?? "";
   if (n.kind === "concentrator") return [n.sub, n.facts.find((f) => f.key === "version")?.value].filter(Boolean).join(" · ");
   return n.sub ?? t(`imap.k.${n.kind}`);
@@ -398,7 +407,7 @@ function Panel({ n, m, onClose }: { n: MapNodeDto | null; m: IntegrationMapDto; 
             {n.reasons.map((r, i) => (
               <li key={i} className="flex gap-2">
                 <svg width="8" height="8" className="mt-1.5 shrink-0" aria-hidden>
-                  <circle cx="4" cy="4" r="4" className={STATUS_CLS[r.level].dot} />
+                  <circle cx="4" cy="4" r="4" className={r.level === "info" ? "fill-brand-400" : STATUS_CLS[r.level].dot} />
                 </svg>
                 <span>{reasonText(r, t)}</span>
               </li>
@@ -485,7 +494,7 @@ export function ProblemList({ m, limit = 6 }: { m: IntegrationMapDto; limit?: nu
           </svg>
           <span className="min-w-0">
             <span className="font-medium text-slate-800">{n.kind === "service" ? tk(t, `imap.svc.${n.id.slice(4)}`) : n.title}</span>
-            {n.reasons[0] && <span className="text-slate-500"> – {reasonText(n.reasons[0], t)}</span>}
+            {n.reasons.find((r) => r.level !== "info") && <span className="text-slate-500"> – {reasonText(n.reasons.find((r) => r.level !== "info")!, t)}</span>}
           </span>
         </li>
       ))}

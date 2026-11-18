@@ -3937,6 +3937,9 @@ describe("mapa propojení: zóny, stavy a vazby (v1.86, ADR-181)", () => {
     expect(st("konc-k2").status).toBe("off");
     expect(st("agent-under").status).toBe("off"); // agent vypnutého koncentrátoru
     expect(mapProblems(m)[0]!.id).toBe("agent-silent");
+    // zabezpečení serveru (nálezy, nízké skóre) je jen informace – stav spojení zůstává zelený
+    const sec = buildIntegrationMap(base({ concentrators: [konc("k9", "K", "z")], agents: [agent("sec", "k9")], hosts: [host("inv-sec", "k9", { high: 3, hardening: 40 })] }));
+    expect(sec.nodes.find((n) => n.id === "agent-sec")).toMatchObject({ status: "ok", reasons: [{ code: "high_findings", level: "info" }, { code: "hardening_low", level: "info" }], badge: "40 %" });
   });
 
   test("integrace a služby: směr toku a porty, pokrytí serverů v jádru", () => {

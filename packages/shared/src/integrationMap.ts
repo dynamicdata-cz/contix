@@ -28,7 +28,8 @@ export type MapGroupKind = "zone" | "collectors" | "monitoring" | "records" | "s
 /** Důvod stavu: kód (překlad `imap.r.<kód>`) a parametry. */
 export interface MapReason {
   code: string;
-  level: MapStatus;
+  /** „info“ = jen pro informaci (zabezpečení serveru), stav spojení nemění. */
+  level: MapStatus | "info";
   params?: Record<string, string | number>;
 }
 /** Údaj v panelu detailu: klíč (překlad `imap.f.<klíč>`) a hodnota. */
@@ -129,7 +130,7 @@ const RANK: Record<MapStatus, number> = { off: 0, ok: 1, warn: 2, error: 3 };
 /** Horší ze stavů (vypnuto se nepočítá jako problém). */
 export const worst = (...s: MapStatus[]): MapStatus => s.reduce((a, b) => (RANK[b] > RANK[a] ? b : a), "ok" as MapStatus);
 const minutes = (iso: string | null | undefined, now: Date) => (iso ? (now.getTime() - new Date(iso).getTime()) / 60_000 : Infinity);
-const statusOf = (reasons: MapReason[], off = false): MapStatus => (off ? "off" : worst(...reasons.map((r) => r.level)));
+const statusOf = (reasons: MapReason[], off = false): MapStatus => (off ? "off" : worst(...reasons.flatMap((r) => (r.level === "info" ? [] : [r.level]))));
 const since = (iso: string) => iso;
 
 /** Porovnání verzí „0.2.0-dev+20261117“ – jen čísla major.minor.patch (dev < vydaná). */
@@ -245,8 +246,9 @@ export function buildIntegrationMap(i: IntegrationMapInput): IntegrationMapDto {
         else if (!a.assetId) r.push({ code: "unpaired", level: "warn" });
         if (a.quarantined) r.push({ code: "quarantine", level: "warn", params: { n: a.quarantined } });
         if (a.version && versionLess(a.version, AGENT_LATEST_VERSION)) r.push({ code: "outdated", level: "warn", params: { v: a.version, latest: AGENT_LATEST_VERSION } });
-        if (h?.high) r.push({ code: "high_findings", level: "warn", params: { n: h.high } });
-        if (h?.hardening != null && h.hardening < 65) r.push({ code: "hardening_low", level: "warn", params: { score: h.hardening } });
+        // zabezpečení serveru je informace – barva uzlu ukazuje stav spojení
+        if (h?.high) r.push({ code: "high_findings", level: "info", params: { n: h.high } });
+        if (h?.hardening != null && h.hardening < 65) r.push({ code: "hardening_low", level: "info", params: { score: h.hardening } });
       }
       if (!k.enabled) r.push({ code: "parent_disabled", level: "off" });
       const an = node({
@@ -310,7 +312,7 @@ export function buildIntegrationMap(i: IntegrationMapInput): IntegrationMapDto {
         const r: MapReason[] = [];
         freshness(h.collectedAt, now, MAP_COLLECTOR_WARN_H * 60, MAP_COLLECTOR_ERROR_H * 60, r);
         if (!h.assetId) r.push({ code: "unpaired", level: "warn" });
-        if (h.high) r.push({ code: "high_findings", level: "warn", params: { n: h.high } });
+        if (h.high) r.push({ code: "high_findings", level: "info", params: { n: h.high } });
         if (h.assetId && agentAssets.has(h.assetId)) r.push({ code: "duplicate_source", level: "warn" });
         const hn = node({
           id: `host-${h.id}`,
@@ -480,7 +482,7 @@ export function buildIntegrationMap(i: IntegrationMapInput): IntegrationMapDto {
     parent: null,
     title: "CONTIX",
     sub: null,
-    status: worst(...coreReasons.map((r) => r.level)),
+    status: statusOf(coreReasons),
     reasons: coreReasons,
     facts: i.coverage
       ? [

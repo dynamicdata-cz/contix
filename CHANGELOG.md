@@ -2,6 +2,10 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.86.1
+
+- **Mapa propojení**: barva agenta a serveru ukazuje jen stav spojení. Nízké skóre hardeningu a vysoké nálezy jsou v panelu detailu jako informace a skóre je u uzlu barevně (červeně pod 65 %, oranžově pod 85 %, jinak zeleně). Dlouhý název serveru se už nepřekrývá se skóre.
+
 ## 1.86.0
 
 - **Mapa propojení po zónách** (ADR-181): každá zóna sítě je vlastní pruh s koncentrátorem a jeho agenty, zvlášť sběrače se servery, vpravo bezpečnostní monitoring (Wazuh, sondy, síťový sken), evidence a identity (NetBox, JIRA, AD / Entra ID) a služby (AI, CISA KEV / EPSS, e-Sbírka, e-mail / Teams, převod dokumentů, zálohy). U spojení protokol a port a počet zpráv za 24 hodin, u uzlů stav, odznak (skóre hardeningu, počet agentů) a první důvod problému.
