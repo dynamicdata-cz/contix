@@ -3868,3 +3868,90 @@ describe("kontejnery a hardening serveru (v1.85, ADR-180)", () => {
     expect(old).toMatchObject({ containers: [], engine: null, system: null, sshd: null, hardening: null });
   });
 });
+
+describe("mapa propojení: zóny, stavy a vazby (v1.86, ADR-181)", () => {
+  const { buildIntegrationMap, mapProblems, versionLess, worst } = require("@contix/shared") as typeof import("@contix/shared");
+  type In = Parameters<typeof buildIntegrationMap>[0];
+  const now = new Date("2026-11-18T10:00:00Z");
+  const ago = (min: number) => new Date(now.getTime() - min * 60_000).toISOString();
+  const konc = (id: string, name: string, zone: string, extra: Record<string, unknown> = {}) =>
+    ({ id, kind: "concentrator", name, enabled: true, companyId: null, zone, autoApprove: false, registered: true, keyFingerprint: "SHA256:k", hostname: `${id}.example`, version: "0.3.0", codeExpiresAt: null, lastSeenAt: ago(5), agents: { pending: 0, approved: 1, blocked: 0 }, status: { version: "0.3.0", hostname: "", uptimeSeconds: 1, agents: 1, queueFiles: 0, queueBytes: 0, receivedAt: ago(5) }, ...extra }) as unknown as In["concentrators"][number];
+  const agent = (id: string, concentratorId: string, extra: Record<string, unknown> = {}) =>
+    ({ id, concentratorId, concentratorName: "x", zone: "x", companyId: "c", hostname: id, hostId: id, os: "Ubuntu", version: "0.3.0", keyFingerprint: "SHA256:a", status: "approved", ackSeq: 1, lastSeenAt: ago(5), events: 1, quarantined: 0, approvedAt: ago(100), inventoryId: `inv-${id}`, assetId: `asset-${id}`, ...extra }) as unknown as In["agents"][number];
+  const host = (id: string, connectionId: string, extra: Record<string, unknown> = {}) =>
+    ({ id, connectionId, assetId: `asset-${id}`, hardening: 80, hostname: id, os: "Debian", collectorVersion: "1.2", securityUpdates: 0, connectionName: "stejné jméno", collectedAt: ago(60), users: 1, sshKeys: 0, containers: 0, high: 0, medium: 0, low: 0, ...extra }) as unknown as In["hosts"][number];
+  const col = (id: string) => ({ id, kind: "collector", name: "stejné jméno", enabled: true, companyId: null, tokenPrefix: "ctxc_", hosts: 1, lastReportAt: ago(60), installerReady: true, hostsIp: "", caPem: "" }) as unknown as In["collectors"][number];
+  const base = (p: Partial<In> = {}): In => ({ now, concentrators: [], agents: [], collectors: [], hosts: [], wazuh: [], netbox: [], jira: [], probes: [], scan: null, identity: [], services: [], agentMsgs24h: {}, coverage: null, ...p });
+
+  test("verze agenta a nejhorší stav", () => {
+    expect(versionLess("0.2.0-dev+20261117", "0.3.0")).toBe(true);
+    expect(versionLess("0.3.0-dev", "0.3.0")).toBe(true);
+    expect(versionLess("0.3.0", "0.3.0")).toBe(false);
+    expect(versionLess("1.0.0", "0.3.0")).toBe(false);
+    expect(worst("ok", "off", "warn")).toBe("warn");
+    expect(worst("off")).toBe("ok");
+  });
+
+  test("agenti patří ke koncentrátoru podle ID, ne podle jména; zóny se slučují", () => {
+    const m = buildIntegrationMap(base({
+      concentrators: [konc("k1", "Kancelář", "kancelář"), konc("k2", "Kancelář", "Kancelář "), konc("k3", "DMZ", "dmz")],
+      agents: [agent("a1", "k1"), agent("a2", "k2"), agent("a3", "k3")],
+      hosts: [host("inv-a1", "k1"), host("inv-a2", "k2"), host("inv-a3", "k3")],
+      agentMsgs24h: { a1: 96, a2: 10 },
+    }));
+    const parent = (id: string) => m.nodes.find((n) => n.id === `agent-${id}`)!.parent;
+    expect([parent("a1"), parent("a2"), parent("a3")]).toEqual(["konc-k1", "konc-k2", "konc-k3"]);
+    expect(m.groups.filter((g) => g.kind === "zone").map((g) => g.title)).toEqual(["kancelář", "dmz"]); // stejná zóna bez ohledu na velikost písmen
+    expect(m.edges.find((e) => e.from === "agent-a1")).toMatchObject({ to: "konc-k1", label: "mTLS :8443", msgs24h: 96 });
+    expect(m.edges.find((e) => e.from === "konc-k1")).toMatchObject({ to: "contix", msgs24h: 96 });
+    expect(m.totals).toEqual({ ok: 6, warn: 0, error: 0, off: 0 });
+  });
+
+  test("servery sběrače podle connectionId (dva sběrače se stejným jménem), duplicitní zdroj a sirotci", () => {
+    const m = buildIntegrationMap(base({
+      concentrators: [konc("k1", "K", "z")],
+      agents: [agent("a1", "k1", { assetId: "asset-dup" })],
+      collectors: [col("c1"), col("c2")],
+      hosts: [host("h1", "c1"), host("h2", "c2", { assetId: "asset-dup" }), host("h3", "zrušené-připojení")],
+    }));
+    expect(m.nodes.find((n) => n.id === "host-h1")!.parent).toBe("col-c1");
+    expect(m.nodes.find((n) => n.id === "host-h2")!.parent).toBe("col-c2");
+    expect(m.nodes.find((n) => n.id === "host-h2")!.reasons.map((r) => r.code)).toContain("duplicate_source");
+    expect(m.nodes.some((n) => n.id === "host-h3")).toBe(false);
+    expect(m.nodes[0]!.reasons).toEqual([{ code: "orphan_hosts", level: "warn", params: { n: 1 } }]);
+  });
+
+  test("stavy: ticho, zastaralá verze, čekající a nespárovaný agent, vypnutý koncentrátor", () => {
+    const m = buildIntegrationMap(base({
+      concentrators: [konc("k1", "K", "z", { agents: { pending: 1, approved: 3, blocked: 0 }, status: { version: "0.2.2", hostname: "", uptimeSeconds: 1, agents: 3, queueFiles: 4, queueBytes: 2048, lastForwardAt: ago(90), receivedAt: ago(50) }, version: "0.2.2" }), konc("k2", "Off", "z", { enabled: false })],
+      agents: [agent("silent", "k1", { lastSeenAt: ago(180) }), agent("old", "k1", { version: "0.2.0-dev+1" }), agent("pend", "k1", { status: "pending" }), agent("unp", "k1", { assetId: null }), agent("noinv", "k1", { inventoryId: null }), agent("under", "k2")],
+    }));
+    const st = (id: string) => m.nodes.find((n) => n.id === id)!;
+    expect(st("konc-k1").status).toBe("warn");
+    expect(st("konc-k1").reasons.map((r) => r.code).sort()).toEqual(["outdated", "pending_agents", "queue", "stale"]);
+    expect(st("agent-silent")).toMatchObject({ status: "error", reasons: [{ code: "silent" }] });
+    expect(st("agent-old").reasons[0]).toMatchObject({ code: "outdated", params: { v: "0.2.0-dev+1", latest: "0.3.0" } });
+    expect(st("agent-pend").reasons[0]!.code).toBe("pending");
+    expect(st("agent-unp").reasons[0]!.code).toBe("unpaired");
+    expect(st("agent-noinv").reasons[0]!.code).toBe("not_processed");
+    expect(st("konc-k2").status).toBe("off");
+    expect(st("agent-under").status).toBe("off"); // agent vypnutého koncentrátoru
+    expect(mapProblems(m)[0]!.id).toBe("agent-silent");
+  });
+
+  test("integrace a služby: směr toku a porty, pokrytí serverů v jádru", () => {
+    const m = buildIntegrationMap(base({
+      wazuh: [{ id: "w1", name: "Wazuh", enabled: true, url: "https://wazuh.example:55000", indexerUrl: "https://wazuh.example:9200", agents: 12, lastSyncAt: ago(30), lastSyncStatus: "completed", autoSyncHours: 24, alertsEnabled: false } as never],
+      identity: [{ id: "i1", name: "AD", kind: "ad", enabled: true, lastSyncAt: ago(60), lastStatus: "ok", lastError: null, syncHours: 24 }],
+      services: [{ key: "ai", label: "AI asistent", level: "warning", detail: "pomalé" }, { key: "backup", label: "Zálohy", level: "ok", detail: "ok" }, { key: "db", label: "DB", level: "ok", detail: "" }],
+      coverage: { servers: 10, agent: 4, collector: 2, wazuh: 8, none: 1, duplicate: 0, noneSample: [{ id: "x", name: "srv-x" }] },
+    }));
+    expect(m.edges.find((e) => e.to === "wazuh-w1")).toMatchObject({ from: "contix", label: "API :55000 · indexer :9200" });
+    expect(m.edges.find((e) => e.to === "identity-i1")!.label).toBe("LDAPS :636");
+    expect(m.edges.find((e) => e.from === "svc-backup")!.to).toBe("contix");
+    expect(m.nodes.some((n) => n.id === "svc-db")).toBe(false); // databáze není externí služba
+    expect(m.nodes.find((n) => n.id === "svc-ai")!.status).toBe("warn");
+    expect(m.nodes[0]).toMatchObject({ id: "contix", status: "warn", reasons: [{ code: "uncovered", params: { n: 1 } }] });
+    expect(m.groups.map((g) => g.kind)).toEqual(["monitoring", "records", "services"]);
+  });
+});

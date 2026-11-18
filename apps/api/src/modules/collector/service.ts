@@ -1,6 +1,6 @@
 import { syncHostFindings } from "./findings";
 import { recomputeHealth } from "../vulnerabilities/service";
-import { COLLECTOR_TOKEN_PREFIX, CONTIX_VERSION, diffHostInventory, evaluateHost, HostInventoryInput, ROOT_COMPANY_ID, type HostDetailDto, type HostInventoryDto, type CollectorConnectionDto, type CollectorConnectionInput, type HostInventory, type HostSummaryDto } from "@contix/shared";
+import { COLLECTOR_TOKEN_PREFIX, CONTIX_VERSION, diffHostInventory, evaluateHardening, evaluateHost, HostInventoryInput, ROOT_COMPANY_ID, type HostDetailDto, type HostInventoryDto, type CollectorConnectionDto, type CollectorConnectionInput, type HostInventory, type HostSummaryDto } from "@contix/shared";
 import { createHash, randomBytes } from "node:crypto";
 import { and, count, desc, eq, inArray, max, sql, type SQL } from "drizzle-orm";
 import { decrypt, encrypt } from "../../auth/crypto";
@@ -216,11 +216,14 @@ export async function hostSummaries(db: Db, where: SQL | undefined): Promise<Hos
     .orderBy(desc(hostInventories.collectedAt))
     .limit(2000);
   return rows.map(({ h, conn }) => {
-    const d = normalizeInventory(h.data) ?? (h.data as unknown as HostInventory);
-    const f = normalizeInventory(h.data) ? evaluateHost(d) : (h.findings as unknown as { severity: string }[]);
+    const norm = normalizeInventory(h.data);
+    const d = norm ?? (h.data as unknown as HostInventory);
+    const f = norm ? evaluateHost(d) : (h.findings as unknown as { severity: string }[]);
     return {
       id: h.id,
+      connectionId: h.connectionId,
       assetId: h.assetId,
+      hardening: norm ? evaluateHardening(d).score : null,
       hostname: h.hostname,
       os: d.host?.os ?? null,
       collectorVersion: d.collectorVersion ?? "",

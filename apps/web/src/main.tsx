@@ -105,6 +105,7 @@ const SecurityTestRunPage = lazyRouteComponent(() => import("./pages/SecurityTes
 const SecurityTestBatchPage = lazyRouteComponent(() => import("./pages/SecurityTests"), "SecurityTestBatchPage");
 const HostDetailPage = lazyRouteComponent(() => import("./pages/HostDetail"), "HostDetailPage");
 const DiscoveryPage = lazyRouteComponent(() => import("./pages/Discovery"), "DiscoveryPage");
+const IntegrationMapPage = lazyRouteComponent(() => import("./pages/IntegrationMapPage"), "IntegrationMapPage");
 const OrganizationPage = lazyRouteComponent(() => import("./pages/Organization"), "OrganizationPage");
 const ProcessDetailPage = lazyRouteComponent(() => import("./pages/ProcessDetail"), "ProcessDetailPage");
 const ProcessesPage = lazyRouteComponent(() => import("./pages/Processes"), "ProcessesPage");
@@ -275,6 +276,7 @@ const routeTree = root.addChildren([
     r("/assets/$assetId", AssetDetailPage),
     r("/assets/$assetId/edit", () => <AssetFormPage mode="edit" />),
     r("/discovery", DiscoveryPage),
+    r("/discovery/map", IntegrationMapPage),
     r("/discovery/hosts/$hostId", HostDetailPage),
     r("/security-tests", SecurityTestsPage),
     r("/security-tests/runs/$runId", SecurityTestRunPage),

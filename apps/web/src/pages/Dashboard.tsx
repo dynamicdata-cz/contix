@@ -1,3 +1,4 @@
+import { DataFlowCard } from "@/components/integrationMap";
 import { FrameworkBadge } from "@/components/frameworkBadge";
 import { useT } from "@/lib/i18n";
 import type { MsgKey } from "@contix/shared";
@@ -777,6 +778,8 @@ export function Dashboard() {
       {!group && (showRisks || showControls) && (
         <TrendsCard id="dashboard" className="mb-6" months={12} metrics={["compliance", "risks_unacceptable", "vulns_p1", "vulns_sla_overdue", "obligations_overdue", "findings_overdue"]} />
       )}
+
+      {mod("discovery") && can("admin:settings", "discovery:run", "soc:read") && <DataFlowCard className="mb-6" />}
 
       {runs.data && runs.data.length > 0 && (
         <Card className="overflow-hidden">

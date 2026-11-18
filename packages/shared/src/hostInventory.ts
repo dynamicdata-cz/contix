@@ -446,7 +446,11 @@ export interface HostInventoryDto {
 
 export interface HostSummaryDto {
   id: string;
+  /** Připojení (sběrač / koncentrátor), ze kterého server hlásí – vazby jen podle ID (v1.86). */
+  connectionId: string;
   assetId: string | null;
+  /** Skóre hardeningu 0–100 (agent 0.3+; null = bez dat). */
+  hardening: number | null;
   hostname: string;
   os: string | null;
   collectorVersion: string;

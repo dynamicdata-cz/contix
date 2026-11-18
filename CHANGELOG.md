@@ -2,6 +2,14 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.86.0
+
+- **Mapa propojení po zónách** (ADR-181): každá zóna sítě je vlastní pruh s koncentrátorem a jeho agenty, zvlášť sběrače se servery, vpravo bezpečnostní monitoring (Wazuh, sondy, síťový sken), evidence a identity (NetBox, JIRA, AD / Entra ID) a služby (AI, CISA KEV / EPSS, e-Sbírka, e-mail / Teams, převod dokumentů, zálohy). U spojení protokol a port a počet zpráv za 24 hodin, u uzlů stav, odznak (skóre hardeningu, počet agentů) a první důvod problému.
+- **Panel detailu**: klik na uzel ukáže, proč má daný stav (ticho, zastaralá verze, čekající nebo nespárovaný agent, fronta, končící certifikát CA zóny, selhaná synchronizace…), údaje, spojení a odkazy na server, hardening, aktivum nebo konektor. Přepínač *Jen problémy*, *Celá obrazovka*, sbalování zón s mnoha servery, ovládání klávesnicí.
+- **Pokrytí serverů**: kolik aktivních serverů posílá data přes agenta, sběrač nebo Wazuh, které nemají žádný sběr a které hlásí agent i sběrač současně.
+- **Přehled**: nová dlaždice *Stav sběru dat* (zmenšená mapa zón, souhrn, problémy, pokrytí) a samostatná stránka *Discovery → Mapa propojení* pro správu, discovery i SOC.
+- **Kontrola vazeb**: servery se ke sběrači přiřazují podle ID připojení (dříve podle názvu – dva sběrače se stejným jménem se pletly), agenti ke koncentrátoru podle ID, zóny bez ohledu na velikost písmen; servery hlášené přes neexistující připojení se hlásí jako problém. Stav i vazby počítá server jednou funkcí (`buildIntegrationMap`), stejně pro všechna zobrazení.
+
 ## 1.85.0
 
 - **Hardening serveru** (ADR-180): v detailu serveru nová záložka *Hardening* se skóre a kontrolami podle CIS Benchmark a doporučení NÚKIB – SSH (včetně šifer, MAC a výměny klíčů), parametry jádra a sítě (sysctl), volby připojení /tmp, /var/tmp a /dev/shm, práva citlivých souborů, politika hesel a zamykání účtů, sudo bez hesla, účty bez hesla, AppArmor / SELinux, auditd a centrální záznamy, synchronizace času, rizikové služby, agent detekce, moduly jádra (USB úložiště, nepoužívané protokoly a souborové systémy), heslo zavaděče, aktualizace a Docker. U každé kontroly očekávaný stav, zjištěná hodnota, proč to vadí a jak to opravit. Nesplněné kontroly vysoké a střední závažnosti jsou zároveň nálezy serveru (úkoly, přijetí rizika). Vyhodnocení je v CONTIXu – agent posílá jen hodnoty.

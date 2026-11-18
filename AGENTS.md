@@ -247,6 +247,7 @@ React 19 + Vite + TanStack Router/Query · Tailwind 4 + shadcn/ui styl.
 - Provoz: plánované úlohy chraň `acquireLease` (`modules/ops/lease.ts`); zálohy zapisuje `infra/scripts/backup.sh` do `backup_runs`;
   nové kontroly stavu doplň do `systemStatus` (`modules/ops/routes.ts`) – projeví se v Provozu i v `/api/metrics`.
 - Hardening a kontejnery serveru (ADR-180): agent posílá jen fakta, vyhodnocení jen `evaluateHardening` (katalog `HARDENING_CHECKS` v `shared/hardening.ts`, texty cs + en); popisky nálezů serveru jen `hostFindingLabel` / `hostFindingGuide` / `hostFindingSubject`.
+- Mapa propojení (ADR-181): stavy, důvody a vazby jen `buildIntegrationMap` (`shared/integrationMap.ts`, vazby podle ID, nikdy podle názvu), API `/api/integrations/map`, kreslí jen `components/integrationMap.tsx`.
 - Vzhled (ADR-179): čísla jen `Kpi`, název stránky přes `PageHeader` (drobečky), detail záznamu se otevírá ke čtení – přehled z `components/detailView.tsx` nebo `FormView`, úpravy jen přes `EditActions`.
 - Každá změna s testem; před dokončením spusť typecheck a testy.
 - Architektonická rozhodnutí zapisuj jako ADR do `docs/05_decisions/`.

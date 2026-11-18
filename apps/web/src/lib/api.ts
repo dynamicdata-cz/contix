@@ -1,4 +1,5 @@
 import type {
+  IntegrationMapDto,
   FindingsQuery,
   FindingPlanViewDto,
   FindingEscalationDto,
@@ -1932,6 +1933,10 @@ export const api = {
     reportUrl: (q: { batchIds?: string; from?: string; to?: string; all?: "1" }, fmt: "html" | "docx" = "html") => withCompany(`/api/security-tests/report.${fmt}?${qs(q)}`),
   },
 
+  integrations: {
+    /** Mapa propojení (v1.86): zóny, uzly, spojení, stavy a pokrytí serverů. */
+    map: () => request<IntegrationMapDto>("/integrations/map"),
+  },
   hosts: {
     list: () => request<HostSummaryDto[]>("/hosts"),
     byAsset: (assetId: string) => request<HostInventoryDto[]>(`/hosts/by-asset/${assetId}`),

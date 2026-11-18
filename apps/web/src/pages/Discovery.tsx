@@ -44,7 +44,17 @@ export function DiscoveryPage() {
 
   return (
     <>
-      <PageHeader title={t("ast.discoveryImport")} subtitle={t("ast.automatickeZjistovaniAktivAHromadne")} />
+      <PageHeader
+        title={t("ast.discoveryImport")}
+        subtitle={t("ast.automatickeZjistovaniAktivAHromadne")}
+        actions={
+          can("admin:settings", "discovery:run", "soc:read") && (
+          <Link to="/discovery/map" className="text-sm text-brand-700 hover:underline" data-testid="discovery-map-link">
+            {t("imap.open")} →
+          </Link>
+          )
+        }
+      />
 
       <div className="mb-6 grid gap-6 lg:grid-cols-3">
         <Card>

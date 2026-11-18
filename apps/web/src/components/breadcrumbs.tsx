@@ -61,6 +61,7 @@ const PAGES: [string, MsgKey][] = [
   ["/legislation", "nav.legislation"],
   ["/awareness", "nav.awareness"],
   ["/discovery", "nav.discovery"],
+  ["/discovery/map", "imap.open"],
   ["/security-tests", "st.title"],
   ["/import", "nav.import"],
   ["/profile", "profile.title"],

@@ -10942,6 +10942,29 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(audits.map((a) => a.action)).toEqual(expect.arrayContaining(["host.asset_created", "host.asset_linked"]));
   });
 
+  test("mapa propojení: zóny, agenti u svého koncentrátoru, pokrytí serverů, oprávnění (v1.86)", async () => {
+    const r = await admin.json("/api/integrations/map");
+    expect(r.status).toBe(200);
+    const m = r.body;
+    const conc = (await admin.json("/api/admin/connections")).body.concentrators as any[];
+    const agents = (await admin.json("/api/admin/connections/agents")).body.agents as any[];
+    expect(m.nodes[0]).toMatchObject({ id: "contix", kind: "core" });
+    for (const a of agents) expect(m.nodes.find((n: any) => n.id === `agent-${a.id}`).parent).toBe(`konc-${a.concentratorId}`);
+    for (const k of conc) expect(m.edges.some((e: any) => e.from === `konc-${k.id}` && e.to === "contix")).toBe(true);
+    expect(m.groups.some((g: any) => g.kind === "zone" && g.title === "serverovna")).toBe(true);
+    expect(m.coverage.servers).toBeGreaterThan(0);
+    expect(m.coverage.agent).toBeGreaterThan(0);
+    expect(m.nodes.some((n: any) => n.kind === "service")).toBe(true); // správce vidí služby
+    expect(Object.values(m.totals).reduce((a: number, b: any) => a + b, 0)).toBe(m.nodes.length - 1);
+    // čtenář bez discovery / SOC / správy mapu nedostane
+    const viewer = browser();
+    await admin.json("/api/admin/users", { method: "POST", json: { email: "map.viewer@test.cz", displayName: "Čtenář mapy", password: PW, roleIds: [await roleId("viewer")] } });
+    await viewer.login("map.viewer@test.cz");
+    await viewer.json("/api/auth/password", { method: "POST", json: { currentPassword: PW, newPassword: "Ctenar-Heslo-2026!" } });
+    expect((await viewer.json("/api/integrations/map")).status).toBe(403);
+    expect((await browser().json("/api/integrations/map")).status).toBe(401);
+  });
+
   /* ============ Audit a odhlášení ============ */
 
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {

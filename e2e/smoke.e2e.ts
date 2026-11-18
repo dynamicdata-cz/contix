@@ -2443,8 +2443,30 @@ test("agent CONTIX: server bez aktiva, založení aktiva, balíčky a plánovan�
   await expect(map.getByTestId(`map-node-agent-${agent.agentId}`)).toBeVisible();
   await expect(map.getByTestId("map-node-contix")).toBeVisible();
   if (process.env.E2E_SHOTS) await map.screenshot({ path: `${process.env.E2E_SHOTS}/integration-map.png` });
+  // v1.86: zóna jako pruh, klik na uzel otevře panel s důvody, spojeními a odkazy
+  await expect(map.locator('[data-testid^="map-lane-zone-"]').first()).toBeVisible();
   await map.getByTestId(`map-node-agent-${agent.agentId}`).click();
+  const panel = map.getByTestId("map-panel");
+  await expect(panel).toContainText("e2e-agent-01");
+  await expect(panel.getByTestId("map-panel-edges")).toContainText("mTLS :8443");
+  await map.getByTestId("map-only-problems").click();
+  await expect(map.getByTestId("map-only-problems")).toHaveAttribute("aria-pressed", "true");
+  await map.getByTestId("map-only-problems").click();
+  await map.getByTestId("map-fullscreen").click();
+  await expect(page.getByRole("dialog", { name: "Mapa propojení" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Mapa propojení" })).toHaveCount(0);
+  await page.getByTestId("integration-map").getByTestId("map-panel").getByTestId("map-link-host").click();
   await expect(page.getByTestId("host-detail")).toBeVisible();
+  // Přehled: dlaždice Stav sběru dat → samostatná stránka mapy
+  await page.goto("/");
+  const flow = page.getByTestId("dash-dataflow");
+  await expect(flow).toBeVisible();
+  await expect(flow.getByTestId("map-coverage")).toBeVisible();
+  if (process.env.E2E_SHOTS) await flow.screenshot({ path: `${process.env.E2E_SHOTS}/dash-dataflow.png` });
+  await flow.getByTestId("dash-dataflow-open").click();
+  await expect(page.getByTestId("integration-map-page")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/integration-map-page.png`, fullPage: true });
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
