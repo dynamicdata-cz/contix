@@ -110,3 +110,4 @@ export * from "./regulatedServices";
 export * from "./findings";
 export * from "./quality";
 export * from "./bulk";
+export * from "./hardening";

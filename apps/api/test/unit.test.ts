@@ -2046,7 +2046,7 @@ test("knihovna rámců: převod tabulky, OSCAL, ověření, registr a mapování
 test("přihlášení účtem AD: jméno, escapování filtru, shoda skupin (ADR-078)", async () => {
   const { parseLoginName, ldapEscape, groupsMatch, AdLoginConfig, SsoProviderInput } = await import("@contix/shared");
   expect(parseLoginName("LAB\\jan.novak")).toEqual({ kind: "sam", value: "jan.novak" });
-  expect(parseLoginName("jan.novak@lab.internal")).toEqual({ kind: "upn", value: "jan.novak@lab.internal" });
+  expect(parseLoginName("jan.novak@example.test")).toEqual({ kind: "upn", value: "jan.novak@example.test" });
   expect(parseLoginName(" petr ")).toEqual({ kind: "sam", value: "petr" });
   // injekce do filtru LDAP: *, (, ), \ a NUL se escapují
   expect(ldapEscape("*)(uid=*))(|(uid=*")).toBe("\\2a\\29\\28uid=\\2a\\29\\29\\28|\\28uid=\\2a");
@@ -3299,7 +3299,7 @@ describe("sběrač ze serverů (v1.51)", () => {
         { user: "a", type: "ssh-rsa", bits: 4096, fingerprint: "F3", comment: "a@b", options: [] },
         { user: "a", type: "ecdsa-sha2-nistp256", bits: 256, fingerprint: "F4", comment: "a@b", options: [] },
       ],
-      containers: [{ name: "c", image: "i", imageId: null, status: "", privileged: false, user: "0:0", ports: [], project: null }],
+      containers: HostInventoryInput.parse({ collectedAt: "2026-11-10T10:00:00Z", host: { hostname: "h" }, containers: [{ name: "c", image: "i", user: "0:0" }] }).containers,
       firewall: { tool: "iptables", rulesHash: "x", savedHash: "x", defaultInput: "accept", ruleCount: 0 },
     });
     expect(f.map((x) => `${x.code}:${x.severity}`)).toEqual(["ssh_key_weak:high", "ssh_key_weak:high", "container_root:medium", "fw_default_accept:high"]);
@@ -3748,5 +3748,123 @@ describe("agent → stav hostitele a inventář (ADR-177, fáze 2)", () => {
     expect(inv.firewall.tool).toBe("none");
     expect(inv.scheduled[0]!.schedule.length).toBe(200);
     expect(agentStateToInventory({ host: {}, modules: {}, at: "2026-11-17T10:00:00Z" }, { hostId: "h", version: null })).toBeNull(); // bez jména serveru
+  });
+});
+
+describe("kontejnery a hardening serveru (v1.85, ADR-180)", () => {
+  const { evaluateHost, evaluateHardening, HostInventoryInput, HARDENING_CHECKS, hostFindingLabel, hostFindingGuide, hostFindingSubject } = require("@contix/shared") as typeof import("@contix/shared");
+  const base = (extra: Record<string, unknown> = {}) =>
+    HostInventoryInput.parse({ collectedAt: "2026-11-18T08:00:00Z", host: { hostname: "h" }, firewall: { tool: "nftables", rulesHash: "x", savedHash: "x", defaultInput: "drop", ruleCount: 5 }, ...extra });
+
+  test("katalog: unikátní id, texty česky i anglicky", () => {
+    const ids = HARDENING_CHECKS.map((c) => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const c of HARDENING_CHECKS) for (const x of [c.title, c.expect, c.why, c.fix]) expect(x.cs.length > 3 && x.en.length > 3).toBe(true);
+  });
+
+  test("bez faktů agenta se hardening nevyhodnocuje", () => {
+    expect(evaluateHardening(base())).toEqual({ score: null, pass: 0, fail: 0, na: 0, results: [] });
+  });
+
+  test("vyhodnocení faktů: vyhovuje / nevyhovuje / nelze ověřit a vážené skóre", () => {
+    const inv = base({
+      hardening: {
+        "sysctl.kernel.randomize_va_space": "2",
+        "sysctl.net.ipv4.tcp_syncookies": "0",
+        "mount./tmp": "nodev,nosuid,rw",
+        "mount./dev/shm": "noexec,nodev,nosuid,rw",
+        "perm./etc/shadow": "0644 0:42",
+        "perm./etc/passwd": "0644 0:0",
+        "accounts.emptyPassword": "",
+        "sudo.nopasswd": "deploy",
+        "sshd.permitrootlogin": "no",
+        "sshd.ciphers": "chacha20-poly1305@openssh.com,aes128-cbc",
+        "sshd.macs": "hmac-sha2-256-etm@openssh.com",
+        "module.usb_storage": "blocked",
+      },
+    });
+    const r = new Map(evaluateHardening(inv).results.map((x) => [x.id, x]));
+    expect(r.get("kernel.aslr")!.status).toBe("pass");
+    expect(r.get("net.syncookies")!.status).toBe("fail");
+    expect(r.get("fs.tmp")).toMatchObject({ status: "fail", actual: "chybí noexec" });
+    expect(r.get("fs.dev_shm")!.status).toBe("pass");
+    expect(r.get("fs.perm_accounts")!.status).toBe("fail"); // shadow čitelný všemi
+    expect(r.get("acc.empty_password")!.status).toBe("pass");
+    expect(r.get("acc.sudo_nopasswd")).toMatchObject({ status: "fail", actual: "deploy" });
+    expect(r.get("ssh.root_login")!.status).toBe("pass");
+    expect(r.get("ssh.weak_ciphers")).toMatchObject({ status: "fail", actual: "aes128-cbc" });
+    expect(r.get("ssh.weak_macs")!.status).toBe("pass");
+    expect(r.get("boot.usb_storage")!.status).toBe("pass");
+    expect(r.get("log.journald")!.status).toBe("na"); // fakt chybí
+    expect(r.get("ctr.tcp_socket")!.status).toBe("na"); // bez Dockeru
+    const s = evaluateHardening(inv);
+    expect(s.score).toBeGreaterThan(0);
+    expect(s.score).toBeLessThan(100);
+    expect(s.pass + s.fail + s.na).toBe(HARDENING_CHECKS.length);
+  });
+
+  test("nálezy kontejnerů a enginu", () => {
+    const inv = base({
+      containers: [
+        { name: "portainer", image: "portainer/portainer-ce", user: "1000", mounts: [{ type: "bind", source: "/var/run/docker.sock", destination: "/var/run/docker.sock", rw: true }] },
+        { name: "vpn", image: "wg", user: "1000", networkMode: "host", capAdd: ["NET_ADMIN", "CAP_SYS_MODULE"], securityOpt: ["seccomp=unconfined"] },
+        { name: "backup", image: "b", user: "1000", mounts: [{ type: "bind", source: "/etc", destination: "/host/etc", rw: true }, { type: "bind", source: "/srv/data", destination: "/data", rw: true }] },
+      ],
+      engine: { version: "27.3.1", groupMembers: ["alice"], tcpHosts: ["tcp://0.0.0.0:2375"] },
+    });
+    const f = evaluateHost(inv).filter((x) => x.code !== "hardening");
+    expect(f.map((x) => `${x.code}:${x.severity}:${x.subject}`)).toEqual([
+      "container_engine_socket:high:portainer",
+      "container_host_namespace:medium:vpn: network",
+      "container_capabilities:high:vpn: NET_ADMIN, SYS_MODULE",
+      "container_unconfined:medium:vpn: seccomp=unconfined",
+      "container_sensitive_mount:high:backup: /etc",
+      "engine_tcp_socket:high:tcp://0.0.0.0:2375",
+      "engine_group:medium:alice",
+    ]);
+  });
+
+  test("nesplněné vysoké a střední kontroly jsou nálezy (bez duplicit s ostatními nálezy)", () => {
+    const inv = base({ hardening: { "sysctl.kernel.randomize_va_space": "0", "sysctl.kernel.dmesg_restrict": "0", "sshd.passwordauthentication": "yes" } });
+    const f = evaluateHost(inv).filter((x) => x.code === "hardening");
+    expect(f).toEqual([{ code: "hardening", severity: "medium", subject: "kernel.aslr" }]); // dmesg je nízký, heslo SSH hlásí sshd_password_auth jen ze sběrače
+    expect(hostFindingLabel(f[0]!)).toBe("Náhodné rozložení paměti (ASLR)");
+    expect(hostFindingSubject(f[0]!)).toBeNull();
+    expect(hostFindingGuide(f[0]!)!.fix).toContain("randomize_va_space");
+    expect(hostFindingLabel({ code: "fw_none", subject: null })).toBe("Firewall není nastaven (žádná pravidla iptables / nftables)");
+  });
+
+  test("agent 0.3: kontejnery, image, engine, aktualizace, sshd a fakta do inventáře", async () => {
+    const { agentStateToInventory } = await import("../src/modules/agents/process");
+    const inv = agentStateToInventory(
+      {
+        host: { hostname: "srv", hostId: "abc" },
+        modules: {
+          containers: {
+            web: { name: "web", id: "4f0c1b2a3d4e", image: "nginx:1.27", imageId: "abcdef012345", state: "running", user: "", privileged: false, readOnlyRootfs: true, noNewPrivileges: true, networkMode: "bridge", capDrop: ["ALL"], ports: ["0.0.0.0:8080->80/tcp"], mounts: [{ type: "volume", source: "data", destination: "/data", rw: true }], memoryLimit: 536870912, pidsLimit: 100, healthcheck: true, project: "shop", service: "web", env: ["SECRET=x"] },
+          },
+          images: { abc: { id: "abcdef012345", tags: ["nginx:1.27", "registry.example:5000/app"], size: 1000 } },
+          engine: { engine: { name: "docker", version: "27.3.1", socket: "/run/docker.sock", socketMode: "0660", socketGroup: "docker", groupMembers: ["alice"], icc: false, liveRestore: true, noNewPrivileges: true, tcpHosts: [] } },
+          system: { system: { bootedAt: "2026-11-01T00:00:00Z", rebootRequired: true, packageManager: "apt", updatesPending: 3, securityUpdates: 1, autoUpdates: false, updates: [{ name: "libssl3", version: "3", security: true }] } },
+          sshd: { sshd: { permitrootlogin: "no", passwordauthentication: "no", port: "22 2222", maxauthtries: "3", ciphers: "aes256-gcm@openssh.com" } },
+          hardening: { "sysctl.kernel.randomize_va_space": { v: "2" }, "mount./tmp": { v: "-" } },
+        },
+        at: "2026-11-18T08:00:00Z",
+      },
+      { hostId: "abc", version: "0.3.0" },
+    )!;
+    expect(inv.containers[0]).toMatchObject({ name: "web", status: "running", state: "running", readOnlyRootfs: true, noNewPrivileges: true, capDrop: ["ALL"], mounts: [{ type: "volume", source: "data", destination: "/data", rw: true }], pidsLimit: 100, service: "web" });
+    expect(JSON.stringify(inv)).not.toContain("SECRET");
+    expect(inv.images.map((i) => `${i.repo}:${i.tag}`)).toEqual(["nginx:1.27", "registry.example:5000/app:"]);
+    expect(inv.engine).toMatchObject({ version: "27.3.1", groupMembers: ["alice"], icc: false, liveRestore: true });
+    expect(inv.system).toMatchObject({ rebootRequired: true, securityUpdates: 1, autoUpdates: false });
+    expect(inv.sshd).toMatchObject({ permitRootLogin: "no", passwordAuthentication: false, maxAuthTries: 3, ports: [22, 2222] });
+    expect(inv.hardening).toMatchObject({ "sysctl.kernel.randomize_va_space": "2", "mount./tmp": "-", "sshd.ciphers": "aes256-gcm@openssh.com" });
+    const codes = evaluateHost(inv).map((f) => f.code);
+    expect(codes).toContain("engine_group");
+    expect(codes).toContain("updates_security");
+    // starší agent bez nových modulů: nic nového
+    const old = agentStateToInventory({ host: { hostname: "srv" }, modules: {}, at: "2026-11-18T08:00:00Z" }, { hostId: "x", version: "0.2.2" })!;
+    expect(old).toMatchObject({ containers: [], engine: null, system: null, sshd: null, hardening: null });
   });
 });

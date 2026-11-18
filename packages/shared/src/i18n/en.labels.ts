@@ -1,3 +1,5 @@
+import { hardeningEnLabels } from "../hardening";
+
 /** Anglické překlady hotových českých textů (t.lbl / lbl) – klíč `lbl:<český text>`. Generováno z *_LABELS, MODULES, SECURITY_ROLES, stupnic rizik, map v komponentách a chybových hlášek API. */
 export const EN_LABELS: Record<string, string> = {
   "lbl:2–5 let (jen po celcích)": "2–5 years (by sections only)",
@@ -2730,4 +2732,30 @@ export const EN_LABELS: Record<string, string> = {
   "lbl:Neplatný podpis nebo neznámý koncentrátor": "Invalid signature or unknown concentrator",
   "lbl:Neplatný, použitý nebo prošlý registrační kód koncentrátoru": "Invalid, used or expired concentrator registration code",
   "lbl:Agent nenalezen": "Agent not found",
+  // v1.85 (ADR-180): nálezy kontejnerů, enginu a hardeningu
+  "lbl:Kontejner má připojený soket Dockeru": "Container mounts the Docker socket",
+  "lbl:Kontejner sdílí síť / procesy hostitele": "Container shares the host network / processes",
+  "lbl:Kontejner má nebezpečná oprávnění jádra": "Container has dangerous kernel capabilities",
+  "lbl:Kontejner bez ochrany seccomp / AppArmor": "Container without seccomp / AppArmor protection",
+  "lbl:Kontejner má zapisovatelnou systémovou složku hostitele": "Container has a writable host system directory",
+  "lbl:API Dockeru je dostupné po síti bez TLS": "Docker API exposed over the network without TLS",
+  "lbl:Uživatelé ve skupině docker (práva roota)": "Users in the docker group (root privileges)",
+  "lbl:Nesplněná kontrola hardeningu": "Failed hardening check",
+  "lbl:Kontejner se soketem Dockeru může spouštět další kontejnery s přístupem k celému hostiteli – fakticky má práva roota na serveru.": "A container with the Docker socket can start other containers with access to the whole host – it effectively has root on the server.",
+  "lbl:Odeberte svazek /var/run/docker.sock; pokud kontejner potřebuje informace o ostatních, použijte proxy s omezeným API jen pro čtení (např. docker-socket-proxy).": "Remove the /var/run/docker.sock volume; if the container needs information about others, use a read-only restricted API proxy (e.g. docker-socket-proxy).",
+  "lbl:Sdílená síť nebo procesy hostitele ruší izolaci – kontejner vidí síťový provoz a procesy serveru.": "A shared host network or process namespace removes isolation – the container sees the server's traffic and processes.",
+  "lbl:Odeberte network_mode: host / pid: host / ipc: host a porty publikujte přes ports.": "Remove network_mode: host / pid: host / ipc: host and publish ports via ports.",
+  "lbl:Oprávnění jako SYS_ADMIN nebo SYS_MODULE umožní z kontejneru ovládnout jádro hostitele.": "Capabilities such as SYS_ADMIN or SYS_MODULE let a container take over the host kernel.",
+  "lbl:Odeberte cap_add (nebo ponechte jen nezbytné, např. NET_BIND_SERVICE) a přidejte cap_drop: [ALL].": "Remove cap_add (or keep only what is needed, e.g. NET_BIND_SERVICE) and add cap_drop: [ALL].",
+  "lbl:Bez profilu seccomp / AppArmor může proces v kontejneru volat i nebezpečná systémová volání.": "Without a seccomp / AppArmor profile a process in the container can make dangerous system calls.",
+  "lbl:Odeberte security_opt seccomp=unconfined / apparmor=unconfined; pokud aplikace potřebuje výjimku, připravte vlastní profil.": "Remove security_opt seccomp=unconfined / apparmor=unconfined; if the application needs an exception, prepare a custom profile.",
+  "lbl:Zapisovatelná systémová složka hostitele (/etc, /root, /boot…) v kontejneru umožní změnit konfiguraci serveru.": "A writable host system directory (/etc, /root, /boot…) in a container allows changing the server configuration.",
+  "lbl:Připojte jen konkrétní soubory nebo složky, a pokud možno jen pro čtení (:ro).": "Mount only specific files or directories, read-only (:ro) where possible.",
+  "lbl:Nechráněné API Dockeru na síti dává komukoli v síti práva roota na serveru.": "An unprotected Docker API on the network gives anyone on the network root on the server.",
+  "lbl:Odeberte tcp:// z \"hosts\" v /etc/docker/daemon.json a z ExecStart služby docker, nebo zapněte tlsverify s klientskými certifikáty.": "Remove tcp:// from \"hosts\" in /etc/docker/daemon.json and the docker service ExecStart, or enable tlsverify with client certificates.",
+  "lbl:Člen skupiny docker může přes kontejner získat práva roota – jde o privilegovaný účet, který musí být evidovaný a přezkoumávaný.": "A docker group member can become root through a container – it is a privileged account that must be recorded and reviewed.",
+  "lbl:Ověřte členy (getent group docker), odeberte nepotřebné (gpasswd -d <uživatel> docker) a zbylé evidujte jako privilegované účty.": "Review members (getent group docker), remove unneeded ones (gpasswd -d <user> docker) and record the rest as privileged accounts.",
+  "lbl:Nastavení serveru neodpovídá doporučení CIS Benchmark / NÚKIB.": "The server configuration does not match CIS Benchmark / NÚKIB recommendations.",
+  "lbl:Postup je u kontroly v záložce Hardening v detailu serveru.": "See the check in the Hardening tab of the server detail.",
+  ...hardeningEnLabels(),
 };

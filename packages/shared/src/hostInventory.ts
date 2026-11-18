@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { capName, DANGEROUS_CAPS, evaluateHardening, HARDENING_BY_ID, mountsEngineSocket, SENSITIVE_HOST_PATHS } from "./hardening";
 
 /* ============================================================
  * Sběrač ze serverů (v1.51, ADR-148): účty, otisky SSH klíčů, kontejnery a image, služby, naslouchající porty
@@ -57,10 +58,62 @@ export const HostInventoryInput = z.object({
       user: s(100).default(""),
       ports: list(s(100), 100),
       project: s(200).nullable().default(null),
+      /* podrobnosti (agent 0.3+, sběrač 1.2+; null = neznámo) */
+      id: s(20).nullable().default(null),
+      state: s(40).nullable().default(null),
+      health: s(40).nullable().default(null),
+      created: s(40).nullable().default(null),
+      startedAt: s(40).nullable().default(null),
+      restartCount: z.number().int().min(0).nullable().default(null),
+      restart: s(40).nullable().default(null),
+      readOnlyRootfs: z.boolean().nullable().default(null),
+      noNewPrivileges: z.boolean().nullable().default(null),
+      networkMode: s(200).nullable().default(null),
+      pidMode: s(200).nullable().default(null),
+      ipcMode: s(200).nullable().default(null),
+      usernsMode: s(200).nullable().default(null),
+      capAdd: list(s(60), 100),
+      capDrop: list(s(60), 100),
+      securityOpt: list(s(200), 50),
+      apparmor: s(200).nullable().default(null),
+      devices: list(s(200), 100),
+      mounts: list(z.object({ type: s(20).default(""), source: s(300).default(""), destination: s(300).default(""), rw: z.boolean().default(true) }), 200),
+      memoryLimit: z.number().min(0).nullable().default(null),
+      cpuLimit: z.number().min(0).nullable().default(null),
+      pidsLimit: z.number().int().min(0).nullable().default(null),
+      healthcheck: z.boolean().nullable().default(null),
+      service: s(200).nullable().default(null),
     }),
     2000,
   ),
-  images: list(z.object({ repo: s(500), tag: s(200).default(""), id: s(100).default(""), created: s(60).nullable().default(null) }), 5000),
+  images: list(z.object({ repo: s(500), tag: s(200).default(""), id: s(100).default(""), created: s(60).nullable().default(null), size: z.number().min(0).nullable().default(null) }), 5000),
+  /** Kontejnerový engine (agent 0.3+): verze a bezpečnostní nastavení Dockeru / Podmanu. */
+  engine: z
+    .object({
+      name: s(20).default("docker"),
+      version: s(40).default(""),
+      socket: s(200).default(""),
+      socketMode: s(10).nullable().default(null),
+      socketGroup: s(64).nullable().default(null),
+      groupMembers: list(s(64), 500),
+      securityOptions: list(s(120), 20),
+      rootless: z.boolean().default(false),
+      usernsRemap: z.boolean().default(false),
+      liveRestore: z.boolean().default(false),
+      loggingDriver: s(40).nullable().default(null),
+      icc: z.boolean().nullable().default(null),
+      noNewPrivileges: z.boolean().default(false),
+      tcpHosts: list(s(100), 20),
+      tlsVerify: z.boolean().default(false),
+    })
+    .nullable()
+    .default(null),
+  /** Fakta pro kontroly hardeningu (agent 0.3+): klíč → hodnota; vyhodnocení `evaluateHardening`. */
+  hardening: z
+    .record(z.string().max(120), z.string().max(1000))
+    .refine((r) => Object.keys(r).length <= 1000, "Příliš mnoho faktů hardeningu")
+    .nullable()
+    .default(null),
   services: list(z.object({ name: s(200).min(1), state: s(40), enabled: z.boolean().nullable().default(null) }), 5000),
   listening: list(z.object({ proto: s(10), address: s(100), port: z.number().int().min(0).max(65535), process: s(200).nullable().default(null) }), 5000),
   firewall: z
@@ -129,6 +182,15 @@ export const HOST_FINDING_CODES = [
   "reboot_required",
   "no_auto_updates",
   "service_failed",
+  // v1.85 (ADR-180): kontejnery, engine a hardening
+  "container_engine_socket",
+  "container_host_namespace",
+  "container_capabilities",
+  "container_unconfined",
+  "container_sensitive_mount",
+  "engine_tcp_socket",
+  "engine_group",
+  "hardening",
 ] as const;
 export type HostFindingCode = (typeof HOST_FINDING_CODES)[number];
 
@@ -177,8 +239,43 @@ export function evaluateHost(inv: HostInventory): HostFinding[] {
     if (sy.autoUpdates === false) out.push({ code: "no_auto_updates", severity: "low", subject: sy.packageManager });
   }
   for (const sv of inv.services) if (sv.state === "failed") out.push({ code: "service_failed", severity: "low", subject: sv.name });
+  for (const c of inv.containers) {
+    if (c.mounts.some(mountsEngineSocket)) out.push({ code: "container_engine_socket", severity: "high", subject: c.name });
+    const ns = [c.networkMode === "host" ? "network" : "", c.pidMode === "host" ? "pid" : "", c.ipcMode === "host" ? "ipc" : "", c.usernsMode === "host" ? "userns" : ""].filter(Boolean);
+    if (ns.length) out.push({ code: "container_host_namespace", severity: c.pidMode === "host" ? "high" : "medium", subject: `${c.name}: ${ns.join(", ")}` });
+    const caps = c.capAdd.map(capName).filter((x) => DANGEROUS_CAPS.includes(x));
+    if (caps.length && !c.privileged) out.push({ code: "container_capabilities", severity: caps.some((x) => x === "ALL" || x === "SYS_ADMIN" || x === "SYS_MODULE") ? "high" : "medium", subject: `${c.name}: ${caps.join(", ")}` });
+    const unconf = c.securityOpt.filter((o) => /(seccomp|apparmor|label)[:=](unconfined|disable)/i.test(o));
+    if (unconf.length || c.apparmor === "unconfined") out.push({ code: "container_unconfined", severity: "medium", subject: `${c.name}: ${unconf.join(", ") || "apparmor=unconfined"}` });
+    const sens = c.mounts.filter((m) => m.type === "bind" && m.rw && SENSITIVE_HOST_PATHS.includes(m.source.replace(/\/+$/, "") || "/") && !mountsEngineSocket(m));
+    if (sens.length) out.push({ code: "container_sensitive_mount", severity: sens.some((m) => m.source === "/" || m.source === "/etc" || m.source === "/root") ? "high" : "medium", subject: `${c.name}: ${sens.map((m) => m.source || "/").join(", ")}` });
+  }
+  const e = inv.engine;
+  if (e) {
+    if (e.tcpHosts.length && !e.tlsVerify) out.push({ code: "engine_tcp_socket", severity: "high", subject: e.tcpHosts.join(", ") });
+    if (e.groupMembers.length && !e.rootless) out.push({ code: "engine_group", severity: "medium", subject: e.groupMembers.join(", ") });
+  }
+  // nesplněné kontroly hardeningu (vysoké a střední, které nehlásí jiný nález)
+  for (const r of evaluateHardening(inv).results)
+    if (r.status === "fail" && r.sev !== "low" && !HARDENING_BY_ID.get(r.id)?.dup) out.push({ code: "hardening", severity: r.sev, subject: r.id });
   return out;
 }
+
+/** Popis nálezu: u hardeningu název kontroly, jinak druh nálezu (česky; anglicky přes lbl). */
+export function hostFindingLabel(f: { code: string; subject: string | null }): string {
+  if (f.code === "hardening" && f.subject) return HARDENING_BY_ID.get(f.subject)?.title.cs ?? f.subject;
+  return HOST_FINDING_LABELS[f.code as HostFindingCode] ?? f.code;
+}
+/** Proč a jak opravit – u hardeningu z katalogu kontrol. */
+export function hostFindingGuide(f: { code: string; subject: string | null }): { why: string; fix: string } | null {
+  if (f.code === "hardening" && f.subject) {
+    const ch = HARDENING_BY_ID.get(f.subject);
+    return ch ? { why: ch.why.cs, fix: ch.fix.cs } : null;
+  }
+  return HOST_FINDING_GUIDE[f.code as HostFindingCode] ?? null;
+}
+/** Předmět nálezu k zobrazení (u hardeningu se nezobrazuje id kontroly). */
+export const hostFindingSubject = (f: { code: string; subject: string | null }) => (f.code === "hardening" ? null : f.subject);
 
 export const HOST_FINDING_LABELS: Record<HostFindingCode, string> = {
   uid0_user: "Další účet s UID 0 (práva roota)",
@@ -198,6 +295,14 @@ export const HOST_FINDING_LABELS: Record<HostFindingCode, string> = {
   reboot_required: "Server čeká na restart (nové jádro nebo knihovny)",
   no_auto_updates: "Automatické bezpečnostní aktualizace nejsou zapnuté",
   service_failed: "Služba skončila chybou",
+  container_engine_socket: "Kontejner má připojený soket Dockeru",
+  container_host_namespace: "Kontejner sdílí síť / procesy hostitele",
+  container_capabilities: "Kontejner má nebezpečná oprávnění jádra",
+  container_unconfined: "Kontejner bez ochrany seccomp / AppArmor",
+  container_sensitive_mount: "Kontejner má zapisovatelnou systémovou složku hostitele",
+  engine_tcp_socket: "API Dockeru je dostupné po síti bez TLS",
+  engine_group: "Uživatelé ve skupině docker (práva roota)",
+  hardening: "Nesplněná kontrola hardeningu",
 };
 
 /** Proč nález vadí a jak ho opravit (cs; en přes popisky). Příkazy jsou ukázky pro Debian/Ubuntu a RHEL. */
@@ -219,6 +324,14 @@ export const HOST_FINDING_GUIDE: Record<HostFindingCode, { why: string; fix: str
   reboot_required: { why: "Nové jádro nebo knihovny jsou nainstalované, ale běží stará zranitelná verze.", fix: "Restartujte server v okně údržby." },
   no_auto_updates: { why: "Bez automatických bezpečnostních aktualizací závisí oprava na ručním zásahu.", fix: "apt install unattended-upgrades && dpkg-reconfigure unattended-upgrades (Debian/Ubuntu), nebo dnf install dnf-automatic && systemctl enable --now dnf-automatic-install.timer (RHEL)." },
   service_failed: { why: "Služba neběží – může jít o výpadek monitoringu, zálohování nebo bezpečnostního agenta.", fix: "systemctl status <služba> a journalctl -u <služba>; opravte nebo službu vypněte (systemctl disable)." },
+  container_engine_socket: { why: "Kontejner se soketem Dockeru může spouštět další kontejnery s přístupem k celému hostiteli – fakticky má práva roota na serveru.", fix: "Odeberte svazek /var/run/docker.sock; pokud kontejner potřebuje informace o ostatních, použijte proxy s omezeným API jen pro čtení (např. docker-socket-proxy)." },
+  container_host_namespace: { why: "Sdílená síť nebo procesy hostitele ruší izolaci – kontejner vidí síťový provoz a procesy serveru.", fix: "Odeberte network_mode: host / pid: host / ipc: host a porty publikujte přes ports." },
+  container_capabilities: { why: "Oprávnění jako SYS_ADMIN nebo SYS_MODULE umožní z kontejneru ovládnout jádro hostitele.", fix: "Odeberte cap_add (nebo ponechte jen nezbytné, např. NET_BIND_SERVICE) a přidejte cap_drop: [ALL]." },
+  container_unconfined: { why: "Bez profilu seccomp / AppArmor může proces v kontejneru volat i nebezpečná systémová volání.", fix: "Odeberte security_opt seccomp=unconfined / apparmor=unconfined; pokud aplikace potřebuje výjimku, připravte vlastní profil." },
+  container_sensitive_mount: { why: "Zapisovatelná systémová složka hostitele (/etc, /root, /boot…) v kontejneru umožní změnit konfiguraci serveru.", fix: "Připojte jen konkrétní soubory nebo složky, a pokud možno jen pro čtení (:ro)." },
+  engine_tcp_socket: { why: "Nechráněné API Dockeru na síti dává komukoli v síti práva roota na serveru.", fix: "Odeberte tcp:// z \"hosts\" v /etc/docker/daemon.json a z ExecStart služby docker, nebo zapněte tlsverify s klientskými certifikáty." },
+  engine_group: { why: "Člen skupiny docker může přes kontejner získat práva roota – jde o privilegovaný účet, který musí být evidovaný a přezkoumávaný.", fix: "Ověřte členy (getent group docker), odeberte nepotřebné (gpasswd -d <uživatel> docker) a zbylé evidujte jako privilegované účty." },
+  hardening: { why: "Nastavení serveru neodpovídá doporučení CIS Benchmark / NÚKIB.", fix: "Postup je u kontroly v záložce Hardening v detailu serveru." },
 };
 
 /* ---------- Změny mezi inventáři (v1.55) ---------- */

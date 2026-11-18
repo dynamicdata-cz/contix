@@ -1,4 +1,4 @@
-import { HOST_FINDING_GUIDE, HOST_FINDING_LABELS, SECTEST_TASK_DUE_DAYS, SECTEST_TASK_PRIORITY, type HostFinding, type HostFindingCode, type SecTestFindingTask, type SecTestSeverity, type SecTestTasksResult } from "@contix/shared";
+import { hostFindingGuide, hostFindingLabel, hostFindingSubject, SECTEST_TASK_DUE_DAYS, SECTEST_TASK_PRIORITY, type HostFinding, type SecTestFindingTask, type SecTestSeverity, type SecTestTasksResult } from "@contix/shared";
 import { and, desc, eq, inArray, lt, notInArray, sql } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import type { Db } from "../../db/client";
@@ -22,7 +22,10 @@ const addDays = (d: Date, n: number) => {
   x.setUTCDate(x.getUTCDate() + n);
   return x.toISOString().slice(0, 10);
 };
-export const hostFindingTitle = (code: string, subject: string | null) => `${HOST_FINDING_LABELS[code as HostFindingCode] ?? code}${subject ? ` – ${subject}` : ""}`;
+export const hostFindingTitle = (code: string, subject: string | null) => {
+  const sub = hostFindingSubject({ code, subject });
+  return `${hostFindingLabel({ code, subject })}${sub ? ` – ${sub}` : ""}`;
+};
 
 /** Zápis nálezů z hlášení sběrače: upsert, opravené, znovu otevřené; automatické úkoly k vysokým nálezům. */
 export async function syncHostFindings(db: Db, inv: { id: string; companyId: string; assetId: string | null }, findings: HostFinding[], now = new Date()) {
@@ -89,7 +92,7 @@ export async function createHostFindingTasks(db: Db, ids: string[], userId: stri
       continue;
     }
     const s = sev(f.severity);
-    const g = HOST_FINDING_GUIDE[f.code as HostFindingCode];
+    const g = hostFindingGuide(f);
     const [t] = await db
       .insert(tasks)
       .values({

@@ -2,7 +2,7 @@ import { Badge, Card, CardHeader } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { fmtDate } from "@/lib/utils";
-import { HOST_FINDING_LABELS, type HostInventoryDto } from "@contix/shared";
+import { evaluateHardening, HOST_FINDING_LABELS, hostFindingLabel, hostFindingSubject, type HostFindingCode, type HostInventoryDto } from "@contix/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -41,6 +41,9 @@ function HostCard({ h }: { h: HostInventoryDto }) {
   );
   const n = (sev: keyof typeof tone) => h.findings.filter((f) => f.severity === sev).length;
   const failed = d.services.filter((s) => s.state === "failed").length;
+  const hard = evaluateHardening(d);
+  const running = d.containers.filter((c) => (c.state ? c.state === "running" : /^up/i.test(c.status))).length;
+  const cIssues = (name: string) => h.findings.filter((f) => f.code.startsWith("container_") && (f.subject === name || f.subject?.startsWith(`${name}: `)));
   const more = (rest: number) =>
     rest > 0 ? (
       <Link {...detail} className="text-xs text-brand-700 hover:underline">
@@ -69,11 +72,19 @@ function HostCard({ h }: { h: HostInventoryDto }) {
               <span className="text-emerald-700">0</span>
             )}
           </Stat>
+          <Stat label={t("col.st.hardening")}>
+            {hard.score == null ? (
+              <span className="text-xs font-normal text-slate-500">{t("col.st.hardeningNa")}</span>
+            ) : (
+              <Link to="/discovery/hosts/$hostId" params={{ hostId: h.id }} search={{ tab: "hardening" } as never} className={hard.score >= 85 ? "text-emerald-700" : hard.score >= 65 ? "text-amber-700" : "text-red-700"} data-testid="host-hardening-score">
+                {hard.score} %
+              </Link>
+            )}
+          </Stat>
           <Stat label={t("col.st.users")}>
             {d.users.length}
             {d.users.some((u) => u.sudo) && <span className="ml-1 text-xs font-normal text-slate-500">({t("col.st.sudo", { n: d.users.filter((u) => u.sudo).length })})</span>}
           </Stat>
-          <Stat label={t("col.st.keys")}>{d.sshKeys.length}</Stat>
           <Stat label={t("col.st.ports")}>{d.listening.length}</Stat>
           <Stat label={t("col.st.services")}>
             {d.services.length}
@@ -83,7 +94,15 @@ function HostCard({ h }: { h: HostInventoryDto }) {
               </span>
             )}
           </Stat>
-          {d.packages.length > 0 ? <Stat label={t("col.st.packages")}>{d.packages.length}</Stat> : <Stat label={t("col.st.containers")}>{d.containers.length}</Stat>}
+          {d.containers.length > 0 || d.engine ? (
+            <Stat label={t("col.st.containers")}>
+              {running} / {d.containers.length}
+            </Stat>
+          ) : d.packages.length > 0 ? (
+            <Stat label={t("col.st.packages")}>{d.packages.length}</Stat>
+          ) : (
+            <Stat label={t("col.st.keys")}>{d.sshKeys.length}</Stat>
+          )}
         </div>
 
         {groups.length ? (
@@ -92,8 +111,8 @@ function HostCard({ h }: { h: HostInventoryDto }) {
               <li key={g[0]!.code} className="flex items-center gap-2 px-3 py-1.5">
                 <Badge tone={tone[g[0]!.severity]}>{g[0]!.severity === "high" ? "!" : g[0]!.severity === "medium" ? "~" : "i"}</Badge>
                 <span className="min-w-0 flex-1 truncate">
-                  {t.lbl(HOST_FINDING_LABELS[g[0]!.code])}
-                  {g.length === 1 && g[0]!.subject && <code className="ml-2 text-xs text-slate-500">{g[0]!.subject}</code>}
+                  {t.lbl(g.length === 1 ? hostFindingLabel(g[0]!) : HOST_FINDING_LABELS[g[0]!.code as HostFindingCode])}
+                  {g.length === 1 && hostFindingSubject(g[0]!) && <code className="ml-2 text-xs text-slate-500">{hostFindingSubject(g[0]!)}</code>}
                 </span>
                 {g.length > 1 && <span className="shrink-0 text-xs text-slate-500">×{g.length}</span>}
               </li>
@@ -140,9 +159,12 @@ function HostCard({ h }: { h: HostInventoryDto }) {
               <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("col.containers")}</h3>
               <ul className="space-y-0.5 text-xs text-slate-600">
                 {d.containers.slice(0, SHOW.containers).map((c) => (
-                  <li key={c.name} className="truncate">
-                    <code>{c.name}</code> · {c.image} · {c.status}
+                  <li key={c.name} className="flex items-center gap-1.5">
+                    <span className="min-w-0 flex-1 truncate">
+                      <code>{c.name}</code> · {c.image} · {c.state ?? c.status}
+                    </span>
                     {c.privileged && <Badge tone="red">privileged</Badge>}
+                    {cIssues(c.name).length > 0 && <Badge tone={cIssues(c.name).some((f) => f.severity === "high") ? "red" : "amber"}>{cIssues(c.name).length}</Badge>}
                   </li>
                 ))}
               </ul>

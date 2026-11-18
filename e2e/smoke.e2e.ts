@@ -1240,8 +1240,8 @@ test("přihlášení: připojení AD, zkouška přihlášení, poskytovatel SSO"
   await card.getByRole("button", { name: "Připojit AD" }).click();
   const dlg = page.getByRole("dialog");
   await dlg.getByLabel("Adresa řadiče domény").fill("ldaps://127.0.0.1:1");
-  await dlg.getByLabel("Base DN").fill("DC=lab,DC=internal");
-  await dlg.getByLabel("Účet pro čtení").fill("svc-contix@lab.internal");
+  await dlg.getByLabel("Base DN").fill("DC=example,DC=test");
+  await dlg.getByLabel("Účet pro čtení").fill("svc-contix@example.test");
   await dlg.getByLabel("Heslo účtu pro čtení").fill("e2e-heslo");
   await dlg.getByRole("checkbox", { name: /Povolit přihlášení účty tohoto AD/ }).uncheck();
   await dlg.getByRole("button", { name: "Uložit", exact: true }).click();
@@ -2394,7 +2394,7 @@ test("agent CONTIX: server bez aktiva, založení aktiva, balíčky a plánovan�
   const hostId = "e2ea9e17e2ea9e17e2ea9e17e2ea9e17";
   const agent = await signed("/agents", { hostId, hostname: "e2e-agent-01", os: "Ubuntu 24.04", version: "0.2.1", publicKey: rawPub(key.publicKey) });
   expect(agent.status).toBe("approved");
-  const m = { v: 1, agent: agent.agentId, seq: 1, ts: new Date().toISOString(), kind: "snapshot", payload: { host: { hostname: "e2e-agent-01", hostId, os: "Ubuntu 24.04", kernel: "6.8", ips: ["10.77.9.9"] }, modules: { packages: { "openssl:amd64": { name: "openssl", version: "3.0.13", arch: "amd64" } }, accounts: Object.fromEntries(["root", "radek", "deploy", "backup", "daemon", "bin", "sys", "nobody", ...Array.from({ length: 14 }, (_, i) => `user${i}`)].map((n, i) => [n, { name: n, uid: n === "root" ? 0 : 1000 + i, home: `/home/${n}`, shell: ["daemon", "bin", "sys", "nobody"].includes(n) ? "/usr/sbin/nologin" : "/bin/bash", login: !["daemon", "bin", "sys", "nobody"].includes(n), admin: n === "radek" || n === "root" }])), ssh_keys: Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`k${i}`, { user: i ? "radek" : "root", file: "authorized_keys", type: "ssh-ed25519", fingerprint: `SHA256:e2e${i}`, comment: i % 2 ? "" : `pc${i}` }])), services: { "bad.service": { name: "bad.service", active: "failed", sub: "failed", enabled: "enabled" } }, scheduled: { "timer:apt-daily.timer": { source: "systemd timer", schedule: "daily", program: "apt-daily.service", state: "active" } }, firewall: { firewall: { tool: "nftables", rulesHash: "d".repeat(64), ruleCount: 4, inputPolicy: "drop" } } } } };
+  const m = { v: 1, agent: agent.agentId, seq: 1, ts: new Date().toISOString(), kind: "snapshot", payload: { host: { hostname: "e2e-agent-01", hostId, os: "Ubuntu 24.04", kernel: "6.8", ips: ["10.77.9.9"] }, modules: { packages: { "openssl:amd64": { name: "openssl", version: "3.0.13", arch: "amd64" } }, accounts: Object.fromEntries(["root", "radek", "deploy", "backup", "daemon", "bin", "sys", "nobody", ...Array.from({ length: 14 }, (_, i) => `user${i}`)].map((n, i) => [n, { name: n, uid: n === "root" ? 0 : 1000 + i, home: `/home/${n}`, shell: ["daemon", "bin", "sys", "nobody"].includes(n) ? "/usr/sbin/nologin" : "/bin/bash", login: !["daemon", "bin", "sys", "nobody"].includes(n), admin: n === "radek" || n === "root" }])), ssh_keys: Object.fromEntries(Array.from({ length: 7 }, (_, i) => [`k${i}`, { user: i ? "radek" : "root", file: "authorized_keys", type: "ssh-ed25519", fingerprint: `SHA256:e2e${i}`, comment: i % 2 ? "" : `pc${i}` }])), services: { "bad.service": { name: "bad.service", active: "failed", sub: "failed", enabled: "enabled" } }, scheduled: { "timer:apt-daily.timer": { source: "systemd timer", schedule: "daily", program: "apt-daily.service", state: "active" } }, firewall: { firewall: { tool: "nftables", rulesHash: "d".repeat(64), ruleCount: 4, inputPolicy: "drop" } }, containers: { portainer: { name: "portainer", id: "4f0c1b2a3d4e", image: "portainer/portainer-ce:2.21", state: "running", health: "healthy", user: "", privileged: false, readOnlyRootfs: false, noNewPrivileges: false, networkMode: "bridge", ports: ["0.0.0.0:9443->9443/tcp"], mounts: [{ type: "bind", source: "/var/run/docker.sock", destination: "/var/run/docker.sock", rw: true }, { type: "volume", source: "portainer_data", destination: "/data", rw: true }], healthcheck: true, project: "mgmt", service: "portainer" } }, images: { abc: { id: "abcdef012345", tags: ["portainer/portainer-ce:2.21"], size: 300000000 } }, engine: { engine: { name: "docker", version: "27.3.1", socket: "/run/docker.sock", socketMode: "0660", socketGroup: "docker", groupMembers: ["radek"], icc: false, liveRestore: true, noNewPrivileges: false, tcpHosts: [] } }, system: { system: { packageManager: "apt", rebootRequired: false, updatesPending: 2, securityUpdates: 1, autoUpdates: true, updates: [{ name: "libssl3", version: "3.0.13-1", security: true }] } }, sshd: { sshd: { permitrootlogin: "no", passwordauthentication: "no", ciphers: "chacha20-poly1305@openssh.com,aes128-cbc", maxauthtries: "6" } }, hardening: { "sysctl.kernel.randomize_va_space": { v: "2" }, "sysctl.net.ipv4.tcp_syncookies": { v: "1" }, "mount./tmp": { v: "-" }, "mount./dev/shm": { v: "nodev,nosuid,rw" }, "perm./etc/shadow": { v: "0640 0:42" }, "accounts.emptyPassword": { v: "" }, "sudo.nopasswd": { v: "deploy" }, "module.usb_storage": { v: "allowed" } } } } };
   await signed("/batches", { messages: [{ ...m, sig: sign(null, Buffer.from(canon(m)), key.privateKey).toString("base64") }] });
   // zpracování běží na pozadí – odkaz u agenta se objeví, jakmile je inventář hotový
   await expect(async () => {
@@ -2408,6 +2408,24 @@ test("agent CONTIX: server bez aktiva, založení aktiva, balíčky a plánovan�
   await hd.getByRole("tab", { name: "Systém" }).click();
   await expect(hd.getByTestId("host-packages")).toContainText("openssl");
   await expect(hd.getByTestId("host-scheduled")).toContainText("apt-daily.service");
+  // hardening (v1.85): skóre, nesplněné kontroly s postupem opravy
+  await hd.getByRole("tab", { name: /Hardening/ }).click();
+  const hard = hd.getByTestId("host-hardening");
+  await expect(hard.getByTestId("hardening-score")).toContainText("%");
+  await expect(hard.getByTestId("hardening-acc.sudo_nopasswd")).toContainText("deploy");
+  await hard.getByTestId("hardening-ssh.weak_ciphers").locator("summary").click();
+  await expect(hard.getByTestId("hardening-ssh.weak_ciphers")).toContainText("aes128-cbc");
+  await expect(hard.getByTestId("hardening-ssh.weak_ciphers")).toContainText("Náprava:");
+  await hard.getByTestId("hardening-filter-pass").click();
+  await expect(hard.getByTestId("hardening-kernel.aslr")).toBeVisible();
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/host-hardening.png`, fullPage: true });
+  // kontejnery: engine a nález soketu Dockeru v detailu kontejneru
+  await hd.getByRole("tab", { name: /Kontejnery/ }).click();
+  await expect(hd.getByTestId("host-engine")).toContainText("27.3.1");
+  await hd.getByTestId("host-container-portainer").locator("summary").click();
+  await expect(hd.getByTestId("host-container-portainer").getByTestId("container-issues")).toContainText("soket Dockeru");
+  await expect(hd.getByTestId("host-container-portainer").getByTestId("container-mounts")).toContainText("/var/run/docker.sock");
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: `${process.env.E2E_SHOTS}/host-containers.png`, fullPage: true });
   await hd.getByTestId("host-asset-create").click();
   await expect(hd.getByRole("link", { name: "Aktivum: e2e-agent-01" })).toBeVisible();
   await expect(hd.getByTestId("host-asset-actions")).toHaveCount(0);

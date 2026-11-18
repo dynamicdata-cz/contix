@@ -385,10 +385,10 @@ function SegmentModal({ seg, allowed, onClose, onDone }: { seg: NetSegmentDto | 
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label={t("net.f.cidrs")} hint={allowed.length ? t("net.f.allowed", { list: allowed.join(", ") }) : undefined}>
-          <Textarea rows={3} className="font-mono text-xs" value={f.cidrs} onChange={(e) => setF({ ...f, cidrs: e.target.value })} placeholder="10.22.22.0/24" />
+          <Textarea rows={3} className="font-mono text-xs" value={f.cidrs} onChange={(e) => setF({ ...f, cidrs: e.target.value })} placeholder="192.0.2.0/24" />
         </Field>
         <Field label={t("net.f.exclude")} hint={t("net.f.excludeHint")}>
-          <Textarea rows={3} className="font-mono text-xs" value={f.exclude} onChange={(e) => setF({ ...f, exclude: e.target.value })} placeholder="10.22.22.1" />
+          <Textarea rows={3} className="font-mono text-xs" value={f.exclude} onChange={(e) => setF({ ...f, exclude: e.target.value })} placeholder="192.0.2.1" />
         </Field>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">

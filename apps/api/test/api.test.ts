@@ -71,9 +71,9 @@ const idp = await (async () => {
 
 /* ---------- náhradní Active Directory pro přihlášení (ADR-078) ---------- */
 const adUsers: Record<string, { pw: string; guid: string; email: string | null; name: string; groups: string[]; disabled?: boolean }> = {
-  "jan.novak": { pw: "Ad-Heslo-1", guid: "11111111-aaaa-4bbb-8ccc-000000000001", email: "jan.novak@lab.internal", name: "Jan Novák", groups: ["CONTIX-Auditori", "CN=CONTIX-Auditori,OU=Skupiny,DC=lab,DC=internal"] },
-  petr: { pw: "Ad-Heslo-2", guid: "11111111-aaaa-4bbb-8ccc-000000000002", email: "petr@lab.internal", name: "Petr", groups: ["Domain Users"] },
-  zak: { pw: "Ad-Heslo-3", guid: "11111111-aaaa-4bbb-8ccc-000000000003", email: "zak@lab.internal", name: "Žák", groups: ["CONTIX-Auditori"], disabled: true },
+  "jan.novak": { pw: "Ad-Heslo-1", guid: "11111111-aaaa-4bbb-8ccc-000000000001", email: "jan.novak@example.test", name: "Jan Novák", groups: ["CONTIX-Auditori", "CN=CONTIX-Auditori,OU=Skupiny,DC=example,DC=test"] },
+  petr: { pw: "Ad-Heslo-2", guid: "11111111-aaaa-4bbb-8ccc-000000000002", email: "petr@example.test", name: "Petr", groups: ["Domain Users"] },
+  zak: { pw: "Ad-Heslo-3", guid: "11111111-aaaa-4bbb-8ccc-000000000003", email: "zak@example.test", name: "Žák", groups: ["CONTIX-Auditori"], disabled: true },
   kolize: { pw: "Ad-Heslo-4", guid: "11111111-aaaa-4bbb-8ccc-000000000004", email: "konverze@test.cz", name: "Kolize", groups: ["CONTIX-Auditori"] },
 };
 const adCalls: string[] = [];
@@ -85,7 +85,7 @@ const fakeAdAuth = async (conn: any, login: string, password: string) => {
   if (!u) return { ok: false as const, reason: "not_found" as const };
   if (u.disabled) return { ok: false as const, reason: "disabled" as const };
   if (u.pw !== password) return { ok: false as const, reason: "bad_password" as const };
-  return { ok: true as const, identity: { guid: u.guid, dn: `CN=${u.name},DC=lab,DC=internal`, login: raw, upn: `${raw}@lab.internal`, email: u.email, displayName: u.name, groups: u.groups } };
+  return { ok: true as const, identity: { guid: u.guid, dn: `CN=${u.name},DC=example,DC=test`, login: raw, upn: `${raw}@example.test`, email: u.email, displayName: u.name, groups: u.groups } };
 };
 
 /* ---------- mock Wazuh Server API ---------- */
@@ -989,7 +989,7 @@ describe.skipIf(!url)("API (integrace)", () => {
   test("přihlášení účtem AD: připojení, zkouška, mapování skupin, přihlášení a ochrany", async () => {
     const form = {
       name: "Lab AD",
-      config: { url: "ldaps://dc4lab.lab.internal:636", baseDn: "DC=lab,DC=internal", bindDn: "svc-contix@lab.internal", verifyTls: true, caCert: "" },
+      config: { url: "ldaps://dc.example.test:636", baseDn: "DC=example,DC=test", bindDn: "svc-contix@example.test", verifyTls: true, caCert: "" },
       secret: "svc-pw",
       login: { enabled: false, allowedGroups: [], autoProvision: true, defaultRoleKey: "", upnSuffix: "" },
     };
@@ -1022,13 +1022,13 @@ describe.skipIf(!url)("API (integrace)", () => {
     const b = browser();
     expect((await b.login("LAB\\jan.novak", "Ad-Heslo-1")).status).toBe(200);
     const me = (await b.json("/api/auth/me")).body;
-    expect(me.user).toMatchObject({ email: "jan.novak@lab.internal", authProvider: "ad", displayName: "Jan Novák" });
+    expect(me.user).toMatchObject({ email: "jan.novak@example.test", authProvider: "ad", displayName: "Jan Novák" });
     expect(me.user.roles).toEqual([expect.objectContaining({ key: "auditor", source: "idp" })]);
     // podruhé (UPN) stejný uživatel
     const b2 = browser();
-    expect((await b2.login("jan.novak@lab.internal", "Ad-Heslo-1")).status).toBe(200);
+    expect((await b2.login("jan.novak@example.test", "Ad-Heslo-1")).status).toBe(200);
     expect((await b2.json("/api/auth/me")).body.user.id).toBe(me.user.id);
-    expect(adCalls.at(-1)).toBe("svc-contix@lab.internal|jan.novak@lab.internal");
+    expect(adCalls.at(-1)).toBe("svc-contix@example.test|jan.novak@example.test");
 
     // odmítnutí: špatné heslo, bez role, zakázaný účet, prázdné heslo
     expect((await browser().login("jan.novak", "spatne")).status).toBe(401);
@@ -1071,7 +1071,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     await admin.json(`/api/admin/roles/${auditorRole.id}`, { method: "PATCH", json: { externalGroups: [] } });
     // uživatelé z AD nemají ovlivnit další testy (příjemci upozornění)
     for (const u of (await admin.json("/api/admin/users")).body as any[])
-      if (["jan.novak@lab.internal", "petr@lab.internal", "konverze@test.cz"].includes(u.email)) await admin.json(`/api/admin/users/${u.id}`, { method: "PATCH", json: { isActive: false } });
+      if (["jan.novak@example.test", "petr@example.test", "konverze@test.cz"].includes(u.email)) await admin.json(`/api/admin/users/${u.id}`, { method: "PATCH", json: { isActive: false } });
   });
 
   test("SSO poskytovatel z administrace: přidání, přihlášení, smazání", async () => {

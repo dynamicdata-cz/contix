@@ -2,6 +2,13 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.85.0
+
+- **Hardening serveru** (ADR-180): v detailu serveru nová záložka *Hardening* se skóre a kontrolami podle CIS Benchmark a doporučení NÚKIB – SSH (včetně šifer, MAC a výměny klíčů), parametry jádra a sítě (sysctl), volby připojení /tmp, /var/tmp a /dev/shm, práva citlivých souborů, politika hesel a zamykání účtů, sudo bez hesla, účty bez hesla, AppArmor / SELinux, auditd a centrální záznamy, synchronizace času, rizikové služby, agent detekce, moduly jádra (USB úložiště, nepoužívané protokoly a souborové systémy), heslo zavaděče, aktualizace a Docker. U každé kontroly očekávaný stav, zjištěná hodnota, proč to vadí a jak to opravit. Nesplněné kontroly vysoké a střední závažnosti jsou zároveň nálezy serveru (úkoly, přijetí rizika). Vyhodnocení je v CONTIXu – agent posílá jen hodnoty.
+- **Kontejnery v detailu**: kontejnerový engine (verze, rootless / userns, API po síti, práva soketu, skupina docker, icc, live-restore), u každého kontejneru stav, health, uživatel, oprávnění jádra, síť / PID / IPC hostitele, seccomp / AppArmor, no-new-privileges, kořen jen pro čtení, zařízení, limity, připojené svazky a bezpečnostní nálezy; image s velikostí a použitím.
+- **Nové nálezy serveru**: kontejner se soketem Dockeru, se sítí nebo procesy hostitele, s nebezpečnými oprávněními jádra, bez seccomp / AppArmor, se zapisovatelnou systémovou složkou hostitele; API Dockeru po síti bez TLS; uživatelé ve skupině docker.
+- **Agent 0.3** posílá kontejnery, image a engine (Docker i Podman, jen čtení přes lokální soket), aktualizace a restart, nastavení SSH serveru a fakta pro hardening. Sběrač 1.2 posílá podrobnosti o kontejnerech.
+
 ## 1.84.0
 
 - **Agenti a koncentrátory** (ADR-177): registrace koncentrátoru jednorázovým kódem, schvalování agentů, podepsané zprávy a dávkový příjem. Údaje agenta (systém, porty, služby, balíčky, přihlašovací účty, SSH klíče, firewall, plánované úlohy) se promítnou do inventáře serveru; při jednoznačné shodě se server spáruje s aktivem sám, jinak nabídne *Založit aktivum* nebo *Spárovat*. Nezpracované zprávy schválených agentů se dozpracují po startu API a každých 10 minut.

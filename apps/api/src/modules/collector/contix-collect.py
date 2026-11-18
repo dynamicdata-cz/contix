@@ -28,7 +28,7 @@ import subprocess
 import sys
 import urllib.request
 
-VERSION = "1.1"
+VERSION = "1.2"
 NOLOGIN = ("nologin", "false", "sync", "halt", "shutdown")
 KEY_TYPES = re.compile(r"^(ssh-(rsa|dss|ed25519)|ecdsa-sha2-\S+|sk-\S+@openssh\.com|ssh-ed448)$")
 
@@ -315,6 +315,25 @@ def docker():
             "user": (cfg.get("User") or "")[:100],
             "ports": [p.strip() for p in (c.get("Ports") or "").split(",") if p.strip()][:100],
             "project": labels.get("com.docker.compose.project"),
+            # 1.2: bezpečnostní podrobnosti (bez proměnných prostředí a příkazů)
+            "id": (info.get("Id") or "")[:12] or None,
+            "state": ((info.get("State") or {}).get("Status") or "")[:40] or None,
+            "health": (((info.get("State") or {}).get("Health") or {}).get("Status") or "")[:40] or None,
+            "restart": ((hc.get("RestartPolicy") or {}).get("Name") or "")[:40] or None,
+            "readOnlyRootfs": bool(hc.get("ReadonlyRootfs")),
+            "noNewPrivileges": any(o.startswith("no-new-privileges") and not o.endswith("false") for o in (hc.get("SecurityOpt") or [])),
+            "networkMode": (hc.get("NetworkMode") or "")[:200] or None,
+            "pidMode": (hc.get("PidMode") or "")[:200] or None,
+            "ipcMode": (hc.get("IpcMode") or "")[:200] or None,
+            "capAdd": [str(x)[:60] for x in (hc.get("CapAdd") or [])][:100],
+            "capDrop": [str(x)[:60] for x in (hc.get("CapDrop") or [])][:100],
+            "securityOpt": [str(x)[:200] for x in (hc.get("SecurityOpt") or [])][:50],
+            "apparmor": (info.get("AppArmorProfile") or "")[:200] or None,
+            "mounts": [{"type": (m.get("Type") or "")[:20], "source": ((m.get("Name") if m.get("Type") == "volume" and m.get("Name") else m.get("Source")) or "")[:300], "destination": (m.get("Destination") or "")[:300], "rw": bool(m.get("RW", True))} for m in (info.get("Mounts") or [])][:200],
+            "memoryLimit": hc.get("Memory") or 0,
+            "pidsLimit": max(0, hc.get("PidsLimit") or 0),
+            "healthcheck": bool(((cfg.get("Healthcheck") or {}).get("Test") or ["NONE"])[0] != "NONE"),
+            "service": labels.get("com.docker.compose.service"),
         })
     for line in (run(["docker", "image", "ls", "--format", "{{json .}}"]) or "").splitlines():
         try:
