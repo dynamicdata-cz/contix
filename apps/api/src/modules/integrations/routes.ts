@@ -1,5 +1,5 @@
-import { buildIntegrationMap, type IntegrationMapDto, type MapCoverage, type MapNodeDto } from "@contix/shared";
-import { and, count, eq, gte, inArray, isNotNull } from "drizzle-orm";
+import { buildIntegrationMap, type IntegrationMapDto, type MapCoverage, type MapNodeDto, type Translate } from "@contix/shared";
+import { and, count, eq, gte, inArray, isNotNull, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
@@ -57,48 +57,53 @@ export async function serverCoverage(db: Db, companyIds: string[] | null): Promi
 
 const HIDDEN_FACTS = new Set(["url", "indexer", "key", "token", "detail", "error", "cidrs"]);
 
+/** Mapa propojení (ADR-181) – pro API i upozornění na zdroje dat (v1.88). `scope` null = vše (správa systému). */
+export async function loadIntegrationMap(db: Db, config: Config, o: { admin: boolean; scope: string[] | null; hostsWhere?: SQL; t?: Translate }): Promise<IntegrationMapDto> {
+  const { admin, scope } = o;
+  const inCo = (id: string | null | undefined) => admin || !scope || !id || scope.includes(id);
+  const since = new Date(Date.now() - 86_400_000);
+  const [concentrators, agents, collectors, hosts, wazuh, netbox, jira, probes, scanCfg, idSrc, msgs, coverage] = await Promise.all([
+    concentratorDtos(db),
+    agentDtos(db),
+    collectorDtos(db),
+    hostSummaries(db, o.hostsWhere),
+    wazuhDtos(db, config),
+    netboxDtos(db, config),
+    jiraDtos(db, config),
+    probeDtos(db),
+    getScanConfig(db, config),
+    db.select().from(identitySources),
+    db.select({ id: agentEvents.agentId, n: count() }).from(agentEvents).where(gte(agentEvents.receivedAt, since)).groupBy(agentEvents.agentId),
+    serverCoverage(db, admin ? null : scope),
+  ]);
+  const nmap = scanCfg.enabled ? await nmapInfo(scanCfg.nmapPath) : { found: null };
+  // služby a jejich stav jen pro správu systému (podrobnosti obsahují adresy a nastavení)
+  const services = admin && o.t ? (await systemStatus(db, config, o.t)).checks : [];
+  return buildIntegrationMap({
+    now: new Date(),
+    concentrators: concentrators.filter((k) => inCo(k.companyId)),
+    agents: agents.filter((a) => inCo(a.companyId)),
+    collectors: collectors.filter((k) => inCo(k.companyId)),
+    hosts,
+    wazuh: wazuh.filter((k) => inCo(k.companyId)),
+    netbox: netbox.filter((k) => inCo(k.companyId)),
+    jira: jira.filter((k) => inCo(k.companyId)),
+    probes: probes.filter((k) => inCo(k.companyId)),
+    scan: admin ? { enabled: scanCfg.enabled, nmapFound: !!nmap.found, allowedCidrs: scanCfg.allowedCidrs } : null,
+    identity: idSrc
+      .filter((s) => inCo(s.companyId))
+      .map((s) => ({ id: s.id, name: s.name, kind: s.kind, enabled: s.enabled, lastSyncAt: s.lastSyncAt?.toISOString() ?? null, lastStatus: s.lastStatus, lastError: s.lastError, syncHours: s.syncHours })),
+    services,
+    agentMsgs24h: Object.fromEntries(msgs.map((m) => [m.id, Number(m.n)])),
+    coverage,
+  });
+}
+
 export function integrationRoutes(deps: { db: Db; config: Config }) {
   const { db, config } = deps;
   return new Hono<AppEnv>().get("/map", requirePerm("admin:settings", "discovery:run", "soc:read"), async (c) => {
     const admin = hasPerm(c, "admin:settings");
-    const scope = scopeOf(c).ids;
-    const inCo = (id: string | null | undefined) => admin || !id || scope.includes(id);
-    const since = new Date(Date.now() - 86_400_000);
-    const [concentrators, agents, collectors, hosts, wazuh, netbox, jira, probes, scanCfg, idSrc, msgs, coverage] = await Promise.all([
-      concentratorDtos(db),
-      agentDtos(db),
-      collectorDtos(db),
-      hostSummaries(db, admin ? undefined : inScope(c, hostInventories.companyId)),
-      wazuhDtos(db, config),
-      netboxDtos(db, config),
-      jiraDtos(db, config),
-      probeDtos(db),
-      getScanConfig(db, config),
-      db.select().from(identitySources),
-      db.select({ id: agentEvents.agentId, n: count() }).from(agentEvents).where(gte(agentEvents.receivedAt, since)).groupBy(agentEvents.agentId),
-      serverCoverage(db, admin ? null : scope),
-    ]);
-    const nmap = scanCfg.enabled ? await nmapInfo(scanCfg.nmapPath) : { found: null };
-    // služby a jejich stav jen pro správu systému (podrobnosti obsahují adresy a nastavení)
-    const services = admin ? (await systemStatus(db, config, await tFor(db, c))).checks : [];
-    const map: IntegrationMapDto = buildIntegrationMap({
-      now: new Date(),
-      concentrators: concentrators.filter((k) => inCo(k.companyId)),
-      agents: agents.filter((a) => inCo(a.companyId)),
-      collectors: collectors.filter((k) => inCo(k.companyId)),
-      hosts,
-      wazuh: wazuh.filter((k) => inCo(k.companyId)),
-      netbox: netbox.filter((k) => inCo(k.companyId)),
-      jira: jira.filter((k) => inCo(k.companyId)),
-      probes: probes.filter((k) => inCo(k.companyId)),
-      scan: admin ? { enabled: scanCfg.enabled, nmapFound: !!nmap.found, allowedCidrs: scanCfg.allowedCidrs } : null,
-      identity: idSrc
-        .filter((s) => inCo(s.companyId))
-        .map((s) => ({ id: s.id, name: s.name, kind: s.kind, enabled: s.enabled, lastSyncAt: s.lastSyncAt?.toISOString() ?? null, lastStatus: s.lastStatus, lastError: s.lastError, syncHours: s.syncHours })),
-      services,
-      agentMsgs24h: Object.fromEntries(msgs.map((m) => [m.id, Number(m.n)])),
-      coverage,
-    });
+    const map = await loadIntegrationMap(db, config, { admin, scope: scopeOf(c).ids, hostsWhere: admin ? undefined : inScope(c, hostInventories.companyId), t: admin ? await tFor(db, c) : undefined });
     if (!admin)
       for (const n of map.nodes as MapNodeDto[]) {
         n.facts = n.facts.filter((f) => !HIDDEN_FACTS.has(f.key));

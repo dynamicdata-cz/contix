@@ -265,7 +265,7 @@ export async function managementReport(
       );
   }
   // nálezy ze všech zdrojů a jejich náprava (v1.69, ADR-162)
-  const fScope = { sectest: on("sectests") ? [companyId] : [], host: on("assets") ? [companyId] : [], vulnerability: on("vulnerabilities") ? [companyId] : [], audit: on("audits") ? [companyId] : [] };
+  const fScope = { sectest: on("sectests") ? [companyId] : [], host: on("assets") ? [companyId] : [], vulnerability: on("vulnerabilities") ? [companyId] : [], audit: on("audits") ? [companyId] : [], identity: on("identity") ? [companyId] : [] };
   const findings = Object.values(fScope).some((x) => x.length) ? await findingsRemediation(db, fScope, from, to) : null;
   if (findings && (findings.total.open || findings.total.fixed)) {
     const crit = findings.total.bySeverity.critical.open;

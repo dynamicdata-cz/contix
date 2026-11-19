@@ -897,6 +897,13 @@
       "when": 1794918747400,
       "tag": "0127_agents_state",
       "breakpoints": true
+    },
+    {
+      "idx": 128,
+      "version": "7",
+      "when": 1795115223141,
+      "tag": "0128_audit_scope",
+      "breakpoints": true
     }
   ]
 }

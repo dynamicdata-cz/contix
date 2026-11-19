@@ -43,6 +43,7 @@ export const ACTION_ACCESS: Record<ActionKind, { perm: Permission; module: strin
   risk_action: { perm: "risks:read", module: "risks" },
   audit_finding: { perm: "audits:read", module: "audits" },
   legal_task: { perm: "legislation:read", module: "legislation" },
+  project_task: { perm: "projects:read", module: "projects" },
 };
 const READ_PERMS = [...new Set(Object.values(ACTION_ACCESS).map((a) => a.perm))];
 

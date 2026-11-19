@@ -2309,6 +2309,24 @@ export const auditChanges = pgTable(
 );
 
 /** Portál externího auditora (ADR-071): přidělení auditoři, požadavky na podklady, soubory, připomínky. */
+/** Rozsah auditu (v1.88, ADR-183): procesy, aktiva a opatření, kterých se audit týkal – pokrytí audity za období. */
+const auditScopeLink = <N extends string>(name: N, col: string, target: () => any) =>
+  pgTable(
+    name,
+    {
+      auditId: uuid("audit_id")
+        .notNull()
+        .references(() => audits.id, { onDelete: "cascade" }),
+      targetId: uuid(col)
+        .notNull()
+        .references(target, { onDelete: "cascade" }),
+    },
+    (t) => [primaryKey({ columns: [t.auditId, t.targetId] })],
+  );
+export const auditProcesses = auditScopeLink("audit_processes", "process_id", () => processes.id);
+export const auditAssets = auditScopeLink("audit_assets", "asset_id", () => assets.id);
+export const auditControls = auditScopeLink("audit_controls", "control_id", () => controls.id);
+
 export const auditAuditors = pgTable(
   "audit_auditors",
   {

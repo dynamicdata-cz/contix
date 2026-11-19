@@ -5,7 +5,7 @@ import { useDecree } from "@/lib/regime";
 import { LinkedDocsInline } from "@/components/linkedDocs";
 import { NeedsCompany, useGroupView } from "@/components/company";
 import { DocumentVersions } from "@/components/documents";
-import { ComplianceBadge, ComplianceBar, ComplianceLegend, ControlStatusBadge, ScoreValue } from "@/components/compliance";
+import { ComplianceBadge, ComplianceBar, ComplianceLegend, ControlStatusBadge, ScoreValue, SignalsBadge, SignalsList } from "@/components/compliance";
 import { PositionSelect } from "@/components/pickers";
 import { Badge, Button, Card, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -185,6 +185,7 @@ function FragmentRow({ r, showHeader, onEdit, isDecree }: { r: RequirementRow; s
         </td>
         <td className="px-3 py-2.5">
           <ComplianceBadge c={r.compliance} />
+          <SignalsBadge s={r.signals} atRisk={r.atRisk} />
           {r.manualCompliance && r.manualCompliance !== r.derivedCompliance && (
             <div className="mt-1 text-[11px] text-slate-500" title={t("soa.rucniPosouzeniPrebijiStavOdvozeny")}>
               {t("soa.rucneZOpatreni", { p: CONTROL_LABELS.compliance[r.derivedCompliance].toLowerCase() })}
@@ -303,6 +304,11 @@ function AssessModal({ row, onClose, framework }: { row: RequirementRow; onClose
                 </div>
               )}
               <p className="mt-1 text-xs text-slate-500">{t("soa.odvozenaMiraShodyZOpatreni", { p: t.lbl(CONTROL_LABELS.compliance[row.derivedCompliance]) })}</p>
+              {row.signals && (
+                <div className="mt-2">
+                  <SignalsList s={row.signals} />
+                </div>
+              )}
             </div>
             <LinkedDocsInline kind="requirement" id={row.id} />
             <div className="grid gap-4 sm:grid-cols-2">

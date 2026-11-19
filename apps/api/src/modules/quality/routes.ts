@@ -44,6 +44,20 @@ const CHECK_SQL: Record<QualityCheck, (ids: SQL) => SQL> = {
     and x.owner_unit_id is null and coalesce(trim(x.owner_name), '') <> '' order by x.owner_name, x.name`,
   assets_tags_uncatalogued: (ids) => sql`select x.id, x.company_id, x.name || ' (' || array_to_string(x.tags, ', ') || ')' as label, '/assets/' || x.id as link from assets x where x.company_id in (${ids})
     and exists (select 1 from unnest(x.tags) t where not exists (select 1 from tags g where g.name = t)) order by x.name`,
+  // aktivum procesu (přímo nebo podpůrné aktivum aktiva procesu) s nižší kritičností než proces (v1.88)
+  assets_crit_below_process: (ids) => sql`with pa as (
+      select pa.asset_id, p.criticality, p.name from process_assets pa join processes p on p.id = pa.process_id
+      union all
+      select l.supporting_id, p.criticality, p.name from process_assets pa join processes p on p.id = pa.process_id join asset_links l on l.primary_id = pa.asset_id
+    ), worst as (
+      select asset_id, max(array_position(array['low','medium','high','critical']::text[], criticality::text)) as rank,
+        (array_agg(name order by array_position(array['low','medium','high','critical']::text[], criticality::text) desc))[1] as process
+      from pa group by asset_id
+    )
+    select x.id, x.company_id, x.name || ' – ' || x.criticality::text || ' < ' || (array['low','medium','high','critical'])[w.rank] || ' (' || w.process || ')' as label, '/assets/' || x.id as link
+    from assets x join worst w on w.asset_id = x.id
+    where x.company_id in (${ids}) and x.${ACTIVE} and array_position(array['low','medium','high','critical']::text[], x.criticality::text) < w.rank
+    order by w.rank desc, x.name`,
   suppliers_no_contract: (ids) => sql`select x.id, x.company_id, x.name as label, '/suppliers/' || x.id as link from suppliers x where x.company_id in (${ids}) and x.significant
     and not exists (select 1 from supplier_contracts k where k.supplier_id = x.id and (k.valid_to is null or k.valid_to >= current_date)) order by x.name`,
 };

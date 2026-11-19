@@ -48,6 +48,8 @@ export const OBLIGATION_KINDS = [
   "project_change",
   "guide_step",
   "nukib_notice",
+  // v1.88 (ADR-183): výpadek nebo varování zdroje dat (agent, koncentrátor, sběrač, Wazuh, konektory, nespárované servery)
+  "data_source",
 ] as const;
 export type ObligationKind = (typeof OBLIGATION_KINDS)[number];
 
@@ -94,6 +96,7 @@ export const OBLIGATION_LABELS: Record<ObligationKind, string> = {
   ai_review: "Přezkum AI systému a FRIA (AI Act)",
   cra_report: "Hlášení zranitelnosti / incidentu produktu (CRA čl. 14)",
   cra_support: "Konec podpůrného období produktu (CRA)",
+  data_source: "Zdroj dat (agent, koncentrátor, konektor)",
 };
 
 export type ObligationUrgency = "overdue" | "today" | "soon" | "later";

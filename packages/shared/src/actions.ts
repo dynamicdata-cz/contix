@@ -13,15 +13,15 @@ export const TASK_PRIORITIES = ["low", "medium", "high"] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 
 /** Druh záznamu, ke kterému je úkol navázán (null = samostatný úkol). */
-export const TASK_SOURCES = ["incident", "supplier", "change", "control", "asset", "process", "risk", "policy", "audit", "processing", "isms_review", "soc_alert", "exercise", "info_item", "ai_system", "cra_product", "soc2", "project", "sectest_finding", "host_finding"] as const;
+export const TASK_SOURCES = ["incident", "supplier", "change", "control", "asset", "process", "risk", "policy", "audit", "processing", "isms_review", "soc_alert", "exercise", "info_item", "ai_system", "cra_product", "soc2", "project", "sectest_finding", "host_finding", "vulnerability", "identity_finding", "sod_violation"] as const;
 export type TaskSource = (typeof TASK_SOURCES)[number];
 
 /** Druhy akcí v jednotném přehledu. */
-export const ACTION_KINDS = ["task", "risk_action", "audit_finding", "legal_task"] as const;
+export const ACTION_KINDS = ["task", "risk_action", "audit_finding", "legal_task", "project_task"] as const;
 export type ActionKind = (typeof ACTION_KINDS)[number];
 
 export const TASK_LABELS = {
-  kind: { task: "Úkol", risk_action: "Akce plánu zvládání rizik", audit_finding: "Nápravné opatření z auditu", legal_task: "Úkol ze změny předpisu" } satisfies Record<ActionKind, string>,
+  kind: { task: "Úkol", risk_action: "Akce plánu zvládání rizik", audit_finding: "Nápravné opatření z auditu", legal_task: "Úkol ze změny předpisu", project_task: "Úkol projektu" } satisfies Record<ActionKind, string>,
   status: { open: "Otevřeno", in_progress: "Rozpracováno", done: "Splněno", cancelled: "Zrušeno" } satisfies Record<TaskStatus, string>,
   priority: { low: "Nízká", medium: "Střední", high: "Vysoká" } satisfies Record<TaskPriority, string>,
   source: {
@@ -45,6 +45,9 @@ export const TASK_LABELS = {
     project: "Projekt",
     sectest_finding: "Nález bezpečnostního testu",
     host_finding: "Nález konfigurace serveru",
+    vulnerability: "Zranitelnost",
+    identity_finding: "Nález účtu (identity)",
+    sod_violation: "Oddělení povinností (SoD)",
   } satisfies Record<TaskSource, string>,
 } as const;
 
@@ -72,6 +75,9 @@ export function taskSourceLink(kind: TaskSource | null, id: string | null): stri
     project: `/projects/${id}`,
     sectest_finding: `/security-tests?finding=${id}`,
     host_finding: `/findings?source=host&focus=${id}`,
+    vulnerability: `/findings?source=vulnerability&focus=${id}`,
+    identity_finding: `/findings?source=identity&focus=${id}`,
+    sod_violation: `/findings?source=identity&focus=${id}`,
   };
   return map[kind];
 }

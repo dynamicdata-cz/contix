@@ -13,13 +13,13 @@ import { cn, fmtDay } from "@/lib/utils";
 import { TASK_LABELS, type TaskStatus, FINDING_LABELS, FINDING_SOURCES, UNIFIED_SEVERITIES, UNIFIED_STATUSES, type FindingSource, type UnifiedFindingDto, type UnifiedFindingsDto, type UnifiedSeverity, type UnifiedStatus, type FindingsRemediationDto, type RemediationStat, type FindingPlanEffort } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { ClipboardList, FlaskConical, Server, ShieldAlert, Bug } from "lucide-react";
+import { ClipboardList, FlaskConical, Server, ShieldAlert, Bug, UserX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const PAGE = 300;
 const sevTone: Record<UnifiedSeverity, Tone> = { critical: "red", high: "red", medium: "amber", low: "slate", info: "slate" };
 const stTone: Record<UnifiedStatus, Tone> = { open: "red", in_progress: "amber", accepted: "blue", fixed: "green", dismissed: "slate" };
-const srcIcon: Record<FindingSource, React.ReactNode> = { sectest: <FlaskConical size={15} />, host: <Server size={15} />, vulnerability: <Bug size={15} />, audit: <ClipboardList size={15} /> };
+const srcIcon: Record<FindingSource, React.ReactNode> = { sectest: <FlaskConical size={15} />, host: <Server size={15} />, vulnerability: <Bug size={15} />, audit: <ClipboardList size={15} />, identity: <UserX size={15} /> };
 
 function useLabels() {
   const t = useT();
@@ -141,9 +141,27 @@ export function FindingsTable({ items, loading, focus, compact }: { items: Unifi
   const [sel, setSel] = useState<string[]>([]);
   const canHost = can("assets:write");
   const today = new Date().toISOString().slice(0, 10);
-  const hostOpen = useMemo(() => (items ?? []).filter((f) => f.source === "host" && f.status === "open" && !f.task), [items]);
+  // úkoly z nálezů: konfigurace serverů (v1.65), zranitelnosti a identity (v1.88)
+  const canPick = (f: UnifiedFindingDto) =>
+    f.status === "open" && !f.task && ((f.source === "host" && canHost) || (f.source === "vulnerability" && canHost) || (f.source === "identity" && can("identity:write")));
+  const hostOpen = useMemo(() => (items ?? []).filter(canPick), [items]); // eslint-disable-line react-hooks/exhaustive-deps
   const tasks = useMutation({
-    mutationFn: (ids: string[]) => api.hosts.findingTasks(ids),
+    mutationFn: async (keys: string[]) => {
+      const host = keys.filter((k) => k.startsWith("host:")).map((k) => k.slice(5));
+      const other = keys.filter((k) => !k.startsWith("host:"));
+      const sum = { created: 0, unassigned: 0 };
+      if (host.length) {
+        const r = await api.hosts.findingTasks(host);
+        sum.created += r.created;
+        sum.unassigned += r.unassigned;
+      }
+      if (other.length) {
+        const r = await api.findings.tasks(other);
+        sum.created += r.created;
+        sum.unassigned += r.unassigned;
+      }
+      return sum;
+    },
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ["findings"] });
       qc.invalidateQueries({ queryKey: ["actions"] });
@@ -159,10 +177,10 @@ export function FindingsTable({ items, loading, focus, compact }: { items: Unifi
   const go = (href: string) => (e: React.MouseEvent) => (e.preventDefault(), router.history.push(href));
   return (
     <>
-      {canHost && can("actions:write") && hostOpen.length > 0 && (
+      {can("actions:write") && hostOpen.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2 text-xs">
           <span className="text-slate-600">{t("fnd.bulk.hint", { n: hostOpen.length })}</span>
-          <Button variant="secondary" className="px-2.5 py-1 text-xs" disabled={tasks.isPending} onClick={() => tasks.mutate(sel.length ? sel : hostOpen.map((f) => f.id))} data-testid="fnd-bulk-tasks">
+          <Button variant="secondary" className="px-2.5 py-1 text-xs" disabled={tasks.isPending} onClick={() => tasks.mutate(sel.length ? sel : hostOpen.map((f) => f.key))} data-testid="fnd-bulk-tasks">
             {sel.length ? t("fnd.bulk.selected", { n: sel.length }) : t("fnd.bulk.all")}
           </Button>
           <ErrorBox error={tasks.error} />
@@ -181,13 +199,13 @@ export function FindingsTable({ items, loading, focus, compact }: { items: Unifi
           </thead>
           <tbody className="divide-y divide-slate-100">
             {items.map((f) => {
-              const pickable = canHost && f.source === "host" && f.status === "open" && !f.task;
+              const pickable = can("actions:write") && canPick(f);
               return (
                 <tr key={f.key} id={`fnd-${f.id}`} className={cn("align-top", focus === f.id && "bg-brand-50/60")} data-testid="fnd-row">
                   <td className="px-4 py-2.5">
                     <div className="mb-0.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                       {pickable && (
-                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-slate-300" checked={sel.includes(f.id)} onChange={(e) => setSel(e.target.checked ? [...sel, f.id] : sel.filter((x) => x !== f.id))} aria-label={`${t("fnd.pick")}: ${f.title}`} />
+                        <input type="checkbox" className="h-3.5 w-3.5 rounded border-slate-300" checked={sel.includes(f.key)} onChange={(e) => setSel(e.target.checked ? [...sel, f.key] : sel.filter((x) => x !== f.key))} aria-label={`${t("fnd.pick")}: ${f.title}`} />
                       )}
                       <span className="inline-flex items-center gap-1">
                         {srcIcon[f.source]} {L.src(f.source)}

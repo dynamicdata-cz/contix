@@ -94,8 +94,11 @@ function query(kind: BacklinkKind, target: LinkTarget, id: string): SQL | null {
       if (T === "risk") return sql`select x.id, x.company_id, null as code, x.name, null as sub, '' as link from suppliers x where x.id in (${via("supplier_risks", "supplier_id", T, id)})`;
       return null;
     case "audit":
-      if (T !== "supplier") return null;
-      return sql`select a.id, a.company_id, a.code, a.title as name, null as sub, '' as link from audits a where a.supplier_id = ${id}::uuid`;
+      if (T === "supplier") return sql`select a.id, a.company_id, a.code, a.title as name, null as sub, '' as link from audits a where a.supplier_id = ${id}::uuid`;
+      // rozsah auditu (v1.88, ADR-183)
+      if (T === "asset" || T === "process" || T === "control")
+        return sql`select a.id, a.company_id, a.code, a.title as name, a.performed_end::text as sub, '' as link from audits a where a.id in (${via(`audit_${T === "process" ? "processes" : `${T}s`}`, "audit_id", T, id)})`;
+      return null;
     case "audit_finding":
       if (T !== "risk" && T !== "control") return null;
       return sql`select f.id, a.company_id, f.code, f.title as name, coalesce(a.code || ' ', '') || a.title as sub, '/audits/' || a.id as link

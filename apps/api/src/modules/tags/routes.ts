@@ -1,3 +1,4 @@
+import { ENTITY_TABLES } from "../quality/dangling";
 import { TAG_ENTITIES, TAG_ENTITY_READ_PERM, TAG_ENTITY_WRITE_PERM, TagAssignInput, TagInput, type Permission, type TagColor, type TagDto, type TagEntity, type TaggedObjectDto } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
@@ -85,7 +86,8 @@ export function tagRoutes(db: Db) {
         const r = await db
           .select({ id: objectTags.tagId, n: sql<number>`count(*)::int` })
           .from(objectTags)
-          .where(and(eq(objectTags.entityType, type), inArray(objectTags.companyId, ids)))
+          // jen existující záznamy (v1.88): štítky smazaných záznamů se nepočítají, úklid je odstraní
+          .where(and(eq(objectTags.entityType, type), inArray(objectTags.companyId, ids), sql.raw(`exists (select 1 from ${ENTITY_TABLES[type]} z where z.id = "object_tags"."entity_id")`)))
           .groupBy(objectTags.tagId);
         for (const x of r) counts.set(x.id, (counts.get(x.id) ?? 0) + x.n);
       }

@@ -1,7 +1,7 @@
 import { FINDING_ESCALATION_DAYS, FINDING_SOURCES, SECTEST_TASK_DUE_DAYS, UNIFIED_SEVERITIES, remediationStat, unifiedSeverity, type FindingSource, type FindingsRemediationDto, type UnifiedSeverity } from "@contix/shared";
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Db } from "../../db/client";
-import { assets, assetVulnerabilities, auditFindings, audits, hostFindings, secTestFindings, vulnIntel } from "../../db/schema";
+import { assets, assetVulnerabilities, auditFindings, audits, hostFindings, identityFindings, secTestFindings, vulnIntel } from "../../db/schema";
 import { getVulnSla, vulnDueSql } from "../vulnerabilities/intel";
 
 /* ============================================================
@@ -22,7 +22,7 @@ export async function findingsRemediation(db: Db, scope: Record<FindingSource, s
   const start = `${from}T00:00:00Z`;
   const end = `${to}T23:59:59.999Z`;
   const n = (x: unknown) => Number(x ?? 0);
-  const rows: Record<FindingSource, Agg[]> = { sectest: [], host: [], vulnerability: [], audit: [] };
+  const rows: Record<FindingSource, Agg[]> = { sectest: [], host: [], vulnerability: [], audit: [], identity: [] };
   const jobs: Promise<void>[] = [];
   const num = (e: SQL) => sql<number>`coalesce(${e}, 0)::float8`;
 
@@ -115,6 +115,29 @@ export async function findingsRemediation(db: Db, scope: Record<FindingSource, s
         .where(and(inArray(audits.companyId, scope.audit), assetId ? eq(f.assetId, assetId) : undefined))
         .groupBy(f.severity)
         .then((r) => void (rows.audit = r as Agg[])),
+    );
+  }
+  // nálezy identit (v1.88): lhůta podle závažnosti od zjištění nebo úkol; opraveno = vyřešeno
+  if (scope.identity.length && !assetId) {
+    const f = identityFindings;
+    const due = sql`(${f.firstSeenAt} + ${dueDaysCase(sql`${f.severity}::text`)} * interval '1 day')`;
+    const fixedIn = sql`${f.status} = 'resolved' and ${f.resolvedAt} between ${start} and ${end}`;
+    jobs.push(
+      db
+        .select({
+          sev: sql<string>`${f.severity}::text`,
+          open: sql<number>`count(*) filter (where ${f.status} = 'open')::int`,
+          overdue: sql<number>`count(*) filter (where ${f.status} = 'open' and ${openDue("identity_finding", f.id, due)} < current_date)::int`,
+          escalated: sql<number>`count(*) filter (where ${f.status} = 'open' and ${openDue("identity_finding", f.id, due)} < current_date - ${FINDING_ESCALATION_DAYS}::int)::int`,
+          fixed: sql<number>`count(*) filter (where ${fixedIn})::int`,
+          sumDays: num(sql`sum(extract(epoch from (${f.resolvedAt} - ${f.firstSeenAt})) / 86400) filter (where ${fixedIn})`),
+          withDue: sql<number>`count(*) filter (where ${fixedIn})::int`,
+          onTime: sql<number>`count(*) filter (where ${fixedIn} and ${f.resolvedAt} <= ${due})::int`,
+        })
+        .from(f)
+        .where(inArray(f.companyId, scope.identity))
+        .groupBy(f.severity)
+        .then((r) => void (rows.identity = r as Agg[])),
     );
   }
   await Promise.all(jobs);

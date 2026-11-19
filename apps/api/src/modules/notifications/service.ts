@@ -1,3 +1,5 @@
+import { sweepDangling } from "../quality/dangling";
+import { closeResolvedSourceTasks } from "../findings/sourceTasks";
 import { processDefectDojo } from "../vulnerabilities/defectdojo";
 import { autoNetboxSync } from "../connections/netbox";
 import { syncJiraIssues } from "../connections/jira";
@@ -374,7 +376,7 @@ export async function runNotifications(d: RunDeps): Promise<{ emails: number; te
     const l = loc ?? defLocale;
     let p = byLocale.get(l);
     if (!p) {
-      p = translatorFor(db, l).then(async (t) => ({ t, all: await collectObligations(db, { companyIds, leadDays: s.leadDays, now, kinds, t }) }));
+      p = translatorFor(db, l).then(async (t) => ({ t, all: await collectObligations(db, { companyIds, leadDays: s.leadDays, now, kinds, config, t }) }));
       byLocale.set(l, p);
     }
     return p;
@@ -508,6 +510,10 @@ export function startNotificationScheduler(db: Db, config: Config, intervalMs = 
     try {
       // při více instancích API spouští úlohy jen držitel lease (ADR-016)
       if (!(await acquireLease(db, "scheduler", intervalMs * 2 + 60_000))) return;
+      // úkoly z nálezů, jejichž zdroj už není otevřený (v1.88)
+      await closeResolvedSourceTasks(db).catch((e) => console.error("Úkoly z nálezů:", (e as Error).message));
+      // odkazy na smazané záznamy (štítky, výjimky, vazby infoservisu) – úklid
+      await sweepDangling(db).catch((e) => console.error("Úklid odkazů:", (e as Error).message));
       // nejdřív Wazuh alerty (nové návrhy událostí), pak upozornění
       await syncAlerts(db, config).catch((e) => {
         error = `Wazuh alerty: ${(e as Error).message}`;

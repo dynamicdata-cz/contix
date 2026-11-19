@@ -23,6 +23,8 @@ export const QUALITY_CHECKS = [
   // v1.76 (ADR-169) – kontrola dat po nasazení útvarů a katalogu štítků
   "assets_unit_text",
   "assets_tags_uncatalogued",
+  // v1.88 (ADR-183): kritičnost aktiva nižší než kritičnost procesu, který podporuje
+  "assets_crit_below_process",
 ] as const;
 export type QualityCheck = (typeof QUALITY_CHECKS)[number];
 
@@ -45,6 +47,7 @@ export const QUALITY_META: Record<QualityCheck, { module: ModuleKey | null; perm
   suppliers_no_contract: { module: "suppliers", perm: "suppliers:read", write: "suppliers:write", fix: null, weight: "medium" },
   assets_unit_text: { module: "assets", perm: "assets:read", write: "assets:write", fix: "unit", weight: "low" },
   assets_tags_uncatalogued: { module: "assets", perm: "assets:read", write: "assets:write", fix: "normalize", weight: "low" },
+  assets_crit_below_process: { module: "processes", perm: "assets:read", write: "assets:write", fix: null, weight: "medium" },
 };
 
 export const QUALITY_LABELS: Record<QualityCheck, string> = {
@@ -62,6 +65,7 @@ export const QUALITY_LABELS: Record<QualityCheck, string> = {
   suppliers_no_contract: "Významní dodavatelé bez platné smlouvy",
   assets_unit_text: "Aktiva s útvarem jen jako text (bez vazby na strukturu)",
   assets_tags_uncatalogued: "Aktiva se štítky mimo katalog nebo v jiném zápisu",
+  assets_crit_below_process: "Aktiva s nižší kritičností než proces, který podporují (priorita nálezů)",
 };
 
 export interface QualityItem {

@@ -14,7 +14,7 @@ import { LinkedDocsCard } from "@/components/linkedDocs";
 import { AiSuggestPanel } from "@/components/ai";
 import { ControlAssurance } from "@/components/assurance";
 import { TransferButton } from "@/components/transfer";
-import { ControlStatusBadge } from "@/components/compliance";
+import { ControlStatusBadge, SignalsList } from "@/components/compliance";
 import {
   AssetPicker,
   PositionSelect,
@@ -487,6 +487,7 @@ function ControlOverview({ detail: d, onTab }: { detail: ControlDetail; onTab: (
         <Kpi label={t("ctl.ov.requirements")} value={d.requirements.length} note={d.frameworks.map(fwShort).join(" · ") || undefined} />
         <Kpi label={t("ctl.ov.findings")} value={findings} tone={d.findings?.serious ? "red" : findings ? "amber" : "slate"} note={t("ctl.ov.risks", { n: d.risks.length })} onClick={() => onTab("assurance")} />
       </div>
+      <SignalsList s={d.signals} />
       <div className="grid items-start gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <ViewSection title={t("soa.controls")}>

@@ -32,6 +32,14 @@ export async function lastFindingPlan(db: Db, companyId: string): Promise<Findin
   return (r?.value as FindingPlanDto | undefined) ?? null;
 }
 
+const PLAN_SOURCE: Record<string, "host_finding" | "sectest_finding" | "vulnerability"> = { host: "host_finding", sectest: "sectest_finding", vulnerability: "vulnerability" };
+function planTaskSource(items: { key: string }[]): { sourceKind?: "host_finding" | "sectest_finding" | "vulnerability"; sourceId?: string } {
+  if (items.length !== 1) return {};
+  const [src, id] = items[0]!.key.split(":");
+  const kind = PLAN_SOURCE[src ?? ""];
+  return kind && id ? { sourceKind: kind, sourceId: id } : {};
+}
+
 export async function buildFindingPlan(db: Db, config: Config, companyId: string, items: UnifiedFindingDto[], t: Translate, fetchImpl?: FetchLike): Promise<FindingPlanDto> {
   const s = await getAiSettings(db);
   if (!s.enabled) throw new AiUnavailable("AI asistent není zapnutý.");
@@ -188,6 +196,8 @@ export async function createPlanTasks(db: Db, plan: FindingPlanDto, stepIdx: num
         priority: SEV_PRIO[worst],
         status: "open",
         createdById: userId,
+        // krok s jedním nálezem → úkol navázaný na nález (v1.88): v registru je vidět, že se řeší, a uzavře se s ním
+        ...planTaskSource(st.items),
       })
       .returning({ id: tasks.id });
     st.taskId = row!.id;

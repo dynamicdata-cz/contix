@@ -6,7 +6,7 @@ import { and, count, desc, eq, inArray, max, sql, type SQL } from "drizzle-orm";
 import { decrypt, encrypt } from "../../auth/crypto";
 import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
-import { assetSources, assets, connections, hostInventories, hostInventoryChanges } from "../../db/schema";
+import { assetSoftware, assetSources, assets, connections, hostInventories, hostInventoryChanges } from "../../db/schema";
 import { ingestDiscovered } from "../discovery/ingest";
 import type { DiscoveredAsset } from "../discovery/types";
 import { reachablePorts } from "../sectests/service";
@@ -107,6 +107,20 @@ function discoveredFromInventory(conn: typeof connections.$inferSelect, inv: Hos
   };
 }
 
+const packagesKey = (inv: HostInventory) => inv.packages.map((p) => `${p.name}=${p.version}`).sort().join("\n");
+
+/** Balíčky z inventáře jako software aktiva (zdroj agent / sběrač) – nahradí předchozí výpis téhož zdroje. */
+export async function syncInventorySoftware(db: Db, assetId: string, source: InventorySource, inv: HostInventory) {
+  await db.transaction(async (tx) => {
+    await tx.delete(assetSoftware).where(and(eq(assetSoftware.assetId, assetId), eq(assetSoftware.sourceType, source)));
+    const seen = new Set<string>();
+    const rows = inv.packages
+      .filter((p) => (seen.has(`${p.name}|${p.version}`) ? false : (seen.add(`${p.name}|${p.version}`), true)))
+      .map((p) => ({ assetId, name: p.name.slice(0, 300), version: p.version ? p.version.slice(0, 255) : null, vendor: null, sourceType: source }));
+    for (let i = 0; i < rows.length; i += 500) await tx.insert(assetSoftware).values(rows.slice(i, i + 500));
+  });
+}
+
 export const inventoryHostKey = (inv: HostInventory) => (inv.host.machineId || inv.host.hostname).toLowerCase();
 
 /**
@@ -133,6 +147,9 @@ export async function ingestInventory(db: Db, conn: typeof connections.$inferSel
       await db.execute(sql`delete from host_inventory_changes where inventory_id = ${saved!.id} and id not in (select id from host_inventory_changes where inventory_id = ${saved!.id} order by collected_at desc limit 200)`);
     }
   }
+  // software aktiva z balíčků (v1.88, ADR-183) – infoservis a vyhledávání podle softwaru; přepis jen při změně
+  if (assetId && (!prev || values.collectedAt >= prev.at) && (!old || prev?.assetId !== assetId || packagesKey(old) !== packagesKey(inv)))
+    await syncInventorySoftware(db, assetId, opts.source ?? "collector", inv);
   // nálezy s životním cyklem a úkoly (v1.65) – jen z nejnovějšího hlášení
   if (!prev || values.collectedAt >= prev.at) {
     await syncHostFindings(db, { id: saved!.id, companyId: values.companyId, assetId }, findings);
@@ -167,6 +184,7 @@ export async function attachHostToAsset(db: Db, inventoryId: string, assetId: st
   if (!asset) return { error: "not_found" };
   await db.update(hostInventories).set({ assetId: target, companyId: asset.companyId, updatedAt: new Date() }).where(eq(hostInventories.id, inventoryId));
   await syncHostFindings(db, { id: inventoryId, companyId: asset.companyId, assetId: target }, evaluateHost(inv));
+  await syncInventorySoftware(db, target, source, inv);
   await recomputeHealth(db).catch(() => undefined);
   return { assetId: target, action };
 }

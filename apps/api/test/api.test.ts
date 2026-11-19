@@ -3744,6 +3744,93 @@ describe.skipIf(!url)("API (integrace)", () => {
     await admin.json("/api/admin/settings", { method: "PATCH", json: { legalTextSource: "auto" } });
   });
 
+  test("vazby v1.88 (ADR-183): software z agenta, nepřímé podněty k riziku, signály SoA, zdroje dat, identity, úkoly, kvalita, rozsah auditu, úklid", async () => {
+    const root = ((await admin.json("/api/companies")).body as any[]).find((x) => !x.parentId);
+    const H = { "x-contix-company": root.id };
+    const now = new Date();
+    // --- H3: balíčky z inventáře serveru → software aktiva (i po ručním spárování)
+    const conn = (await db.insert(schema.connections).values({ kind: "collector", name: "Vazby 1.88", companyId: root.id }).returning())[0]!;
+    try {
+    const inv = { collectorVersion: "agent/0.3.0", collectedAt: now.toISOString(), host: { hostname: "vazby-srv", machineId: "vazby-mid", os: "Debian 12", kernel: "6.1", ips: ["192.0.2.88"] }, users: [], sshKeys: [], packages: [{ name: "openssl", version: "3.0.11", arch: "amd64" }, { name: "openssh-server", version: "9.2p1", arch: "amd64" }] };
+    const [hi] = await db.insert(schema.hostInventories).values({ connectionId: conn.id, companyId: root.id, hostKey: "vazby-mid", hostname: "vazby-srv", collectedAt: now, data: inv as any }).returning();
+    // nespárovaný server → upozornění na zdroj dat
+    const { collectObligations } = await import("../src/modules/notifications/obligations");
+    const obl = await collectObligations(db, { companyIds: [root.id], leadDays: 14, kinds: new Set(["data_source"]), config });
+    expect(obl.some((o) => o.kind === "data_source" && o.link === "/discovery/map")).toBe(true);
+    const att = (await admin.json("/api/hosts/attach-unpaired", { method: "POST", headers: H, json: {} })).body;
+    expect(att.created + att.linked).toBeGreaterThan(0);
+    const [paired] = await db.select().from(schema.hostInventories).where(eq(schema.hostInventories.id, hi!.id));
+    expect(paired!.assetId).toBeTruthy();
+    const sw = await db.select().from(schema.assetSoftware).where(eq(schema.assetSoftware.assetId, paired!.assetId!));
+    expect(sw.map((x) => x.name).sort()).toEqual(["openssh-server", "openssl"]);
+    const server = paired!.assetId!;
+
+    // --- H2: riziko nad primárním aktivem dostane podnět z incidentu na podpůrném serveru (nepřímo)
+    const primary = (await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "Vazby – evidence pacientů", assetType: "information_asset", assetClass: "primary" } })).body;
+    expect((await admin.json("/api/assets/links", { method: "POST", headers: H, json: { primaryId: primary.id, supportingId: server } })).status).toBeLessThan(300);
+    const [cat] = await db.select().from(schema.riskCatalog).limit(1);
+    const risk = (await admin.json("/api/risks", { method: "POST", headers: H, json: { name: "Vazby – únik dat pacientů", threatId: cat!.id, impact: 3, threatLevel: 2, vulnLevel: 2, assetIds: [primary.id] } })).body;
+    await db.update(schema.risks).set({ assessedAt: new Date(Date.now() - 86_400_000), createdAt: new Date(Date.now() - 86_400_000) }).where(eq(schema.risks.id, risk.id));
+    await admin.json("/api/incidents", { method: "POST", headers: H, json: { title: "Vazby – kompromitace serveru", kind: "incident", category: "malware", detectedAt: now.toISOString(), assetIds: [server] } });
+    const re = (await admin.json(`/api/risks/${risk.id}/reassessment`, { headers: H })).body;
+    const inc = re.triggers.find((x: any) => x.kind === "incident");
+    expect(inc).toMatchObject({ indirect: true });
+
+    // --- H1: nesplněný monitor opatření → signál u opatření a požadavek „k přehodnocení“
+    const ctl = (await admin.json("/api/controls", { method: "POST", headers: H, json: { code: "K-SIG", name: "Vazby – správa zranitelností", status: "implemented", effectiveness: "effective", requirementIds: ["cz409:24/1"] } })).body;
+    await db.insert(schema.controlMonitors).values({ companyId: root.id, controlId: ctl.id, kind: "external_check", name: "Vazby", params: {}, enabled: true, lastResult: "fail", lastRunAt: now } as any);
+    const cd = (await admin.json(`/api/controls/${ctl.id}`, { headers: H })).body;
+    expect(cd.signals).toMatchObject({ kinds: { monitor_fail: 1 }, serious: true });
+    const reqs = (await admin.json("/api/controls/requirements?framework=cz409", { headers: H })).body as any[];
+    expect(reqs.find((r) => r.id === "cz409:24/1")).toMatchObject({ atRisk: true });
+
+    // --- M2: nálezy identit v registru nálezů, úkol z nálezu, samouzavření úkolu
+    const [src] = await db.insert(schema.identitySources).values({ companyId: root.id, kind: "ad", name: "Vazby AD", config: {}, policy: {} as any }).returning();
+    const [idf] = await db.insert(schema.identityFindings).values({ sourceId: src!.id, companyId: root.id, subject: "svc-backup", rule: "stale", severity: "high", detail: "" }).returning();
+    const reg = (await admin.json("/api/findings?source=identity", { headers: H })).body;
+    expect(reg.items.some((f: any) => f.key === `identity:${idf!.id}`)).toBe(true);
+    const tk = (await admin.json("/api/findings/tasks", { method: "POST", headers: H, json: { keys: [`identity:${idf!.id}`] } })).body;
+    expect(tk.created).toBe(1);
+    await db.update(schema.identityFindings).set({ status: "resolved", resolvedAt: now }).where(eq(schema.identityFindings.id, idf!.id));
+    const { closeResolvedSourceTasks } = await import("../src/modules/findings/sourceTasks");
+    expect(await closeResolvedSourceTasks(db)).toBeGreaterThan(0);
+
+    // --- M3: kritická zranitelnost serveru v souhrnu garanta
+    const me = (await admin.json("/api/auth/me")).body;
+    await admin.json(`/api/assets/${server}`, { method: "PATCH", headers: H, json: { technicalOwnerUserId: me.user?.id ?? me.id } });
+    await db.insert(schema.assetVulnerabilities).values({ assetId: server, cveId: "CVE-2026-0188", severity: "critical", status: "open", packageName: "openssl", packageVersion: "3.0.11" } as any);
+    const { guarantorFindings } = await import("../src/modules/findings/digest");
+    const dig = (await guarantorFindings(db)).flatMap((g) => g.assets).find((a) => a.id === server);
+    expect(dig?.critical).toBeGreaterThan(0);
+
+    // --- M5: aktivum kritického procesu s nižší kritičností
+    await admin.json(`/api/assets/${server}`, { method: "PATCH", headers: H, json: { criticality: "low" } });
+    const prc = await admin.json("/api/processes", { method: "POST", headers: H, json: { name: "Vazby – příjem pacientů", criticality: "critical", assetIds: [primary.id] } });
+    await db.insert(schema.processAssets).values({ processId: prc.body.id, assetId: primary.id });
+    const ql = ((await admin.json("/api/quality", { headers: H })).body.checks as any[]).find((k) => k.key === "assets_crit_below_process");
+    expect(ql.items.map((i: any) => i.id)).toContain(server);
+
+    // --- M7: rozsah auditu a pokrytí audity
+    const aud = (await admin.json("/api/audits", { method: "POST", headers: H, json: { title: "Vazby – interní audit", status: "completed", performedEnd: now.toISOString().slice(0, 10), controlIds: [ctl.id], assetIds: [primary.id] } })).body;
+    expect(aud.scopeControls.map((x: any) => x.id)).toEqual([ctl.id]);
+    const cov = (await admin.json("/api/audits/scope-coverage?years=3", { headers: H })).body;
+    expect(cov.controls.find((x: any) => x.id === ctl.id)?.auditId).toBe(aud.id);
+
+    // --- L1: štítek smazaného rizika se nepočítá a úklid ho odstraní
+    const [tag] = await db.insert(schema.tags).values({ name: "vazby-1-88" }).returning();
+    await db.insert(schema.objectTags).values({ tagId: tag!.id, entityType: "risk", entityId: "00000000-0000-4000-8000-000000000188", companyId: root.id });
+    const tg = ((await admin.json("/api/tags", { headers: H })).body as any[]).find((x) => x.id === tag!.id);
+    expect(tg.count).toBe(0);
+    const { countDangling, sweepDangling } = await import("../src/modules/quality/dangling");
+    expect((await countDangling(db))["tag:risk"]).toBeGreaterThan(0);
+    await sweepDangling(db);
+    expect((await countDangling(db))["tag:risk"]).toBeUndefined();
+    await db.delete(schema.tags).where(eq(schema.tags.id, tag!.id));
+    } finally {
+      await db.delete(schema.connections).where(eq(schema.connections.id, conn.id));
+    }
+  });
+
   test("hardening jako důkaz k opatření v1.87: monitory host_hardening / hardening_check a přehled podle požadavků (ADR-182)", async () => {
     const { HARDENING_CHECKS, HARDENING_REQS, hardeningChecksForRequirements, requirementById } = await import("@contix/shared");
     // každá kontrola je namapovaná a všechna ID požadavků v katalogu existují

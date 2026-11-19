@@ -1,8 +1,12 @@
 import type { RiskTrigger } from "@contix/shared";
 import { KRI_META, RISK_APPETITE_LABELS, RISK_SCENARIO_LABELS, templateByKey, type KriKey } from "@contix/shared";
 import { and, eq, gt, inArray, ne, or, sql } from "drizzle-orm";
+import { union } from "drizzle-orm/pg-core";
 import type { Db } from "../../db/client";
 import {
+  riskProcesses,
+  processAssets,
+  assetLinks,
   alertSuggestions,
   assets,
   assetVulnerabilities,
@@ -44,6 +48,19 @@ export const riskBaseline = (r: { assessedAt: Date | null; reviewedAt: Date | nu
   return xs.length ? new Date(Math.max(...xs.map((d) => d.getTime()))) : r.createdAt;
 };
 
+/** Nepřímý podnět (přes podpůrné aktivum nebo proces) – v1.88. */
+const ind = (direct: boolean | null | undefined) => (direct ? {} : { indirect: true as const });
+/** Jeden záznam na (riziko, id) – přímá vazba má přednost před nepřímou. */
+function preferDirect<T extends { riskId: string; id: string; direct: boolean | null }>(rows: T[]): T[] {
+  const m = new Map<string, T>();
+  for (const r of rows) {
+    const k = `${r.riskId}|${r.id}`;
+    const cur = m.get(k);
+    if (!cur || (!cur.direct && r.direct)) m.set(k, r);
+  }
+  return [...m.values()];
+}
+
 const iso = (d: Date | string | null) => (d == null ? new Date(0).toISOString() : new Date(d).toISOString());
 
 /** Podněty pro zadaná rizika (uzavřená rizika se přeskočí). Výsledek: riskId → podněty seřazené od nejnovějšího. */
@@ -57,6 +74,34 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
   };
   const inRisks = and(inArray(risks.id, riskIds), ne(risks.status, "closed"));
   const base = riskBaselineSql;
+  // Aktiva rizika (v1.88, ADR-183): přímo navázaná + podpůrná aktiva navázaných primárních aktiv + aktiva navázaných
+  // procesů (a jejich podpůrná) – technické podněty z podpůrných serverů dojdou i k riziku nad informací nebo procesem.
+  const ra = union(
+    db.select({ riskId: riskAssets.riskId, assetId: riskAssets.assetId, direct: sql<boolean>`true`.as("direct") }).from(riskAssets).where(inArray(riskAssets.riskId, riskIds)),
+    db
+      .select({ riskId: riskAssets.riskId, assetId: assetLinks.supportingId, direct: sql<boolean>`false`.as("direct") })
+      .from(riskAssets)
+      .innerJoin(assetLinks, eq(assetLinks.primaryId, riskAssets.assetId))
+      .where(inArray(riskAssets.riskId, riskIds)),
+    db
+      .select({ riskId: riskProcesses.riskId, assetId: processAssets.assetId, direct: sql<boolean>`false`.as("direct") })
+      .from(riskProcesses)
+      .innerJoin(processAssets, eq(processAssets.processId, riskProcesses.processId))
+      .where(inArray(riskProcesses.riskId, riskIds)),
+    db
+      .select({ riskId: riskProcesses.riskId, assetId: assetLinks.supportingId, direct: sql<boolean>`false`.as("direct") })
+      .from(riskProcesses)
+      .innerJoin(processAssets, eq(processAssets.processId, riskProcesses.processId))
+      .innerJoin(assetLinks, eq(assetLinks.primaryId, processAssets.assetId))
+      .where(inArray(riskProcesses.riskId, riskIds)),
+  ).as("ra");
+  const idList = sql.join(riskIds.map((i) => sql`${i}`), sql`, `);
+  const raSql = sql`(
+    select risk_id, asset_id, true as direct from ${riskAssets} where risk_id in (${idList})
+    union select r.risk_id, l.supporting_id, false from ${riskAssets} r join ${assetLinks} l on l.primary_id = r.asset_id where r.risk_id in (${idList})
+    union select rp.risk_id, pa.asset_id, false from ${riskProcesses} rp join ${processAssets} pa on pa.process_id = rp.process_id where rp.risk_id in (${idList})
+    union select rp.risk_id, l.supporting_id, false from ${riskProcesses} rp join ${processAssets} pa on pa.process_id = rp.process_id join ${assetLinks} l on l.primary_id = pa.asset_id where rp.risk_id in (${idList})
+  )`;
 
   const [incDirect, incAsset, findings, chDirect, chAsset, soc, vulns, tests, expired, quest, scen, mons, kris] = await Promise.all([
     // incidenty navázané na riziko
@@ -68,10 +113,10 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
       .where(and(inRisks, ne(incidents.kind, "event"), gt(incidents.detectedAt, base))),
     // incidenty na aktivech rizika
     db
-      .select({ riskId: risks.id, id: incidents.id, code: incidents.code, title: incidents.title, kind: incidents.kind, at: incidents.detectedAt })
-      .from(riskAssets)
-      .innerJoin(risks, eq(risks.id, riskAssets.riskId))
-      .innerJoin(incidentAssets, eq(incidentAssets.targetId, riskAssets.assetId))
+      .select({ riskId: risks.id, id: incidents.id, code: incidents.code, title: incidents.title, kind: incidents.kind, at: incidents.detectedAt, direct: ra.direct })
+      .from(ra)
+      .innerJoin(risks, eq(risks.id, ra.riskId))
+      .innerJoin(incidentAssets, eq(incidentAssets.targetId, ra.assetId))
       .innerJoin(incidents, and(eq(incidents.id, incidentAssets.incidentId), eq(incidents.companyId, risks.companyId)))
       .where(and(inRisks, ne(incidents.kind, "event"), gt(incidents.detectedAt, base))),
     // zjištění auditů (závažná a méně závažná neshoda)
@@ -89,10 +134,10 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
       .where(and(inRisks, eq(changes.significant, true), inArray(changes.status, ["approved", "implemented", "closed"]), gt(sql`coalesce(${changes.implementedAt}::timestamptz, ${changes.approvedAt})`, base))),
     // významné změny aktiv rizika
     db
-      .select({ riskId: risks.id, id: changes.id, code: changes.code, title: changes.title, at: sql<Date>`coalesce(${changes.implementedAt}::timestamptz, ${changes.approvedAt})` })
-      .from(riskAssets)
-      .innerJoin(risks, eq(risks.id, riskAssets.riskId))
-      .innerJoin(changeAssets, eq(changeAssets.targetId, riskAssets.assetId))
+      .select({ riskId: risks.id, id: changes.id, code: changes.code, title: changes.title, at: sql<Date>`coalesce(${changes.implementedAt}::timestamptz, ${changes.approvedAt})`, direct: ra.direct })
+      .from(ra)
+      .innerJoin(risks, eq(risks.id, ra.riskId))
+      .innerJoin(changeAssets, eq(changeAssets.targetId, ra.assetId))
       .innerJoin(changes, and(eq(changes.id, changeAssets.changeId), eq(changes.companyId, risks.companyId)))
       .where(and(inRisks, eq(changes.significant, true), inArray(changes.status, ["approved", "implemented", "closed"]), gt(sql`coalesce(${changes.implementedAt}::timestamptz, ${changes.approvedAt})`, base))),
     // signály SOC: eskalované, potvrzené nebo pokus o zneužití na aktivech rizika
@@ -103,10 +148,11 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
         at: sql<Date>`max(${alertSuggestions.lastSeen})`,
         exploit: sql<boolean>`bool_or(coalesce((${alertSuggestions.exposure}->>'exploit')::boolean, false))`,
         escalated: sql<number>`count(distinct ${alertSuggestions.id}) filter (where ${alertSuggestions.status} = 'accepted')::int`,
+        direct: sql<boolean>`bool_or(${ra.direct})`,
       })
-      .from(riskAssets)
-      .innerJoin(risks, eq(risks.id, riskAssets.riskId))
-      .innerJoin(alertSuggestions, and(eq(alertSuggestions.assetId, riskAssets.assetId), eq(alertSuggestions.companyId, risks.companyId)))
+      .from(ra)
+      .innerJoin(risks, eq(risks.id, ra.riskId))
+      .innerJoin(alertSuggestions, and(eq(alertSuggestions.assetId, ra.assetId), eq(alertSuggestions.companyId, risks.companyId)))
       .where(
         and(
           inRisks,
@@ -122,11 +168,12 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
         n: sql<number>`count(distinct ${assetVulnerabilities.id})::int`,
         at: sql<Date>`max(greatest(${assetVulnerabilities.firstSeenAt}, ${vulnIntel.kevDateAdded}::timestamptz))`,
         cves: sql<string[]>`(array_agg(distinct ${assetVulnerabilities.cveId}))[1:5]`,
+        direct: sql<boolean>`bool_or(${ra.direct})`,
       })
-      .from(riskAssets)
-      .innerJoin(risks, eq(risks.id, riskAssets.riskId))
-      .innerJoin(assets, eq(assets.id, riskAssets.assetId))
-      .innerJoin(assetVulnerabilities, eq(assetVulnerabilities.assetId, riskAssets.assetId))
+      .from(ra)
+      .innerJoin(risks, eq(risks.id, ra.riskId))
+      .innerJoin(assets, eq(assets.id, ra.assetId))
+      .innerJoin(assetVulnerabilities, eq(assetVulnerabilities.assetId, ra.assetId))
       .leftJoin(vulnIntel, eq(vulnIntel.cveId, assetVulnerabilities.cveId))
       .where(and(inRisks, eq(assetVulnerabilities.status, "open"), sql`${vulnPrioritySql} = 1`, sql`greatest(${assetVulnerabilities.firstSeenAt}, ${vulnIntel.kevDateAdded}::timestamptz) > ${base}`))
       .groupBy(risks.id),
@@ -140,11 +187,11 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
       .where(and(inRisks, eq(controlTests.status, "completed"), inArray(controlTests.result, ["ineffective", "effective_with_exceptions"]), sql`${controlTests.performedAt}::timestamptz > ${base}`)),
     // prošlé výjimky zranitelností na aktivech rizika
     db
-      .select({ riskId: risks.id, id: assetVulnerabilities.id, cveId: assetVulnerabilities.cveId, asset: assets.name, assetId: assets.id, until: assetVulnerabilities.acceptedUntil })
-      .from(riskAssets)
-      .innerJoin(risks, eq(risks.id, riskAssets.riskId))
-      .innerJoin(assets, eq(assets.id, riskAssets.assetId))
-      .innerJoin(assetVulnerabilities, eq(assetVulnerabilities.assetId, riskAssets.assetId))
+      .select({ riskId: risks.id, id: assetVulnerabilities.id, cveId: assetVulnerabilities.cveId, asset: assets.name, assetId: assets.id, until: assetVulnerabilities.acceptedUntil, direct: ra.direct })
+      .from(ra)
+      .innerJoin(risks, eq(risks.id, ra.riskId))
+      .innerJoin(assets, eq(assets.id, ra.assetId))
+      .innerJoin(assetVulnerabilities, eq(assetVulnerabilities.assetId, ra.assetId))
       .where(and(inRisks, eq(assetVulnerabilities.status, "accepted"), sql`${assetVulnerabilities.acceptedUntil} < current_date`, sql`${assetVulnerabilities.acceptedUntil}::timestamptz > ${base}`)),
     // vyhodnocené dotazníky dodavatelů (navázané na riziko nebo dodavatele rizika) s odpověďmi „ne“
     db
@@ -212,26 +259,18 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
       .where(and(inRisks, inArray(riskScenarioProposals.status, ["accepted", "linked"]), gt(kriSettings.breachedSince, base))),
   ]);
 
-  const seenInc = new Set<string>();
-  for (const i of [...incDirect, ...incAsset]) {
-    if (seenInc.has(`${i.riskId}|${i.id}`)) continue;
-    seenInc.add(`${i.riskId}|${i.id}`);
-    add(i.riskId, { kind: "incident", at: iso(i.at), link: `/incidents/${i.id}`, title: `${i.code ? `${i.code} ` : ""}${i.title}`, detail: i.kind, count: 1, strong: i.kind === "incident" });
-  }
+  for (const i of preferDirect([...incDirect.map((x) => ({ ...x, direct: true })), ...incAsset]))
+    add(i.riskId, { kind: "incident", at: iso(i.at), link: `/incidents/${i.id}`, title: `${i.code ? `${i.code} ` : ""}${i.title}`, detail: i.kind, count: 1, strong: i.kind === "incident" && i.direct, ...ind(i.direct) });
   for (const f of findings)
     add(f.riskId, { kind: "audit_finding", at: iso(f.at), link: `/audits/${f.auditId}`, title: `${f.code ? `${f.code} ` : ""}${f.title}`, detail: f.severity, count: 1, strong: f.severity === "major" });
-  const seenCh = new Set<string>();
-  for (const ch of [...chDirect, ...chAsset]) {
-    if (seenCh.has(`${ch.riskId}|${ch.id}`)) continue;
-    seenCh.add(`${ch.riskId}|${ch.id}`);
-    add(ch.riskId, { kind: "change", at: iso(ch.at), link: `/isms/changes/${ch.id}`, title: `${ch.code ? `${ch.code} ` : ""}${ch.title}`, detail: null, count: 1, strong: false });
-  }
+  for (const ch of preferDirect([...chDirect.map((x) => ({ ...x, direct: true })), ...chAsset]))
+    add(ch.riskId, { kind: "change", at: iso(ch.at), link: `/isms/changes/${ch.id}`, title: `${ch.code ? `${ch.code} ` : ""}${ch.title}`, detail: null, count: 1, strong: false, ...ind(ch.direct) });
   for (const s of soc)
-    add(s.riskId, { kind: "soc", at: iso(s.at), link: null, title: "", detail: s.exploit ? "exploit" : s.escalated ? "escalated" : "true_positive", count: s.n, strong: s.exploit || s.escalated > 0 });
-  for (const v of vulns) add(v.riskId, { kind: "vuln", at: iso(v.at), link: null, title: "", detail: (v.cves ?? []).join(", "), count: v.n, strong: true });
+    add(s.riskId, { kind: "soc", at: iso(s.at), link: null, title: "", detail: s.exploit ? "exploit" : s.escalated ? "escalated" : "true_positive", count: s.n, strong: s.exploit || s.escalated > 0, ...ind(s.direct) });
+  for (const v of vulns) add(v.riskId, { kind: "vuln", at: iso(v.at), link: null, title: "", detail: (v.cves ?? []).join(", "), count: v.n, strong: true, ...ind(v.direct) });
   for (const ct of tests)
     add(ct.riskId, { kind: "control_test", at: iso(ct.at), link: `/controls/tests/${ct.id}`, title: `${ct.code ? `${ct.code} ` : ""}${ct.name}${ct.title ? ` – ${ct.title}` : ""}`, detail: ct.result, count: 1, strong: ct.result === "ineffective" });
-  for (const e of expired) add(e.riskId, { kind: "exception", at: iso(e.until), link: `/assets/${e.assetId}`, title: `${e.cveId} · ${e.asset}`, detail: e.until, count: 1, strong: false });
+  for (const e of preferDirect(expired)) add(e.riskId, { kind: "exception", at: iso(e.until), link: `/assets/${e.assetId}`, title: `${e.cveId} · ${e.asset}`, detail: e.until, count: 1, strong: false, ...ind(e.direct) });
   const seenQ = new Set<string>();
   for (const q of quest) {
     if (seenQ.has(`${q.riskId}|${q.id}`)) continue;
@@ -268,14 +307,14 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
     add(k.riskId, { kind: "kri", at: iso(k.at), link: "/risks/appetite", title: RISK_APPETITE_LABELS.kri[k.key as KriKey], detail: k.key, count: 1, strong: false });
   }
   // otevřené nálezy bezpečnostních testů (střední a vyšší) na aktivech rizika nebo u navázaných opatření (v1.63, ADR-157)
-  const secRows = await db.execute<{ risk_id: string; n: number; high: number; at: Date; titles: string[] }>(sql`
+  const secRows = await db.execute<{ risk_id: string; n: number; high: number; at: Date; titles: string[]; direct: boolean }>(sql`
     select x.risk_id, count(distinct f.id)::int as n,
       count(distinct f.id) filter (where f.severity in ('critical','high'))::int as high,
-      max(f.first_seen_at) as at, (array_agg(distinct f.title))[1:3] as titles
+      max(f.first_seen_at) as at, (array_agg(distinct f.title))[1:3] as titles, bool_or(x.direct) as direct
     from (
-      select ra.risk_id, f.id as fid from ${riskAssets} ra join ${secTestFindings} f on f.asset_id = ra.asset_id
+      select ra.risk_id, f.id as fid, ra.direct from ${raSql} ra join ${secTestFindings} f on f.asset_id = ra.asset_id
       union
-      select rc.risk_id, f.id from ${riskControls} rc join ${secTestFindings} f on f.control_id = rc.control_id
+      select rc.risk_id, f.id, true from ${riskControls} rc join ${secTestFindings} f on f.control_id = rc.control_id
     ) x
     join ${secTestFindings} f on f.id = x.fid
     join ${risks} r on r.id = x.risk_id
@@ -283,14 +322,14 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
       and f.status = 'open' and f.severity in ('critical','high','medium')
       and f.first_seen_at > coalesce(greatest(r.assessed_at, r.reviewed_at), r.created_at)
     group by x.risk_id`);
-  for (const s of secRows as unknown as { risk_id: string; n: number; high: number; at: Date; titles: string[] }[])
-    add(s.risk_id, { kind: "sectest", at: iso(s.at), link: "/security-tests", title: (s.titles ?? []).join(" · "), detail: `${s.n} (${s.high} krit./vys.)`, count: s.n, strong: s.high > 0 });
+  for (const s of secRows as unknown as { risk_id: string; n: number; high: number; at: Date; titles: string[]; direct: boolean }[])
+    add(s.risk_id, { kind: "sectest", at: iso(s.at), link: "/security-tests", title: (s.titles ?? []).join(" · "), detail: `${s.n} (${s.high} krit./vys.)`, count: s.n, strong: s.high > 0, ...ind(s.direct) });
   // otevřené vysoké a střední nálezy konfigurace serverů ze sběrače na aktivech rizika (v1.65, ADR-158)
-  const hostRows = await db.execute<{ risk_id: string; n: number; high: number; at: Date; host: string }>(sql`
+  const hostRows = await db.execute<{ risk_id: string; n: number; high: number; at: Date; host: string; direct: boolean }>(sql`
     select ra.risk_id, count(distinct f.id)::int as n,
       count(distinct f.id) filter (where f.severity = 'high')::int as high,
-      max(f.first_seen_at) as at, min(i.hostname) as host
-    from ${riskAssets} ra
+      max(f.first_seen_at) as at, min(i.hostname) as host, bool_or(ra.direct) as direct
+    from ${raSql} ra
     join ${hostFindings} f on f.asset_id = ra.asset_id
     join ${hostInventories} i on i.id = f.inventory_id
     join ${risks} r on r.id = ra.risk_id
@@ -298,8 +337,19 @@ export async function riskTriggers(db: Db, riskIds: string[]): Promise<Map<strin
       and f.status = 'open' and f.severity in ('high','medium')
       and f.first_seen_at > coalesce(greatest(r.assessed_at, r.reviewed_at), r.created_at)
     group by ra.risk_id`);
-  for (const s of hostRows as unknown as { risk_id: string; n: number; high: number; at: Date; host: string }[])
-    add(s.risk_id, { kind: "host_finding", at: iso(s.at), link: "/findings?source=host", title: s.host, detail: `${s.n} (${s.high} vys.)`, count: s.n, strong: s.high > 0 });
+  for (const s of hostRows as unknown as { risk_id: string; n: number; high: number; at: Date; host: string; direct: boolean }[])
+    add(s.risk_id, { kind: "host_finding", at: iso(s.at), link: "/findings?source=host", title: s.host, detail: `${s.n} (${s.high} vys.)`, count: s.n, strong: s.high > 0, ...ind(s.direct) });
+  // zranitelnosti vlastních produktů (CRA) navázané na riziko: dotčené nebo v šetření, změněné po základu (v1.88, ADR-183)
+  const craRows = await db.execute<{ risk_id: string; n: number; affected: number; at: Date; ids: string[]; product_id: string }>(sql`
+    select f.risk_id, count(*)::int as n, count(*) filter (where f.status = 'affected')::int as affected,
+      max(f.updated_at) as at, (array_agg(distinct f.vuln_id))[1:5] as ids, min(f.product_id::text) as product_id
+    from cra_findings f join ${risks} r on r.id = f.risk_id
+    where f.risk_id in (${sql.join(riskIds.map((i) => sql`${i}`), sql`, `)}) and r.status <> 'closed' and not f.gone
+      and f.status in ('affected','under_investigation')
+      and f.updated_at > coalesce(greatest(r.assessed_at, r.reviewed_at), r.created_at)
+    group by f.risk_id`);
+  for (const s of craRows as unknown as { risk_id: string; n: number; affected: number; at: Date; ids: string[]; product_id: string }[])
+    add(s.risk_id, { kind: "cra_finding", at: iso(s.at), link: `/cra/${s.product_id}`, title: (s.ids ?? []).join(", "), detail: `${s.n} (${s.affected} dotčeno)`, count: s.n, strong: s.affected > 0 });
   for (const l of out.values()) l.sort((a, b) => b.at.localeCompare(a.at));
   return out;
 }

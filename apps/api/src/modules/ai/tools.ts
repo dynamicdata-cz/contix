@@ -74,6 +74,7 @@ export interface QueryTool {
 const LIMIT = 50;
 /** Čtecí oprávnění potřebné pro druh povinnosti (stejně jako /notifications/team). */
 const OBLIGATION_NEED: Record<ObligationKind, Permission> = {
+  data_source: "admin:settings",
   soc_sla: "soc:read",
   vuln_remediation: "assets:read",
   info_assessment: "legislation:read",

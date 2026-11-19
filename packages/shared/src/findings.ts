@@ -6,7 +6,7 @@ import { z } from "zod";
  * úkolem a výjimkou. Zdroje zůstávají ve svých modulech; přehled je jen čte.
  * ============================================================ */
 
-export const FINDING_SOURCES = ["sectest", "host", "vulnerability", "audit"] as const;
+export const FINDING_SOURCES = ["sectest", "host", "vulnerability", "audit", "identity"] as const;
 export type FindingSource = (typeof FINDING_SOURCES)[number];
 export const UNIFIED_SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
 export type UnifiedSeverity = (typeof UNIFIED_SEVERITIES)[number];
@@ -77,7 +77,7 @@ export const FindingsQuery = z.object({
 export type FindingsQuery = z.input<typeof FindingsQuery>;
 
 export const FINDING_LABELS = {
-  source: { sectest: "Bezpečnostní test", host: "Konfigurace serveru", vulnerability: "Zranitelnost", audit: "Zjištění auditu" } as Record<FindingSource, string>,
+  source: { sectest: "Bezpečnostní test", host: "Konfigurace serveru", vulnerability: "Zranitelnost", audit: "Zjištění auditu", identity: "Identity a přístupy" } as Record<FindingSource, string>,
   severity: { critical: "Kritická", high: "Vysoká", medium: "Střední", low: "Nízká", info: "Info" } as Record<UnifiedSeverity, string>,
   status: { open: "Otevřený", in_progress: "V řešení", accepted: "Přijaté riziko", fixed: "Opraveno", dismissed: "Zamítnuto" } as Record<UnifiedStatus, string>,
 };
@@ -220,6 +220,8 @@ export const FindingPlanTasksInput = z.object({
   steps: z.array(z.number().int().min(0).max(19)).min(1).max(20),
 });
 export type FindingPlanTasksInput = z.input<typeof FindingPlanTasksInput>;
+/** Úkoly z vybraných nálezů registru (v1.88) – klíče `vulnerability:id`, `identity:id`. */
+export const FindingTasksInput = z.object({ keys: z.array(z.string().max(80)).min(1).max(200) });
 
 /** Aktivum s nálezy po termínu, které eskalovaly na vedoucího garanta. */
 export interface FindingEscalationDto {

@@ -151,6 +151,7 @@ export function AuditsPage() {
           {(findings.data ?? []).length === 0 ? <EmptyState>{t("aud.zadnaOtevrenaZjisteni")}</EmptyState> : <FindingTable rows={findings.data!} showAudit />}
         </Card>
       )}
+      {tab === "coverage" && <ScopeCoverageCard />}
       {tab === "coverage" && (
         <Card className="overflow-hidden">
           <CardHeader title={t("aud.pokrytiOddiluVyhlaskyC2025", { p: decree === "cz410" ? "410" : "409" })} subtitle={t("aud.auditVPlnemRozsahuBez")} />
@@ -314,6 +315,9 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
     managementInformedAt: a?.managementInformedAt ?? "",
     supplierId: a?.supplierId ?? null,
     changeIds: a?.changes.map((c) => c.id) ?? [],
+    processIds: a?.scopeProcesses.map((x) => x.id) ?? [],
+    controlIds: a?.scopeControls.map((x) => x.id) ?? [],
+    scopeAssets: (a?.scopeAssets ?? []) as PickedAsset[],
     methodologyKey: a ? a.methodologyKey : profile.auditMethodology,
   });
   const [initialForm] = useState(() => f);
@@ -322,9 +326,12 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
   const [finding, setFinding] = useState<FindingDto | "new" | null>(null);
   const changes = useQuery({ queryKey: ["isms", "changes", "", "significant"], queryFn: () => api.isms.changes({ status: "significant" }), enabled: mod("isms") && can("isms:read") });
   const suppliers = useQuery({ queryKey: ["suppliers", "", false], queryFn: () => api.suppliers.list(), enabled: mod("suppliers") && can("suppliers:read") });
+  const scopeProcs = useQuery({ queryKey: ["processes", "audit-scope"], queryFn: () => api.processes.list(), enabled: mod("processes") && can("processes:read") });
+  const scopeCtls = useQuery({ queryKey: ["controls", "audit-scope"], queryFn: () => api.controls.list(), enabled: mod("controls") && can("controls:read") });
   const nz = (v: string) => (v ? v : null);
   const body = (): AuditInput => ({
-    ...f,
+    ...(({ scopeAssets: _sa, ...rest }) => rest)(f),
+    assetIds: f.scopeAssets.map((x) => x.id),
     code: nz(f.code),
     scope: nz(f.scope),
     plannedStart: nz(f.plannedStart),
@@ -481,6 +488,39 @@ function AuditEditor({ a }: { a: AuditDetail | null }) {
                 <p className="mt-1 text-xs text-slate-500">{t("aud.poDokonceniAudituSeU")}</p>
               </div>
             )}
+            <div className="space-y-3 border-t border-slate-100 pt-3" data-testid="audit-scope">
+              <div className="text-sm font-medium text-slate-700">{t("aud.scope.title")}</div>
+              <p className="-mt-2 text-xs text-slate-500">{t("aud.scope.hint")}</p>
+              {mod("processes") && can("processes:read") && (
+                <Field label={t("aud.scope.processes")}>
+                  <IdMultiSelect
+                    linkKind="process"
+                    value={f.processIds}
+                    onChange={(v) => set("processIds", v)}
+                    disabled={!edit}
+                    options={(scopeProcs.data ?? []).map((x) => ({ id: x.id, label: `${x.code ? `${x.code} ` : ""}${x.name}` }))}
+                    known={(a?.scopeProcesses ?? []).map((x) => ({ id: x.id, label: `${x.code ? `${x.code} ` : ""}${x.name}` }))}
+                  />
+                </Field>
+              )}
+              {mod("controls") && can("controls:read") && (
+                <Field label={t("aud.scope.controls")}>
+                  <IdMultiSelect
+                    linkKind="control"
+                    value={f.controlIds}
+                    onChange={(v) => set("controlIds", v)}
+                    disabled={!edit}
+                    options={(scopeCtls.data ?? []).map((x) => ({ id: x.id, label: `${x.code ? `${x.code} ` : ""}${x.name}` }))}
+                    known={(a?.scopeControls ?? []).map((x) => ({ id: x.id, label: `${x.code ? `${x.code} ` : ""}${x.name}` }))}
+                  />
+                </Field>
+              )}
+              {mod("assets") && can("assets:read") && (
+                <Field label={t("aud.scope.assets")}>
+                  <AssetPicker value={f.scopeAssets} onChange={(v) => set("scopeAssets", v)} disabled={!edit} />
+                </Field>
+              )}
+            </div>
           </div>
         </Card>
         <Card>
@@ -867,6 +907,62 @@ function ChecklistCard({ audit, edit }: { audit: AuditDetail; edit: boolean }) {
                   <Badge tone={CHECK_TONE[i.result]}>{t.lbl(AUDIT_CHECK_LABELS[i.result])}</Badge>
                 </div>
               </div>
+            </div>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+/** Pokrytí audity (v1.88, ADR-183): procesy, zavedená opatření a primární aktiva bez dokončeného auditu za zvolené období. */
+function ScopeCoverageCard() {
+  const t = useT();
+  const [years, setYears] = useState(3);
+  const q = useQuery({ queryKey: ["audits", "scope-coverage", years], queryFn: () => api.audits.scopeCoverage(years) });
+  const limit = new Date(Date.now() - years * 365.25 * 86_400_000).toISOString().slice(0, 10);
+  const groups: { key: "processes" | "controls" | "assets"; link: (id: string) => string }[] = [
+    { key: "processes", link: (id) => `/processes/${id}` },
+    { key: "controls", link: (id) => `/controls/${id}` },
+    { key: "assets", link: (id) => `/assets/${id}` },
+  ];
+  return (
+    <Card className="mb-6 overflow-hidden" data-testid="audit-scope-coverage">
+      <CardHeader
+        title={t("aud.scope.covTitle")}
+        subtitle={t("aud.scope.covSub")}
+        action={
+          <Select value={String(years)} onChange={(e) => setYears(Number(e.target.value))} aria-label={t("aud.scope.years")}>
+            {[1, 2, 3, 5].map((y) => (
+              <option key={y} value={y}>
+                {t("aud.scope.yearsN", { n: y })}
+              </option>
+            ))}
+          </Select>
+        }
+      />
+      <div className="grid gap-4 p-5 md:grid-cols-3">
+        {groups.map((g) => {
+          const rows = q.data?.[g.key] ?? [];
+          const stale = rows.filter((r) => !r.lastAudit || r.lastAudit < limit);
+          return (
+            <div key={g.key}>
+              <div className="mb-1 text-sm font-medium text-slate-700">
+                {t(`aud.scope.${g.key}`)}{" "}
+                <span className={stale.length ? "text-amber-700" : "text-emerald-700"}>
+                  {t("aud.scope.notAudited", { n: stale.length, total: rows.length })}
+                </span>
+              </div>
+              <ul className="max-h-64 space-y-0.5 overflow-y-auto text-xs">
+                {stale.slice(0, 100).map((r) => (
+                  <li key={r.id}>
+                    <a href={g.link(r.id)} className="text-brand-700 hover:underline">
+                      {r.label}
+                    </a>{" "}
+                    <span className="text-slate-500">{r.lastAudit ? fmtDay(r.lastAudit) : t("aud.scope.never")}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           );
         })}

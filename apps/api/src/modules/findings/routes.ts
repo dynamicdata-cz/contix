@@ -2,6 +2,7 @@ import {
   FINDING_SOURCES,
   FindingsQuery,
   FindingPlanTasksInput,
+  FindingTasksInput,
   RemediationQuery,
   UNIFIED_SEVERITIES,
   unifiedSeverity,
@@ -13,6 +14,9 @@ import {
   type UnifiedFindingDto,
   type UnifiedFindingsDto,
   type UnifiedSeverity,
+  IDENTITY_RULE_INFO,
+  type IdentityRule,
+  type SecTestFindingTask,
 } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { HTTPException } from "hono/http-exception";
@@ -33,7 +37,8 @@ import { requirePerm } from "../../auth/middleware";
 import { hasPermIn, scopeOf, soleCompany } from "../../auth/scope";
 import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
-import { assets, assetVulnerabilities, auditFindings, audits, hostFindings, hostInventories, positions, secTestFindings, users, vulnIntel } from "../../db/schema";
+import { assets, assetVulnerabilities, auditFindings, audits, hostFindings, hostInventories, identityFindings, identitySources, positions, secTestFindings, sodRules, sodViolations, users, vulnIntel } from "../../db/schema";
+import { createIdentityTasks, createVulnTasks, sourceTasks } from "./sourceTasks";
 import { getVulnSla, vulnDueSql } from "../vulnerabilities/intel";
 import { hostFindingTasks, hostFindingTitle } from "../collector/findings";
 import { findingTasks } from "../sectests/tasks";
@@ -48,6 +53,7 @@ const ACCESS: Record<FindingSource, { perm: Permission; module: string }> = {
   host: { perm: "assets:read", module: "assets" },
   vulnerability: { perm: "assets:read", module: "vulnerabilities" },
   audit: { perm: "audits:read", module: "audits" },
+  identity: { perm: "identity:read", module: "identity" },
 };
 const LIMIT = 1500;
 
@@ -62,17 +68,18 @@ const SRC_SEV: Record<FindingSource, (s: UnifiedSeverity) => string[]> = {
   host: (s) => [s],
   vulnerability: (s) => (s === "info" ? ["unknown"] : [s]),
   audit: (s) => ({ critical: [], high: ["major"], medium: ["minor"], low: ["observation"], info: ["recommendation"] })[s],
+  identity: (s) => (s === "info" ? [] : [s]),
 };
 /** Jednotný stav → stavy zdroje. */
 function srcStatuses(source: FindingSource, st: string): string[] | null {
   if (st === "all") return null;
   const m: Record<string, Record<FindingSource, string[]>> = {
-    active: { sectest: ["open"], host: ["open"], vulnerability: ["open"], audit: ["open", "in_progress"] },
-    open: { sectest: ["open"], host: ["open"], vulnerability: ["open"], audit: ["open"] },
-    in_progress: { sectest: [], host: [], vulnerability: [], audit: ["in_progress"] },
-    accepted: { sectest: ["accepted"], host: ["accepted"], vulnerability: ["accepted"], audit: ["accepted"] },
-    fixed: { sectest: ["fixed"], host: ["fixed"], vulnerability: ["resolved"], audit: ["closed"] },
-    dismissed: { sectest: ["false_positive"], host: ["false_positive"], vulnerability: ["false_positive", "out_of_scope", "duplicate"], audit: [] },
+    active: { sectest: ["open"], host: ["open"], vulnerability: ["open"], audit: ["open", "in_progress"], identity: ["open"] },
+    open: { sectest: ["open"], host: ["open"], vulnerability: ["open"], audit: ["open"], identity: ["open"] },
+    in_progress: { sectest: [], host: [], vulnerability: [], audit: ["in_progress"], identity: [] },
+    accepted: { sectest: ["accepted"], host: ["accepted"], vulnerability: ["accepted"], audit: ["accepted"], identity: ["accepted"] },
+    fixed: { sectest: ["fixed"], host: ["fixed"], vulnerability: ["resolved"], audit: ["closed"], identity: ["resolved"] },
+    dismissed: { sectest: ["false_positive"], host: ["false_positive"], vulnerability: ["false_positive", "out_of_scope", "duplicate"], audit: [], identity: [] },
   };
   return m[st]![source];
 }
@@ -227,7 +234,9 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
             )
             .orderBy(sql`case ${assetVulnerabilities.severity} when 'critical' then 0 when 'high' then 1 when 'medium' then 2 else 3 end`, desc(assetVulnerabilities.lastSeenAt))
             .limit(LIMIT);
-          for (const { v, companyId, assetName, techName, crit, inet, due } of rows)
+          const vt = await sourceTasks(db, "vulnerability", rows.map((r) => r.v.id));
+          for (const { v, companyId, assetName, techName, crit, inet, due } of rows) {
+            const t = vt.get(v.id) ?? null;
             items.push({
               key: `vulnerability:${v.id}`,
               id: v.id,
@@ -239,15 +248,16 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
               status: unifiedStatus(v.status),
               assetId: v.assetId,
               assetName,
-              ownerName: techName,
-              task: null,
-              dueDate: v.status === "open" ? due : null,
-              dueFromSla: v.status === "open" && !!due,
+              ownerName: t?.assigneeName ?? techName,
+              task: t ? { id: t.id, code: t.code, status: t.status, dueDate: t.dueDate, assigneeName: t.assigneeName ?? t.ownerName } : null,
+              dueDate: v.status === "open" ? (t?.dueDate ?? due) : null,
+              dueFromSla: v.status === "open" && !t?.dueDate && !!due,
               acceptedUntil: v.acceptedUntil,
               firstSeenAt: v.firstSeenAt.toISOString(),
               link: `/assets/${v.assetId}`,
               priority: findingPriority({ severity: unifiedSeverity("vulnerability", v.severity), internetFacing: inet || v.exposed, criticality: crit, overdue: v.status === "open" && !!due && due < today }),
             });
+          }
         })(),
       );
     if (want("audit"))
@@ -293,6 +303,71 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
         })(),
       );
 
+    if (want("identity") && !q.assetId)
+      jobs.push(
+        (async () => {
+          const st = srcStatuses("identity", q.status);
+          const sv = q.severity ? SRC_SEV.identity(q.severity) : null;
+          const [fr, sr] = await Promise.all([
+            db
+              .select({ f: identityFindings, src: identitySources.name })
+              .from(identityFindings)
+              .innerJoin(identitySources, eq(identitySources.id, identityFindings.sourceId))
+              .where(
+                and(
+                  inArray(identityFindings.companyId, scope.identity),
+                  st ? (st.length ? inArray(identityFindings.status, st as never) : sql`false`) : undefined,
+                  sv ? (sv.length ? inArray(identityFindings.severity, sv as never) : sql`false`) : undefined,
+                  like ? or(ilike(identityFindings.subject, like), ilike(identityFindings.rule, like)) : undefined,
+                  resp ? taskOf("identity_finding", sql`${identityFindings.id}`) : undefined,
+                ),
+              )
+              .orderBy(desc(identityFindings.lastSeenAt))
+              .limit(LIMIT),
+            db
+              .select({ v: sodViolations, rule: sodRules.name, sev: sodRules.severity })
+              .from(sodViolations)
+              .innerJoin(sodRules, eq(sodRules.id, sodViolations.ruleId))
+              .where(
+                and(
+                  inArray(sodViolations.companyId, scope.identity),
+                  st ? (st.length ? inArray(sodViolations.status, st as never) : sql`false`) : undefined,
+                  sv ? (sv.length ? inArray(sodRules.severity, sv as never) : sql`false`) : undefined,
+                  like ? or(ilike(sodViolations.person, like), ilike(sodRules.name, like)) : undefined,
+                  resp ? taskOf("sod_violation", sql`${sodViolations.id}`) : undefined,
+                ),
+              )
+              .limit(LIMIT),
+          ]);
+          const [ft, stt] = await Promise.all([sourceTasks(db, "identity_finding", fr.map((r) => r.f.id)), sourceTasks(db, "sod_violation", sr.map((r) => r.v.id))]);
+          const push = (x: { id: string; companyId: string; title: string; detail: string; sev: string; status: string; firstSeenAt: Date; acceptedUntil: string | null; t: SecTestFindingTask | null }) => {
+            const sevU = unifiedSeverity("identity", x.sev);
+            const sla = x.status === "open" ? findingSlaDue(x.firstSeenAt, sevU) : null;
+            items.push({
+              key: `identity:${x.id}`,
+              id: x.id,
+              source: "identity",
+              companyId: x.companyId,
+              title: x.title,
+              detail: x.detail,
+              severity: sevU,
+              status: unifiedStatus(x.status),
+              assetId: null,
+              assetName: null,
+              ownerName: x.t?.assigneeName ?? x.t?.ownerName ?? null,
+              task: x.t ? { id: x.t.id, code: x.t.code, status: x.t.status, dueDate: x.t.dueDate, assigneeName: x.t.assigneeName ?? x.t.ownerName } : null,
+              ...dueOf(x.t, sla),
+              acceptedUntil: x.acceptedUntil,
+              firstSeenAt: x.firstSeenAt.toISOString(),
+              link: "/identity",
+              priority: findingPriority({ severity: sevU, overdue: lateOf(x.status, x.t, sla ?? today, today) }),
+            });
+          };
+          for (const { f, src } of fr) push({ id: f.id, companyId: f.companyId, title: `${IDENTITY_RULE_INFO[f.rule as IdentityRule]?.title ?? f.rule}: ${f.subject}`, detail: src, sev: f.severity, status: f.status, firstSeenAt: f.firstSeenAt, acceptedUntil: f.acceptedUntil, t: ft.get(f.id) ?? null });
+          for (const { v, rule, sev } of sr) push({ id: v.id, companyId: v.companyId, title: `SoD – ${rule}: ${v.person || v.subject}`, detail: "SoD", sev, status: v.status, firstSeenAt: v.firstSeenAt, acceptedUntil: v.acceptedUntil, t: stt.get(v.id) ?? null });
+        })(),
+      );
+
     // souhrn otevřených – bez filtru stavu a závažnosti
     const open = Object.fromEntries(FINDING_SOURCES.map((s) => [s, Object.fromEntries(UNIFIED_SEVERITIES.map((v) => [v, 0]))])) as UnifiedFindingsDto["open"];
     const cnt = async (s: FindingSource, rows: Promise<{ sev: string; n: number }[]>) => {
@@ -327,6 +402,10 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
             .groupBy(auditFindings.severity),
         ),
       );
+    if (scope.identity.length && !q.assetId) {
+      jobs.push(cnt("identity", db.select({ sev: sql<string>`${identityFindings.severity}::text`, n }).from(identityFindings).where(and(inArray(identityFindings.companyId, scope.identity), eq(identityFindings.status, "open"))).groupBy(identityFindings.severity)));
+      jobs.push(cnt("identity", db.select({ sev: sql<string>`${sodRules.severity}::text`, n }).from(sodViolations).innerJoin(sodRules, eq(sodRules.id, sodViolations.ruleId)).where(and(inArray(sodViolations.companyId, scope.identity), eq(sodViolations.status, "open"))).groupBy(sodRules.severity)));
+    }
     await Promise.all(jobs);
 
     const rank: Record<UnifiedSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
@@ -338,9 +417,9 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
   };
 
   return new Hono<AppEnv>()
-    .get("/", requirePerm("sectests:read", "assets:read", "audits:read"), zValidator("query", FindingsQuery), async (c) => c.json(await loadUnified(c, c.req.valid("query"))))
+    .get("/", requirePerm("sectests:read", "assets:read", "audits:read", "identity:read"), zValidator("query", FindingsQuery), async (c) => c.json(await loadUnified(c, c.req.valid("query"))))
     /** Plán oprav (v1.70, ADR-163): poslední plán aktivní společnosti; položky jen ze zdrojů, které uživatel smí číst. */
-    .get("/plan", requirePerm("sectests:read", "assets:read", "audits:read"), async (c) => {
+    .get("/plan", requirePerm("sectests:read", "assets:read", "audits:read", "identity:read"), async (c) => {
       const companyId = soleCompany(c);
       const plan = await lastFindingPlan(db, companyId);
       if (!plan) return c.json(null);
@@ -349,6 +428,27 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
       return c.json(await planView(db, { ...plan, steps: plan.steps.map((st) => ({ ...st, items: st.items.filter((i) => ok(i.key)) })).filter((st) => st.items.length) }));
     })
     /** Úkoly z kroků plánu (v1.71, ADR-164): jeden úkol za krok, garant aktiva, termín podle náročnosti. */
+    /** Úkoly z vybraných nálezů (v1.88): zranitelnosti → garant aktiva, nálezy identit a SoD → bez řešitele. */
+    .post("/tasks", requirePerm("actions:write"), zValidator("json", FindingTasksInput), async (c) => {
+      const keys = [...new Set(c.req.valid("json").keys)];
+      const user = currentUser(c).id;
+      const vulnIds = keys.filter((k) => k.startsWith("vulnerability:")).map((k) => k.slice(14));
+      const idIds = keys.filter((k) => k.startsWith("identity:")).map((k) => k.slice(9));
+      const total = { created: 0, existing: 0, unassigned: 0, skipped: keys.length - vulnIds.length - idIds.length };
+      const add = (r: { created: number; existing: number; unassigned: number; skipped: number }) => {
+        total.created += r.created;
+        total.existing += r.existing;
+        total.unassigned += r.unassigned;
+        total.skipped += r.skipped;
+      };
+      if (vulnIds.length) add(await createVulnTasks(db, vulnIds, user, (co) => hasPermIn(c, "assets:write", co) && hasPermIn(c, "actions:write", co)));
+      if (idIds.length) {
+        const sod = new Set((await db.select({ id: sodViolations.id }).from(sodViolations).where(inArray(sodViolations.id, idIds))).map((x) => x.id));
+        add(await createIdentityTasks(db, idIds.map((id) => ({ kind: sod.has(id) ? ("sod_violation" as const) : ("identity_finding" as const), id })), user, (co) => hasPermIn(c, "identity:write", co) && hasPermIn(c, "actions:write", co)));
+      }
+      if (total.created) await audit(db, { c, user: currentUser(c), action: "findings.tasks_created", entityType: "finding", details: total });
+      return c.json(total);
+    })
     .post("/plan/tasks", requirePerm("actions:write"), zValidator("json", FindingPlanTasksInput), async (c) => {
       const companyId = soleCompany(c);
       if (!hasPermIn(c, "actions:write", companyId)) throw new HTTPException(403, { message: "Nedostatečná oprávnění" });
@@ -362,7 +462,7 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
       await audit(db, { c, user: currentUser(c), action: "findings.plan_tasks", entityType: "company", entityId: companyId, details: { created: r.created, skipped: r.skipped, taskIds: r.taskIds } });
       return c.json({ ...r, skipped: r.skipped + (c.req.valid("json").steps.length - idx.length) });
     })
-    .post("/plan", requirePerm("sectests:read", "assets:read", "audits:read"), requirePerm("ai:use"), async (c) => {
+    .post("/plan", requirePerm("sectests:read", "assets:read", "audits:read", "identity:read"), requirePerm("ai:use"), async (c) => {
       const companyId = soleCompany(c);
       if (!hasPermIn(c, "ai:use", companyId)) throw new HTTPException(403, { message: "Nedostatečná oprávnění" });
       const d = await loadUnified(c, { status: "active" });
@@ -376,14 +476,14 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
       }
     })
     /** Eskalace na mě (v1.71, ADR-164): aktiva podřízených garantů s nálezy po termínu déle než týden. */
-    .get("/escalations", requirePerm("sectests:read", "assets:read", "audits:read"), async (c) => {
+    .get("/escalations", requirePerm("sectests:read", "assets:read", "audits:read", "identity:read"), async (c) => {
       const scope = await companiesFor(c);
       const active = scopeOf(c).active;
       const ids = [...new Set([...scope.sectest, ...scope.host, ...scope.vulnerability])].filter((id) => !active || id === active);
       return c.json(escalationsFor(await findingEscalations(db, ids), currentUser(c).id));
     })
     /** Náprava nálezů (v1.69): otevřené, po termínu, opravené v období, doba opravy, podíl v termínu. */
-    .get("/remediation", requirePerm("sectests:read", "assets:read", "audits:read"), zValidator("query", RemediationQuery), async (c) => {
+    .get("/remediation", requirePerm("sectests:read", "assets:read", "audits:read", "identity:read"), zValidator("query", RemediationQuery), async (c) => {
       const q = c.req.valid("query");
       const to = q.to ?? new Date().toISOString().slice(0, 10);
       const from = q.from ?? new Date(new Date(`${to}T00:00:00Z`).getTime() - 365 * 86_400_000).toISOString().slice(0, 10);

@@ -42,10 +42,10 @@ export type BacklinkKind = (typeof BACKLINK_KINDS)[number];
 
 /** Které druhy zpětných vazeb se u cíle zobrazují (přímé vazby, které detail už ukazuje, se neopakují). */
 export const BACKLINKS_FOR: Record<LinkTarget, readonly BacklinkKind[]> = {
-  asset: ["incident", "change", "control", "supplier", "plan", "activity", "ai_system", "cra_product", "project", "tls_endpoint", "access_resource", "scenario_proposal"],
-  process: ["incident", "change", "bia", "plan", "supplier", "activity", "ai_system", "cra_product", "project", "subprocess", "supplier_contract"],
+  asset: ["incident", "change", "control", "supplier", "plan", "activity", "ai_system", "cra_product", "project", "tls_endpoint", "access_resource", "scenario_proposal", "audit"],
+  process: ["incident", "change", "bia", "plan", "supplier", "activity", "ai_system", "cra_product", "project", "subprocess", "supplier_contract", "audit"],
   risk: ["incident", "change", "audit_finding", "supplier", "supplier_report", "supplier_questionnaire", "ai_system", "cra_product", "project", "cra_finding", "attack_path", "scenario_proposal"],
-  control: ["incident", "change", "audit_finding", "treatment_action", "exception", "supplier_report", "activity", "ai_system", "legal_task", "control_automation"],
+  control: ["incident", "change", "audit_finding", "treatment_action", "exception", "supplier_report", "activity", "ai_system", "legal_task", "control_automation", "audit"],
   supplier: ["incident", "change", "audit", "activity", "ai_system", "cra_product", "project", "data_location"],
 };
 
@@ -172,6 +172,7 @@ export const RELATION_COVERAGE: Record<"assets" | "processes" | "risks" | "contr
     asset_sources: "detail",
     asset_vulnerabilities: "detail",
     audit_findings: "detail", // záložka Nálezy a úkoly (jednotné nálezy)
+    audit_assets: "backlink:audit", // rozsah auditu (v1.88)
     change_assets: "backlink:change",
     control_assets: "backlink:control",
     cra_product_assets: "backlink:cra_product",
@@ -199,6 +200,7 @@ export const RELATION_COVERAGE: Record<"assets" | "processes" | "risks" | "contr
   processes: {
     activity_processes: "backlink:activity",
     ai_system_processes: "backlink:ai_system",
+    audit_processes: "backlink:audit", // rozsah auditu (v1.88)
     bia_assessments: "backlink:bia",
     change_processes: "backlink:change",
     cra_product_processes: "backlink:cra_product",
@@ -241,6 +243,7 @@ export const RELATION_COVERAGE: Record<"assets" | "processes" | "risks" | "contr
     activity_controls: "backlink:activity",
     ai_system_controls: "backlink:ai_system",
     audit_findings: "backlink:audit_finding",
+    audit_controls: "backlink:audit", // rozsah auditu (v1.88)
     change_controls: "backlink:change",
     control_assets: "detail",
     control_automations: "backlink:control_automation",

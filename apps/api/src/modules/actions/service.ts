@@ -1,7 +1,7 @@
 import { TASK_LABELS, actionOverdue, sortActions, taskSourceLink, type ActionItem, type ActionKind, type TaskSource, type TaskStatus, type Translate } from "@contix/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../../db/client";
-import { hostFindings, hostInventories, secTestFindings, aiSystems, craProducts, projects, soc2Engagements, alertSuggestions, exercises, infoFeedItems, infoItemReviews, assets, auditFindings, audits, changes, controls, incidents, legalTasks, policies, positions, processes, processingActivities, risks, riskTreatmentActions, suppliers, tasks, users } from "../../db/schema";
+import { projectTasks, assetVulnerabilities, identityFindings, sodViolations, hostFindings, hostInventories, secTestFindings, aiSystems, craProducts, projects, soc2Engagements, alertSuggestions, exercises, infoFeedItems, infoItemReviews, assets, auditFindings, audits, changes, controls, incidents, legalTasks, policies, positions, processes, processingActivities, risks, riskTreatmentActions, suppliers, tasks, users } from "../../db/schema";
 import { CS_T } from "../i18n/service";
 import { hostFindingTitle } from "../collector/findings";
 
@@ -44,6 +44,10 @@ export async function sourceLabels(db: Db, pairs: { kind: string | null; id: str
   // nálezy bezpečnostních testů (v1.60)
   q("sectest_finding", (ids) => db.select({ id: secTestFindings.id, companyId: secTestFindings.companyId, n: secTestFindings.title, h: secTestFindings.host, p: secTestFindings.port }).from(secTestFindings).where(inArray(secTestFindings.id, ids)), (r) => `${r.n} (${r.h}${r.p ? `:${r.p}` : ""})`.slice(0, 200));
   q("host_finding", (ids) => db.select({ id: hostFindings.id, companyId: hostFindings.companyId, code: hostFindings.code, s: hostFindings.subject, h: hostInventories.hostname }).from(hostFindings).innerJoin(hostInventories, eq(hostInventories.id, hostFindings.inventoryId)).where(inArray(hostFindings.id, ids)), (r) => `${hostFindingTitle(r.code, r.s)} (${r.h})`.slice(0, 200));
+  // zranitelnosti, nálezy identit a SoD (v1.88)
+  q("vulnerability", (ids) => db.select({ id: assetVulnerabilities.id, companyId: assets.companyId, c: assetVulnerabilities.cveId, a: assets.name }).from(assetVulnerabilities).innerJoin(assets, eq(assets.id, assetVulnerabilities.assetId)).where(inArray(assetVulnerabilities.id, ids)), (r) => `${r.c} (${r.a})`);
+  q("identity_finding", (ids) => db.select({ id: identityFindings.id, companyId: identityFindings.companyId, s: identityFindings.subject, r: identityFindings.rule }).from(identityFindings).where(inArray(identityFindings.id, ids)), (r) => `${r.r}: ${r.s}`.slice(0, 200));
+  q("sod_violation", (ids) => db.select({ id: sodViolations.id, companyId: sodViolations.companyId, p: sodViolations.person, s: sodViolations.subject }).from(sodViolations).where(inArray(sodViolations.id, ids)), (r) => `SoD: ${r.p || r.s}`.slice(0, 200));
   await Promise.all(jobs);
   return out;
 }
@@ -153,6 +157,32 @@ export async function loadActionItems(db: Db, scope: ActionScope, t: Translate =
               dueDate: r.dueDate,
               status: LEGAL_STATUS[r.status] ?? "open",
               priority: null,
+              completedAt: r.doneAt?.toISOString() ?? null,
+            });
+        }),
+    );
+  // úkoly projektů (v1.88, ADR-183): vlastní evidence projektu, v Moje akce jen aktivní projekty
+  if (has("project_task"))
+    jobs.push(
+      db
+        .select({ t: projectTasks, p: projects })
+        .from(projectTasks)
+        .innerJoin(projects, eq(projects.id, projectTasks.projectId))
+        .where(and(inArray(projects.companyId, scope.project_task!), eq(projects.status, "active")))
+        .then((rows) => {
+          for (const { t: r, p } of rows)
+            mk({
+              kind: "project_task",
+              id: r.id,
+              companyId: p.companyId,
+              title: r.title,
+              source: `${p.code ? `${p.code} ` : ""}${p.name}`,
+              link: `/projects/${p.id}?tab=tasks`,
+              ownerPositionId: null,
+              assigneeUserId: r.assigneeId,
+              dueDate: r.dueDate,
+              status: r.status === "done" ? "done" : r.status === "todo" ? "open" : "in_progress",
+              priority: (["low", "medium", "high"].includes(r.priority) ? r.priority : "medium") as "low" | "medium" | "high",
               completedAt: r.doneAt?.toISOString() ?? null,
             });
         }),

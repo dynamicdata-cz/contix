@@ -1,7 +1,7 @@
-import { lbl } from "@/lib/i18n";
+import { lbl, useT } from "@/lib/i18n";
 import { STATUS_COLORS } from "@/components/health";
 import { Badge, type Tone } from "@/components/ui";
-import { CONTROL_LABELS, type Compliance, type ControlStatus } from "@contix/shared";
+import { CONTROL_LABELS, CONTROL_SIGNAL_KINDS, CONTROL_SIGNAL_LABELS, type Compliance, type ControlSignals, type ControlStatus } from "@contix/shared";
 
 /** Míra shody – stavová paleta (vždy s textem), neaplikované a neposouzené neutrálně. */
 export const COMPLIANCE_COLOR: Record<Compliance, string> = {
@@ -59,4 +59,36 @@ export function ComplianceLegend({ counts }: { counts: Record<Compliance, number
 /** Procento shody – číslo je hlavní nositel informace. */
 export function ScoreValue({ score, className = "" }: { score: number; className?: string }) {
   return <span className={`font-semibold tabular-nums ${className}`}>{score.toLocaleString("cs-CZ", { maximumFractionDigits: 1 })} %</span>;
+}
+
+/** Signály k opatření / požadavku (v1.88): krátký odznak, v nápovědě rozpis podle druhu. */
+export function SignalsBadge({ s, atRisk }: { s?: ControlSignals; atRisk?: boolean }) {
+  const t = useT();
+  if (!s) return null;
+  const n = Object.values(s.kinds).reduce((a, b) => a + (b ?? 0), 0);
+  const title = CONTROL_SIGNAL_KINDS.filter((k) => s.kinds[k]).map((k) => `${t.lbl(CONTROL_SIGNAL_LABELS[k])}: ${s.kinds[k]}`).join("\n");
+  return (
+    <span className={`ml-1.5 whitespace-nowrap text-[11px] font-medium ${s.serious ? "text-red-700" : "text-amber-700"}`} title={title} data-testid="signals">
+      ⚠ {atRisk ? t("sig.atRisk") : t("sig.short", { n })}
+    </span>
+  );
+}
+
+/** Rozpis signálů (detail opatření, detail požadavku SoA). */
+export function SignalsList({ s }: { s?: ControlSignals }) {
+  const t = useT();
+  if (!s) return null;
+  return (
+    <div className={`rounded-md border px-3 py-2 text-sm ${s.serious ? "border-red-200 bg-red-50 text-red-900" : "border-amber-200 bg-amber-50 text-amber-900"}`} data-testid="signals-list">
+      <div className="font-medium">{t("sig.title")}</div>
+      <ul className="mt-1 list-disc pl-5">
+        {CONTROL_SIGNAL_KINDS.filter((k) => s.kinds[k]).map((k) => (
+          <li key={k}>
+            {t.lbl(CONTROL_SIGNAL_LABELS[k])}: {s.kinds[k]}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-1 text-xs opacity-80">{t("sig.hint")}</p>
+    </div>
+  );
 }

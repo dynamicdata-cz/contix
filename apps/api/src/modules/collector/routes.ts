@@ -1,6 +1,6 @@
 import { HostAssetInput, HostFindingPatch, HostInventoryInput, SecTestTasksInput } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { currentUser, requireModule, requirePerm } from "../../auth/middleware";
@@ -67,6 +67,23 @@ export function hostRoutes(db: Db) {
       if ("error" in r) throw new HTTPException(r.error === "ambiguous" ? 409 : 404, { message: r.error === "ambiguous" ? "Server odpovídá více aktivům – vyberte aktivum ručně (Spárovat s aktivem)" : "Server nenalezen" });
       await audit(db, { c, user: currentUser(c), action: r.action === "linked" ? "host.asset_linked" : "host.asset_created", entityType: "asset", entityId: r.assetId, details: { hostname: h.hostname, inventoryId: c.req.param("id"), previous: h.assetId } });
       return c.json(await hostDetail(db, c.req.param("id")));
+    })
+    /* ---- hromadně: všechny nespárované servery v rozsahu → spárovat (jednoznačná shoda) nebo založit aktivum (v1.88) ---- */
+    .post("/attach-unpaired", requirePerm("assets:write"), async (c) => {
+      const rows = await db.select({ id: hostInventories.id, companyId: hostInventories.companyId, hostname: hostInventories.hostname }).from(hostInventories).where(isNull(hostInventories.assetId));
+      const res = { linked: 0, created: 0, ambiguous: [] as string[] };
+      for (const h of rows) {
+        if (!hasPermIn(c, "assets:write", h.companyId)) continue;
+        const r = await attachHostToAsset(db, h.id, null);
+        if ("error" in r) {
+          if (r.error === "ambiguous") res.ambiguous.push(h.hostname);
+          continue;
+        }
+        if (r.action === "created") res.created++;
+        else res.linked++;
+        await audit(db, { c, user: currentUser(c), action: r.action === "created" ? "host.asset_created" : "host.asset_linked", entityType: "asset", entityId: r.assetId, details: { hostname: h.hostname, inventoryId: h.id, bulk: true } });
+      }
+      return c.json(res);
     })
     .get("/by-asset/:assetId", requirePerm("assets:read"), async (c) => {
       const [a] = await db.select({ companyId: assets.companyId }).from(assets).where(eq(assets.id, c.req.param("assetId")));

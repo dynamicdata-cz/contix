@@ -392,6 +392,7 @@ import type {
   IncidentListItem,
   IncidentReportInput,
   AuditCoverageRow,
+  AuditScopeCoverageDto,
   AuditDetail,
   AuditInput,
   AuditListItem,
@@ -1626,6 +1627,7 @@ export const api = {
   audits: {
     list: (status: "open" | "all" = "all") => request<AuditListItem[]>(`/audits?status=${status}`),
     coverage: () => request<AuditCoverageRow[]>("/audits/coverage"),
+    scopeCoverage: (years = 3) => request<AuditScopeCoverageDto>(`/audits/scope-coverage?years=${years}`),
     findings: (status: "open" | "all" = "open") => request<FindingDto[]>(`/audits/findings?status=${status}`),
     get: (id: string) => request<AuditDetail>(`/audits/${id}`),
     create: (data: AuditInput) => post<AuditDetail>("/audits", data),
@@ -1945,6 +1947,7 @@ export const api = {
     get: (id: string) => request<HostDetailDto>(`/hosts/${id}`),
     /** Založení (null) / spárování aktiva pro server bez aktiva (agenti CONTIX). */
     attachAsset: (id: string, assetId: string | null) => post<HostDetailDto>(`/hosts/${id}/asset`, { assetId }),
+    attachUnpaired: () => post<{ linked: number; created: number; ambiguous: string[] }>(`/hosts/attach-unpaired`, {}),
     patchFinding: (id: string, data: HostFindingPatch) => patch<{ ok: true }>(`/hosts/findings/${id}`, data),
     findingTasks: (ids: string[]) => post<SecTestTasksResult>("/hosts/findings/tasks", { ids }),
   },
@@ -1967,6 +1970,7 @@ export const api = {
     fix: (data: QualityFixInput) => post<{ updated: number }>("/quality/fix", data),
   },
   findings: {
+    tasks: (keys: string[]) => post<{ created: number; existing: number; unassigned: number; skipped: number }>("/findings/tasks", { keys }),
     list: (q: FindingsQuery = {}) => request<UnifiedFindingsDto>(`/findings?${new URLSearchParams(Object.entries(q).filter(([, v]) => v != null && v !== "") as [string, string][]).toString()}`),
     plan: () => request<FindingPlanViewDto | null>("/findings/plan"),
     generatePlan: () => post<FindingPlanViewDto>("/findings/plan"),

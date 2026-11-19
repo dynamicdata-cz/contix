@@ -9,6 +9,8 @@ import { allRequirements, FrameworkIdSchema, type FrameworkId, profileOf, AuditI
   requirementsOf,
   type AuditCoverageRow,
   type AuditDetail,
+  type AuditScopeCoverageDto,
+  type Permission,
   type AuditListItem,
   type FindingDto,
   type FindingSeverity,
@@ -26,9 +28,9 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { currentUser, hasPerm, requireModule, requirePerm } from "../../auth/middleware";
 import { audit as auditLog, type AppEnv } from "../../auth/service";
-import { assertScope, inScope, scopeOf, settingsFor, targetCompany } from "../../auth/scope";
+import { assertScope, inScope, scopeOf, settingsFor, targetCompany, hasPermIn } from "../../auth/scope";
 import type { Db } from "../../db/client";
-import { assetCompanies, assets, auditChanges, auditChecks, auditFindings, audits, changes, controls, positions, risks, suppliers } from "../../db/schema";
+import { auditAssets, auditControls, auditProcesses, processes, assetCompanies, assets, auditChanges, auditChecks, auditFindings, audits, changes, controls, positions, risks, suppliers } from "../../db/schema";
 import { orgSnapshot } from "../org/hierarchy";
 import { businessAssignee } from "../sectests/tasks";
 import { ApiError } from "../../lib/apiError";
@@ -202,9 +204,12 @@ export function auditRoutes(db: Db) {
     if (!item) throw new HTTPException(404, { message: "Audit nenalezen" });
     assertScope(c, item.companyId, "Audit nenalezen");
     const { _row: a, _findings, _positionName, ...rest } = item;
-    const [ch, sup] = await Promise.all([
+    const [ch, sup, sp, sa, sc] = await Promise.all([
       db.select({ id: changes.id, code: changes.code, title: changes.title }).from(auditChanges).innerJoin(changes, eq(changes.id, auditChanges.changeId)).where(eq(auditChanges.auditId, id)),
       a.supplierId ? db.select({ name: suppliers.name }).from(suppliers).where(eq(suppliers.id, a.supplierId)) : [],
+      db.select({ id: processes.id, code: processes.code, name: processes.name }).from(auditProcesses).innerJoin(processes, eq(processes.id, auditProcesses.targetId)).where(eq(auditProcesses.auditId, id)),
+      db.select({ id: assets.id, name: assets.name }).from(auditAssets).innerJoin(assets, eq(assets.id, auditAssets.targetId)).where(eq(auditAssets.auditId, id)),
+      db.select({ id: controls.id, code: controls.code, name: controls.name }).from(auditControls).innerJoin(controls, eq(controls.id, auditControls.targetId)).where(eq(auditControls.auditId, id)),
     ]);
     return {
       ...rest,
@@ -222,6 +227,9 @@ export function auditRoutes(db: Db) {
       supplierId: a.supplierId,
       supplierName: sup[0]?.name ?? null,
       changes: ch,
+      scopeProcesses: sp,
+      scopeAssets: sa,
+      scopeControls: sc,
       findingList: _findings,
       methodologyKey: a.methodologyKey,
       methodologyName: a.methodologyKey ? (getMethodology(a.methodologyKey)?.name ?? a.methodologyKey) : null,
@@ -241,6 +249,21 @@ export function auditRoutes(db: Db) {
     await db.delete(auditChanges).where(eq(auditChanges.auditId, auditId));
     const u = [...new Set(ids)];
     if (u.length) await db.insert(auditChanges).values(u.map((changeId) => ({ auditId, changeId })));
+  }
+
+  /** Rozsah auditu (v1.88): jen záznamy, které uživatel smí číst. */
+  async function setScope(c: Ctx, auditId: string, i: { processIds?: string[]; assetIds?: string[]; controlIds?: string[] }) {
+    const put = async (table: typeof auditProcesses | typeof auditAssets | typeof auditControls, src: typeof processes | typeof assets | typeof controls, perm: Permission, list?: string[]) => {
+      if (!list) return;
+      await db.delete(table).where(eq(table.auditId, auditId));
+      const u = [...new Set(list)];
+      if (!u.length) return;
+      const ok = (await db.select({ id: src.id, companyId: src.companyId }).from(src).where(inArray(src.id, u))).filter((r) => hasPermIn(c, perm, r.companyId)).map((r) => r.id);
+      if (ok.length) await db.insert(table).values(ok.map((targetId) => ({ auditId, targetId })));
+    };
+    await put(auditProcesses, processes, "processes:read", i.processIds);
+    await put(auditAssets, assets, "assets:read", i.assetIds);
+    await put(auditControls, controls, "controls:read", i.controlIds);
   }
 
   /** Metodika auditu musí být kontrolní seznam (vestavěný nebo importovaný). */
@@ -308,6 +331,23 @@ export function auditRoutes(db: Db) {
         const fw = c.req.valid("query").framework ?? profileOf(await settingsFor(db, c)).defaultFramework;
         return c.json(await auditCoverage(db, scopeOf(c).ids, fw));
       })
+      /** Pokrytí audity (v1.88): procesy, zavedená opatření a primární aktiva a jejich poslední dokončený audit. */
+      .get("/scope-coverage", requirePerm("audits:read"), zValidator("query", z.object({ years: z.coerce.number().int().min(1).max(10).default(3) })), async (c) => {
+        const { years } = c.req.valid("query");
+        const ids = scopeOf(c).ids;
+        const list = sql.join((ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]).map((i) => sql`${i}::uuid`), sql`, `);
+        const last = (link: string, col: string) =>
+          sql.raw(`(select a.performed_end::text || '|' || a.id::text from ${link} l join audits a on a.id = l.audit_id where l.${col} = x.id and a.status = 'completed' and a.performed_end is not null order by a.performed_end desc limit 1)`);
+        type R = { id: string; label: string; last: string | null };
+        const run = async (q: ReturnType<typeof sql>) => ((await db.execute<R>(q)) as unknown as R[]).map((r) => ({ id: r.id, label: r.label, lastAudit: r.last?.split("|")[0] ?? null, auditId: r.last?.split("|")[1] ?? null }));
+        const [p, ctl, ast] = await Promise.all([
+          hasPerm(c, "processes:read") ? run(sql`select x.id, coalesce(x.code || ' ', '') || x.name as label, ${last("audit_processes", "process_id")} as last from processes x where x.company_id in (${list}) order by 3 nulls first, 2`) : [],
+          hasPerm(c, "controls:read") ? run(sql`select x.id, coalesce(x.code || ' ', '') || x.name as label, ${last("audit_controls", "control_id")} as last from controls x where x.company_id in (${list}) and x.status = 'implemented' order by 3 nulls first, 2`) : [],
+          hasPerm(c, "assets:read") ? run(sql`select x.id, x.name as label, ${last("audit_assets", "asset_id")} as last from assets x where x.company_id in (${list}) and x.asset_class = 'primary' and x.lifecycle_status in ('active','maintenance') order by 3 nulls first, 2`) : [],
+        ]);
+        const dto: AuditScopeCoverageDto = { years, processes: p, controls: ctl, assets: ast };
+        return c.json(dto);
+      })
       .get("/findings", requirePerm("audits:read"), zValidator("query", z.object({ status: z.enum(["open", "all"]).optional() })), async (c) => {
         const { status } = c.req.valid("query");
         return c.json(
@@ -315,11 +355,12 @@ export function auditRoutes(db: Db) {
         );
       })
       .post("/", requirePerm("audits:write"), zValidator("json", AuditInput), async (c) => {
-        const { changeIds, sections, companyId: requested, ...input } = c.req.valid("json");
+        const { changeIds, sections, companyId: requested, processIds, assetIds, controlIds, ...input } = c.req.valid("json");
         const companyId = targetCompany(c, requested, "audits:write");
         assertAuditMethodology(input.methodologyKey);
         const [row] = await db.insert(audits).values({ ...input, companyId, sections: cleanSections(sections) ?? [] }).returning();
         await setChanges(row!.id, changeIds);
+        await setScope(c, row!.id, { processIds, assetIds, controlIds });
         await syncChanges(row!);
         await auditLog(db, { c, user: currentUser(c), action: "audit.created", entityType: "audit", entityId: row!.id, details: { title: row!.title, type: row!.auditType } });
         return c.json(await detail(c, row!.id), 201);
@@ -328,7 +369,7 @@ export function auditRoutes(db: Db) {
       .patch("/:id", requirePerm("audits:write"), zValidator("json", AuditPatch), async (c) => {
         const id = c.req.param("id");
         await detail(c, id);
-        const { changeIds, sections, ...rest } = c.req.valid("json");
+        const { changeIds, sections, processIds, assetIds, controlIds, ...rest } = c.req.valid("json");
         const input = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)) as Partial<AuditRow>;
         if (sections) input.sections = cleanSections(sections)!;
         assertAuditMethodology(input.methodologyKey);
@@ -339,6 +380,7 @@ export function auditRoutes(db: Db) {
         const [row] = await db.update(audits).set({ ...input, updatedAt: new Date() }).where(eq(audits.id, id)).returning();
         if (!row) throw new HTTPException(404, { message: "Audit nenalezen" });
         await setChanges(id, changeIds);
+        await setScope(c, id, { processIds, assetIds, controlIds });
         await syncChanges(row);
         await auditLog(db, { c, user: currentUser(c), action: "audit.updated", entityType: "audit", entityId: id, details: { ...input, changeIds } });
         return c.json(await detail(c, id));

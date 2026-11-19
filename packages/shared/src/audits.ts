@@ -68,6 +68,10 @@ export const AuditInput = z.object({
   managementInformedAt: date,
   supplierId: z.string().uuid().nullable().optional(),
   changeIds: ids,
+  /** Rozsah auditu (v1.88): procesy, aktiva a opatření, kterých se audit týkal. */
+  processIds: ids,
+  assetIds: ids,
+  controlIds: ids,
   /** Metodika auditu = kontrolní seznam (vestavěný dle vyhlášky nebo importovaný YAML/JSON/XML). */
   methodologyKey: z.string().trim().max(60).nullable().optional(),
 });
@@ -195,6 +199,10 @@ export interface AuditDetail extends AuditListItem {
   supplierId: string | null;
   supplierName: string | null;
   changes: { id: string; code: string | null; title: string }[];
+  /** Rozsah auditu (v1.88). */
+  scopeProcesses: { id: string; code: string | null; name: string }[];
+  scopeAssets: { id: string; name: string }[];
+  scopeControls: { id: string; code: string | null; name: string }[];
   findingList: FindingDto[];
   methodologyKey: string | null;
   methodologyName: string | null;
@@ -252,4 +260,19 @@ export function coverageState(last: string | null, today = new Date()): AuditCov
   if (today <= full) return "ok";
   if (today <= part) return "partial";
   return "overdue";
+}
+
+/** Pokrytí audity (v1.88, ADR-183): kdy byl proces / opatření / primární aktivum naposledy v rozsahu dokončeného auditu. */
+export interface AuditScopeCoverageDto {
+  years: number;
+  processes: AuditScopeCoverageRow[];
+  controls: AuditScopeCoverageRow[];
+  assets: AuditScopeCoverageRow[];
+}
+export interface AuditScopeCoverageRow {
+  id: string;
+  label: string;
+  /** Datum ukončení posledního dokončeného auditu s tímto záznamem v rozsahu; null = nikdy. */
+  lastAudit: string | null;
+  auditId: string | null;
 }

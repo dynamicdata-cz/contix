@@ -108,6 +108,8 @@ export interface ControlListItem {
   updatedAt: string;
   /** Otevřené nálezy navázané na opatření (v1.67): závažné = kritický test / zásadní zjištění auditu, ostatní = vysoký / menší. */
   findings?: { serious: number; other: number };
+  /** Signály zpochybňující zavedení / účinnost (v1.88). */
+  signals?: ControlSignals;
 }
 
 export interface ControlDetail extends ControlListItem {
@@ -168,6 +170,10 @@ export interface RequirementRow {
   controls: { id: string; code: string | null; name: string; status: ControlStatus; inherited?: boolean }[];
   /** Počet důkazů – přímo k požadavku a přes namapovaná opatření. */
   evidenceCount: number;
+  /** Signály navázaných opatření a neshody auditů přímo k požadavku (v1.88). */
+  signals?: ControlSignals;
+  /** Míra shody je splněno / částečně, ale existuje závažný signál – k přehodnocení (v1.88). */
+  atRisk?: boolean;
   updatedAt: string | null;
 }
 
@@ -228,3 +234,38 @@ export const GenerateControlsInput = z.object({
   /** Přidat mapování na příbuzné požadavky ISO 27001 / DORA / ZKB. */
   includeCrosswalk: z.boolean().default(true),
 });
+
+/* ============================================================
+ * Signály k opatření a požadavku (v1.88, ADR-183): skutečnosti, které zpochybňují zavedení nebo účinnost opatření.
+ * Míru shody automaticky nemění – o ní rozhoduje člověk (ADR-182); SoA je ukazuje u požadavku.
+ * ============================================================ */
+export const CONTROL_SIGNAL_KINDS = ["monitor_fail", "monitor_error", "audit_finding", "sectest", "incident", "test_ineffective", "evidence_expired"] as const;
+export type ControlSignalKind = (typeof CONTROL_SIGNAL_KINDS)[number];
+export interface ControlSignals {
+  /** Počet podle druhu (jen nenulové). */
+  kinds: Partial<Record<ControlSignalKind, number>>;
+  /** Závažný signál: nesplněný monitor, zásadní neshoda, kritický nález testu, neúčinný poslední test nebo incident. */
+  serious: boolean;
+}
+export const CONTROL_SIGNAL_LABELS: Record<ControlSignalKind, string> = {
+  monitor_fail: "Nesplněný průběžný monitor",
+  monitor_error: "Monitor neproběhl (chyba zdroje dat)",
+  audit_finding: "Otevřená neshoda z auditu",
+  sectest: "Otevřený nález bezpečnostního testu (kritický / vysoký)",
+  incident: "Incident za posledních 90 dní",
+  test_ineffective: "Poslední test opatření: neúčinné nebo s výjimkami",
+  evidence_expired: "Důkazy prošlé, žádný platný",
+};
+/** Okno pro incidenty navázané na opatření (dny). */
+export const CONTROL_SIGNAL_INCIDENT_DAYS = 90;
+
+/** Sloučení signálů více opatření (požadavek SoA). */
+export function mergeSignals(list: (ControlSignals | undefined)[]): ControlSignals | undefined {
+  const out: ControlSignals = { kinds: {}, serious: false };
+  for (const s of list) {
+    if (!s) continue;
+    out.serious ||= s.serious;
+    for (const [k, v] of Object.entries(s.kinds) as [ControlSignalKind, number][]) out.kinds[k] = (out.kinds[k] ?? 0) + v;
+  }
+  return Object.keys(out.kinds).length ? out : undefined;
+}

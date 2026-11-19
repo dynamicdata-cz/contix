@@ -2,6 +2,23 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.88.0
+
+Vazby a slepá místa (ADR-183) – zjištění teď dojdou tam, kde mají něco změnit.
+
+- **Signály u opatření a požadavků (SoA)**: nesplněný nebo neproběhlý monitor, otevřená neshoda z auditu, kritický / vysoký nález testu, incident za 90 dní, neúčinný poslední test a prošlé důkazy se ukazují v seznamu opatření, v detailu opatření a u požadavku v SoA. Požadavek ve stavu splněno / částečně se závažným signálem je označen „k přehodnocení“. Míru shody CONTIX sám nemění – rozhoduje člověk.
+- **Nepřímé podněty k přehodnocení rizika**: riziko nad primárním aktivem nebo procesem dostane podnět i z podpůrných aktiv (incident, zranitelnost, nález serveru, nález testu, SOC, změna) – v seznamu podnětů označené „nepřímo“. Nový podnět: zranitelnost vlastního produktu (CRA) navázaná na riziko.
+- **Software ze serverů s agentem CONTIX a sběračem** se zapisuje k aktivu (při změně balíčků) – infoservis a vyhledávání podle softwaru servery vidí i bez Wazuhu.
+- **Upozornění na zdroje dat**: nový druh upozornění – agent, koncentrátor, sběrač, Wazuh, konektor nebo nespárovaný server ve stavu chyba / varování na mapě propojení jde do souhrnu bezpečnostního týmu a Teams.
+- **Servery bez aktiva**: v seznamu serverů tlačítko *Spárovat / založit aktiva* pro všechny nespárované najednou (jednoznačná shoda se spáruje, jinak se aktivum založí).
+- **Identity v registru nálezů**: nálezy účtů a porušení oddělení povinností (SoD) jsou v registru nálezů, v metrikách nápravy a lze z nich založit úkol.
+- **Úkoly ze zranitelností**: z registru nálezů lze založit úkol k zranitelnosti (garant aktiva, termín podle lhůt oprav). Úkoly ze zranitelností, nálezů identit a SoD se uzavřou samy, když zdroj přestane být otevřený. Krok plánu nápravy s jedním nálezem zakládá úkol navázaný na nález.
+- **Souhrn pro garanty aktiv** obsahuje i kritické a vysoké zranitelnosti a neshody auditů k aktivu.
+- **Úkoly projektů v Moje akce** (aktivní projekty).
+- **Rozsah auditu**: audit se navazuje na procesy, opatření a aktiva; záložka *Pokrytí* ukazuje, co nebylo v rozsahu dokončeného auditu za 1–5 let. Audity jsou ve zpětných vazbách aktiva, procesu a opatření.
+- **Kvalita dat**: nová kontrola *Aktiva s nižší kritičností než proces, který podporují* (priorita nálezů se řídí kritičností aktiva).
+- **Úklid odkazů na smazané záznamy**: štítky, výjimky kompenzované opatřením, vazby infoservisu a tikety se po smazání záznamu odstraní, úkol ztratí jen zdroj; počty u štítků už smazané záznamy nezahrnují.
+
 ## 1.87.0
 
 - **Hardening jako důkaz k opatřením** (ADR-182, fáze A): každá kontrola hardeningu je namapovaná na požadavky vyhlášky 409 a 410, ISO/IEC 27001:2022 (příloha A) a CIS Controls v8 – např. synchronizace času k § 22 odst. 6 vyhlášky 409, zamykání účtů k § 19 odst. 1 písm. b), slabé šifry SSH ke kryptografickým požadavkům.

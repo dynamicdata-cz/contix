@@ -5,7 +5,7 @@ import type { Db } from "../../db/client";
 
 /* ============================================================
  * Týdenní souhrn nálezů pro garanty aktiv (v1.69, ADR-162): technický garant, zástupce, a když aktivum garanta
- * nemá, business vlastník – otevřené nálezy testů a serverů na jeho aktivech a úkoly z nich po termínu.
+ * nemá, business vlastník – otevřené nálezy testů a serverů, kritické a vysoké zranitelnosti a neshody auditů (v1.88) na jeho aktivech a úkoly z nich po termínu.
  * Jen počty a názvy aktiv; bez podrobností nálezů (ty jsou v aplikaci).
  * ============================================================ */
 
@@ -20,6 +20,13 @@ export async function guarantorFindings(db: Db): Promise<GuarantorDigestRow[]> {
       select asset_id, severity, id, 'sectest_finding' as kind from sec_test_findings where status = 'open' and asset_id is not null
       union all
       select asset_id, severity, id, 'host_finding' from host_findings where status = 'open' and asset_id is not null
+      union all
+      -- zranitelnosti (v1.88, ADR-183): kritické a vysoké, střední jen s úkolem po termínu se počítají přes úkol
+      select asset_id, severity::text, id, 'vulnerability' from asset_vulnerabilities where status = 'open' and severity in ('critical', 'high')
+      union all
+      -- zjištění auditů k aktivu (závažná / menší neshoda)
+      select f.asset_id, case f.severity when 'major' then 'high' else 'medium' end, f.id, 'audit_finding'
+        from audit_findings f where f.status in ('open', 'in_progress') and f.asset_id is not null and f.severity in ('major', 'minor')
     ),
     agg as (
       select f.asset_id,

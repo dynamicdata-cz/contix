@@ -1,9 +1,11 @@
-import { Badge, Card, CardHeader } from "@/components/ui";
+import { Badge, Button, Card, CardHeader } from "@/components/ui";
+import { useCan } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
 import { fmtDate } from "@/lib/utils";
 import { evaluateHardening, HOST_FINDING_LABELS, hostFindingLabel, hostFindingSubject, type HostFindingCode, type HostInventoryDto } from "@contix/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
@@ -199,9 +201,31 @@ export function HostList() {
   const t = useT();
   const q = useQuery({ queryKey: ["hosts"], queryFn: api.hosts.list });
   const rows = q.data ?? [];
+  const can = useCan();
+  const qc = useQueryClient();
+  const [msg, setMsg] = useState<string | null>(null);
+  const unpaired = rows.filter((h) => !h.assetId).length;
+  const attach = useMutation({
+    mutationFn: api.hosts.attachUnpaired,
+    onSuccess: (r) => {
+      setMsg(t("col.list.attached", { linked: r.linked, created: r.created }) + (r.ambiguous.length ? ` ${t("col.list.ambiguous", { names: r.ambiguous.join(", ") })}` : ""));
+      void qc.invalidateQueries({ queryKey: ["hosts"] });
+    },
+  });
   return (
     <Card className="mb-6" data-testid="host-list">
-      <CardHeader title={t("col.list.title")} />
+      <CardHeader
+        title={t("col.list.title")}
+        subtitle={unpaired ? t("col.list.unpaired", { n: unpaired }) : undefined}
+        action={
+          unpaired > 0 && can("assets:write") ? (
+            <Button variant="secondary" disabled={attach.isPending} onClick={() => attach.mutate()} data-testid="attach-unpaired">
+              {t("col.list.attachAll")}
+            </Button>
+          ) : undefined
+        }
+      />
+      {msg && <p className="border-b border-slate-100 px-5 py-2 text-sm text-slate-700">{msg}</p>}
       {!rows.length ? (
         <p className="px-5 py-4 text-sm text-slate-500">{t("col.list.empty")}</p>
       ) : (
@@ -214,6 +238,7 @@ export function HostList() {
                     {h.hostname}
                   </Link>
                   {h.os && <span className="ml-2 text-xs font-normal text-slate-500">{h.os}</span>}
+                  {!h.assetId && <span className="ml-2 text-xs font-normal text-amber-700">{t("col.list.noAsset")}</span>}
                 </td>
                 <td className="px-3 py-2 text-xs text-slate-500">{h.connectionName}</td>
                 <td className="px-3 py-2 text-xs text-slate-500">{fmtDate(h.collectedAt)}</td>

@@ -10,7 +10,7 @@ import { FrameworkBadge } from "@/components/frameworkBadge";
 import { useT } from "@/lib/i18n";
 import { useDecree } from "@/lib/regime";
 import { NeedsCompany, useGroupView } from "@/components/company";
-import { ComplianceBar, ComplianceLegend, ControlStatusBadge, ScoreValue } from "@/components/compliance";
+import { ComplianceBar, ComplianceLegend, ControlStatusBadge, ScoreValue, SignalsBadge } from "@/components/compliance";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
@@ -232,6 +232,7 @@ export function ControlsPage() {
                           · {t("ctl.findings.short", { n: c.findings.serious + c.findings.other })}
                         </span>
                       )}
+                      <SignalsBadge s={c.signals} />
                     </td>
                     <td className="px-3 py-2.5 text-slate-600">{c.ownerPositionName ?? <span className="text-amber-700">{t("ctl.neurcen")}</span>}</td>
                     <td className="px-3 py-2.5">

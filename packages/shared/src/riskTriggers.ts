@@ -9,7 +9,7 @@ import type { RiskPolicy } from "./risk";
  * rozhoduje vlastník rizika (změna hodnocení nebo potvrzení beze změny se zdůvodněním).
  * ============================================================ */
 
-export const RISK_TRIGGER_KINDS = ["incident", "audit_finding", "change", "soc", "vuln", "control_test", "exception", "supplier", "scenario", "control_monitor", "kri", "sectest", "host_finding"] as const;
+export const RISK_TRIGGER_KINDS = ["incident", "audit_finding", "change", "soc", "vuln", "control_test", "exception", "supplier", "scenario", "control_monitor", "kri", "sectest", "host_finding", "cra_finding"] as const;
 export type RiskTriggerKind = (typeof RISK_TRIGGER_KINDS)[number];
 
 export interface RiskTrigger {
@@ -25,6 +25,8 @@ export interface RiskTrigger {
   count: number;
   /** Silnější podnět (významný incident, závažné zjištění, P1/KEV, pokus o zneužití). */
   strong: boolean;
+  /** Nepřímo – přes podpůrné aktivum navázaného primárního aktiva nebo aktivum navázaného procesu (v1.88). */
+  indirect?: boolean;
 }
 
 /** Lhůta na rozhodnutí vlastníka rizika od prvního podnětu (dny). */
@@ -127,6 +129,7 @@ export const RISK_TRIGGER_LABELS = {
     kri: "Překročený ukazatel KRI",
     sectest: "Nález bezpečnostního testu",
     host_finding: "Nález konfigurace serveru",
+    cra_finding: "Zranitelnost produktu (CRA)",
   } as Record<RiskTriggerKind, string>,
   decision: { confirmed: "Potvrzeno beze změny", changed: "Hodnocení změněno" } as Record<RiskReviewDecision, string>,
   field: { threatLevel: "Úroveň hrozby", vulnLevel: "Úroveň zranitelnosti", likelihood: "Pravděpodobnost" } as Record<RiskSuggestionChange["field"], string>,

@@ -1,3 +1,4 @@
+import { controlSignals, requirementFindingSignals } from "./signals";
 import { unitPositionsSql } from "../org/hierarchy";
 import { findingsOtherSql, findingsSeriousSql } from "./findings";
 import { profileOf, allRequirements,
@@ -8,6 +9,7 @@ import { profileOf, allRequirements,
   ControlCrosswalkInput,
   type ControlCrosswalkResult,
   complianceScore,
+  mergeSignals,
   CONTROL_LABELS,
   ControlInput,
   ControlPatch,
@@ -95,13 +97,15 @@ export async function loadRequirementRows(db: Db, companyId: string, fw?: Framew
   const aMap = new Map(assess.map((x) => [x.a.requirementId, x]));
   // důkazy: přímo k požadavku + přes namapovaná opatření (bez duplicit)
   const ctlIds = [...new Set(links.map((l) => l.id))];
-  const [direct, viaCtl] = await Promise.all([
+  const [direct, viaCtl, sigCtl, sigReq] = await Promise.all([
     db
       .select({ requirementId: evidenceRequirements.requirementId, evidenceId: evidence.id })
       .from(evidenceRequirements)
       .innerJoin(evidence, eq(evidence.id, evidenceRequirements.evidenceId))
       .where(and(ids.length ? inArray(evidenceRequirements.requirementId, ids) : sql`false`, inArray(evidence.companyId, lineage))),
     ctlIds.length ? db.select({ controlId: evidenceControls.controlId, evidenceId: evidenceControls.evidenceId }).from(evidenceControls).where(inArray(evidenceControls.controlId, ctlIds)) : [],
+    controlSignals(db, ctlIds),
+    requirementFindingSignals(db, companyId),
   ]);
   const evByReq = new Map<string, Set<string>>();
   const addEv = (req: string, ev: string) => (evByReq.get(req) ?? evByReq.set(req, new Set()).get(req)!).add(ev);
@@ -120,6 +124,8 @@ export async function loadRequirementRows(db: Db, companyId: string, fw?: Framew
     const applicable = a?.a.applicable ?? !outOfScope(r);
     const derived: Compliance = applicable ? deriveCompliance(ctl) : "not_applicable";
     const manual = a?.a.compliance ?? null;
+    const compliance: Compliance = !applicable ? "not_applicable" : (manual ?? derived);
+    const signals = applicable ? mergeSignals([...ctl.filter((x) => x.status !== "not_applicable").map((x) => sigCtl.get(x.id)), sigReq.get(r.id)]) : undefined;
     return {
       id: r.id,
       framework: r.framework,
@@ -137,13 +143,14 @@ export async function loadRequirementRows(db: Db, companyId: string, fw?: Framew
       implementationNote: a?.a.implementationNote ?? null,
       manualCompliance: manual,
       derivedCompliance: derived,
-      compliance: !applicable ? "not_applicable" : (manual ?? derived),
+      compliance,
       priority: a?.a.priority ?? null,
       dueDate: a?.a.dueDate ?? null,
       ownerPositionId: a?.a.ownerPositionId ?? null,
       ownerPositionName: a?.ownerPositionName ?? null,
       controls: ctl.map(({ id, code, name, status, companyId: co }) => ({ id, code, name, status, ...(co !== companyId ? { inherited: true } : {}) })),
       evidenceCount: evByReq.get(r.id)?.size ?? 0,
+      ...(signals ? { signals, ...(signals.serious && (compliance === "compliant" || compliance === "partial") ? { atRisk: true } : {}) } : {}),
       updatedAt: a?.a.updatedAt.toISOString() ?? null,
     };
   });
@@ -204,7 +211,9 @@ export function controlRoutes(db: Db) {
       .leftJoin(positions, eq(positions.id, controls.ownerPositionId))
       .where(where)
       .orderBy(asc(controls.code), asc(controls.name));
+    const sig = await controlSignals(db, rows.map((r) => r.c.id));
     return rows.map(({ c, ownerPositionName, reqIds, riskCount, fSerious, fOther }) => ({
+      ...(sig.has(c.id) ? { signals: sig.get(c.id) } : {}),
       id: c.id,
       companyId: c.companyId,
       code: c.code,

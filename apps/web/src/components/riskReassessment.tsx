@@ -32,6 +32,11 @@ export function TriggerList({ items }: { items: RiskTrigger[] }) {
         <li key={i} className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 px-5 py-2 text-sm">
           <span className="w-24 shrink-0 text-xs text-slate-500">{fmtDate(x.at)}</span>
           <Badge tone={x.strong ? "red" : "amber"}>{t.lbl(RISK_TRIGGER_LABELS.kind[x.kind])}</Badge>
+          {x.indirect && (
+            <span className="text-xs text-slate-500" title={t("risk.trigIndirectHint")}>
+              {t("risk.trigIndirect")}
+            </span>
+          )}
           {x.title && (x.link ? <Link to={x.link as never} className="font-medium text-brand-700 hover:underline">{x.title}</Link> : <span className="font-medium">{x.title}</span>)}
           <span className="text-xs text-slate-600">
             <TriggerDetail x={x} />

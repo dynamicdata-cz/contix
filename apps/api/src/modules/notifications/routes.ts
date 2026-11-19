@@ -56,9 +56,10 @@ export function notificationRoutes(deps: { db: Db; config: Config; mailer?: Mail
           supplier_report: "suppliers:read",
           task: "actions:read",
           legal_task: "legislation:read",
+          data_source: "admin:settings",
         };
         for (const k of [...kinds]) if (!hasPerm(c, need[k] as never)) kinds.delete(k);
-        return c.json(await collectObligations(db, { companyIds: scopeOf(c).ids, leadDays: s.leadDays, kinds, includeLater: false, t: await tFor(db, c) }));
+        return c.json(await collectObligations(db, { companyIds: scopeOf(c).ids, leadDays: s.leadDays, kinds, includeLater: false, t: await tFor(db, c), config }));
       })
       .get("/settings", requirePerm("admin:settings"), async (c) => c.json(toDto(await getNotificationSettings(db))))
       .patch("/settings", requirePerm("admin:settings"), zValidator("json", NotificationSettingsInput), async (c) => {

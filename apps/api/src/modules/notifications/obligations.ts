@@ -1,3 +1,4 @@
+import type { Config } from "../../config";
 import { pendingApprovalsFor } from "../access/routes";
 import { guideStepObligations } from "../guides/routes";
 import { pendingCertificationsFor } from "../access/review";
@@ -5,7 +6,7 @@ import { projectGateItems } from "../projects/routes";
 import { projectWorkItems } from "../projects/team";
 import { certExpiryItems } from "../assets/certificates";
 import { auditRequestItems } from "../audits/requests";
-import { daysOverdue, EXCEPTION_LABELS, EXCEPTION_LEAD_DAYS, OBLIGATION_LABELS, type ExceptionDto, type Translate, POLICY_WORKFLOW_ACTIONS, urgencyOf, type ObligationItem, type ObligationKind, triggerDue, RISK_TRIGGER_LABELS, exerciseCode, requestCode } from "@contix/shared";
+import { daysOverdue, mapProblems, ROOT_COMPANY_ID, EXCEPTION_LABELS, EXCEPTION_LEAD_DAYS, OBLIGATION_LABELS, type ExceptionDto, type Translate, POLICY_WORKFLOW_ACTIONS, urgencyOf, type ObligationItem, type ObligationKind, triggerDue, RISK_TRIGGER_LABELS, exerciseCode, requestCode } from "@contix/shared";
 import { vulnRemediationItems } from "../vulnerabilities/remediation";
 import { escalationChain, escalationLevel, orgSnapshot, positionOfUser } from "../org/hierarchy";
 import { nukibNoticeItems } from "../regulation/registration";
@@ -51,6 +52,8 @@ export interface CollectOptions {
   includeLater?: boolean;
   /** Jazyk textů (titulky, podrobnosti); výchozí čeština. */
   t?: Translate;
+  /** Konfigurace – potřebná pro stav zdrojů dat (`data_source`, v1.88); bez ní se druh vynechá. */
+  config?: Config;
 }
 
 /** Druhy povinností podle zapnutých modulů. */
@@ -83,6 +86,7 @@ export function kindsForModules(enabled: string[]): Set<ObligationKind> {
   if (m.has("soc")) k.add("soc_sla");
   if (m.has("vulnerabilities")) k.add("vuln_remediation");
   k.add("task");
+  if (m.has("assets") || m.has("soc") || m.has("vulnerabilities")) k.add("data_source");
   kindsMods.set(k, m);
   return k;
 }
@@ -174,6 +178,30 @@ export async function collectObligations(db: Db, o: CollectOptions): Promise<Obl
         due: addMonths(last, months),
         link: `/risks/${r.id}`,
         ...owner(r.ownerPositionId),
+      });
+    }
+  }
+
+  // zdroje dat (v1.88, ADR-183): uzly mapy propojení ve stavu chyba / varování – agent, koncentrátor, sběrač, Wazuh,
+  // konektory, nespárované servery. Systémová věc → položka kořenové společnosti (bezpečnostní tým, správci).
+  if (want("data_source") && o.config && ids.includes(ROOT_COMPANY_ID)) {
+    const { loadIntegrationMap } = await import("../integrations/routes");
+    const map = await loadIntegrationMap(db, o.config, { admin: true, scope: null }).catch(() => null);
+    const today = now.toISOString().slice(0, 10);
+    for (const n of map ? mapProblems(map) : []) {
+      const reasons = n.reasons.filter((r) => r.level === "error" || r.level === "warn");
+      if (!reasons.length) continue;
+      push({
+        key: `data_source:${n.id}:${n.status}`,
+        kind: "data_source",
+        title: t("srv.obl.dataSource", { name: n.title }),
+        detail: reasons.map((r) => t.dyn(`imap.r.${r.code}`, r.code, (r.params ?? {}) as never)).join(" · ").slice(0, 400),
+        companyId: ROOT_COMPANY_ID,
+        due: today,
+        urgency: n.status === "error" ? "overdue" : "today",
+        link: "/discovery/map",
+        ownerPositionId: null,
+        ownerName: null,
       });
     }
   }

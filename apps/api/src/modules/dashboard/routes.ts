@@ -37,6 +37,7 @@ import {
 
 /** Oprávnění ke čtení podle druhu povinnosti (stejně jako /notifications/team). */
 const NEED: Record<ObligationKind, string> = {
+  data_source: "admin:settings",
   soc_sla: "soc:read",
   vuln_remediation: "assets:read",
   info_assessment: "legislation:read",
