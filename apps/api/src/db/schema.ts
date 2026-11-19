@@ -4416,6 +4416,22 @@ export const identitySnapshots = pgTable("identity_snapshots", {
   stats: jsonb("stats").$type<IdentitySourceStats>().notNull(),
 });
 
+/** Měsíční rozesílání reportů identit garantovi modulu (v1.89, ADR-184) – jeden plán na společnost. */
+export const identityReportSchedules = pgTable("identity_report_schedules", {
+  companyId: uuid("company_id")
+    .primaryKey()
+    .references(() => companies.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  reports: text("reports").array().notNull().default(sql`'{summary}'::text[]`),
+  format: varchar("format", { length: 10 }).notNull().default("docx"),
+  day: integer("day").notNull().default(1),
+  group: varchar("group_by", { length: 20 }).notNull().default("department"),
+  lastSentAt: timestamp("last_sent_at", { withTimezone: true }),
+  lastStatus: text("last_status"),
+  updatedById: uuid("updated_by_id").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 /* ---------- v0.29: toxické kombinace (SoD) a přezkum přístupů ---------- */
 
 export const sodRules = pgTable("sod_rules", {

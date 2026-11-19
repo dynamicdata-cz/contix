@@ -316,6 +316,28 @@ test("identity a přístupy: připojení AD, synchronizace, výjimka (testovací
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await page.getByLabel("Stav").selectOption("accepted");
     await expect(page.getByText(/Nouzový účet v trezoru/)).toBeVisible();
+    // v1.89: počty u filtru, dlaždice pravidel, export a reporty z filtru, hromadná výjimka
+    await page.getByLabel("Stav").selectOption("open");
+    await page.getByLabel("Pravidlo").selectOption("");
+    await expect(page.getByTestId("idn-rule-tiles").getByRole("button").first()).toBeVisible();
+    await expect(page.getByLabel("Pravidlo").locator("option", { hasText: /\(\d+\)$/ }).first()).toBeAttached();
+    await expect(page.getByRole("link", { name: "XLSX" })).toHaveAttribute("href", /findings\.xlsx\?status=open/);
+    await page.getByRole("button", { name: "Reporty" }).click();
+    const reps = page.getByTestId("idn-reports");
+    await expect(reps.getByRole("link", { name: "Word" }).first()).toHaveAttribute("href", /reports\/inactive\.docx/);
+    const sumUrl = await reps.getByRole("link", { name: "PDF / tisk" }).nth(2).getAttribute("href");
+    const sumHtml = await page.request.get(sumUrl!);
+    expect(sumHtml.status()).toBe(200);
+    expect(await sumHtml.text()).toContain("Souhrn pro vedení");
+    await expect(page.getByTestId("idn-report-schedule")).toContainText("Garant modulu není určen");
+    await page.keyboard.press("Escape");
+    // jen nález s nejnižší závažností – kritické / vysoké zůstanou pro automatický test opatření níže
+    await page.locator("tbody input[type=checkbox]").last().check();
+    await expect(page.getByText("Vybráno: 1")).toBeVisible();
+    await page.getByRole("button", { name: "Hromadná výjimka" }).click();
+    await page.getByRole("dialog").getByLabel(/Odůvodnění/).fill("Testovací doména, přezkum v e2e");
+    await page.getByRole("dialog").getByRole("button", { name: "Udělit výjimku" }).click();
+    await expect(page.getByText(/Výjimka udělena \d+ nálezům/)).toBeVisible();
 
     await page.getByRole("button", { name: "Účty" }).click();
     await page.getByText("spravce").first().click();

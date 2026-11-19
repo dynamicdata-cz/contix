@@ -1531,7 +1531,11 @@ Tlačítkem **Otestovat připojení** ověřte nastavení, pak **Uložit** a **S
 - **Nálezy** – u pravidla je vysvětleno, proč na něm záleží a co udělat. Nález opravte v adresáři; při další synchronizaci se sám označí jako **vyřešený**.
 - Pokud je stav vědomě přijatelný (např. servisní účet s dlouhým heslem), udělte **výjimku** s odůvodněním a termínem. Po termínu se nález znovu otevře. Výjimky se zapisují do auditních záznamů.
 - **Účty** – vyhledávání, filtr privilegovaných, zakázaných a odstraněných účtů; detail ukazuje skupiny včetně vnořených a historii nálezů.
-- **Nálezy (CSV)** stáhne seznam pro auditora nebo pro předání správcům AD.
+- U voleb filtru **Pravidlo** a **Závažnost** je počet nálezů; nad tabulkou jsou **dlaždice pravidel** – kliknutím se filtr nastaví nebo zruší.
+- **CSV** a **XLSX** nad tabulkou stáhnou nálezy podle aktuálního filtru (stav, závažnost, pravidlo, zdroj, hledání) – pro auditora nebo pro předání správcům AD.
+- **Hromadné akce**: zaškrtněte otevřené nálezy (nebo všechny) a udělte **hromadnou výjimku** se společným odůvodněním a termínem, nebo **založte úkoly** – úkol se uzavře sám, když nález zmizí.
+- **Reporty** (Word, PDF tiskem stránky) ze zdroje a hledání ve filtru: **Neaktivní a nikdy nepřihlášené účty** – po útvarech nebo OU, privilegované nahoře, se sloupcem pro rozhodnutí vedoucího (ponechat / zakázat / odstranit) a podpisem; **Privilegované účty** – skupiny, stáří hesla, SPN, delegace, MFA a otevřené nálezy; **Souhrn pro vedení** – stav, počty podle pravidel, vývoj za 6 měsíců a největší rizika.
+- **Měsíční rozesílání**: v okně Reporty zapněte posílání vybraných reportů jednou měsíčně (od zvoleného dne) **garantovi modulu** – funkčnímu místu nastavenému v panelu *Jak postupovat*. Tlačítko **Odeslat teď** report pošle hned. PDF příloha potřebuje převodní službu, jinak přijde Word.
 
 ## Toxické kombinace (oddělení povinností)
 Záložka **Toxické kombinace** → **Nové pravidlo**: strana A a strana B (skupiny AD, role Entra ID nebo funkční místa CONTIXu). Porušením je osoba, která má něco z A i z B – např. „Správce domény nesmí schvalovat platby“ (A: Domain Admins, B: funkční místo Schvalovatel plateb). Účty z AD i Entra ID se spojí přes uživatele CONTIXu (stejný e-mail) a jeho funkční místa. Pravidla se vyhodnotí po každé synchronizaci a pravidelně plánovačem; porušení lze vyřešit změnou přístupů nebo obsazení místa, případně udělit výjimku s termínem.

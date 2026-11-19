@@ -852,3 +852,59 @@ export function identityCheckResult(open: Record<IdentitySeverity, number>, cfg:
   if (open.critical > cfg.maxCritical || open.high > cfg.maxHigh) return "ineffective";
   return open.critical + open.high + open.medium + open.low > 0 ? "effective_with_exceptions" : "effective";
 }
+
+/* ============================================================
+ * v1.89 (ADR-184): počty u filtrů, exporty, reporty, měsíční rozesílání a hromadné akce v nálezech identit.
+ * ============================================================ */
+
+/** Počty nálezů pro volby filtru – každá dimenze s ostatními filtry, bez sebe sama. */
+export interface IdentityFindingFacets {
+  rules: Partial<Record<IdentityRule, number>>;
+  severities: Record<IdentitySeverity, number>;
+  /** Počet nálezů podle celého filtru. */
+  total: number;
+}
+
+/** Hromadná výjimka z vybraných nálezů. */
+export const BulkAcceptIdentityInput = AcceptIdentityFindingInput.extend({ ids: z.array(z.string().uuid()).min(1).max(500) });
+export type BulkAcceptIdentityInput = z.infer<typeof BulkAcceptIdentityInput>;
+
+export const IDENTITY_REPORT_KINDS = ["inactive", "privileged", "summary"] as const;
+export type IdentityReportKind = (typeof IDENTITY_REPORT_KINDS)[number];
+export const IDENTITY_REPORT_LABELS: Record<IdentityReportKind, string> = {
+  inactive: "Neaktivní a nikdy nepřihlášené účty",
+  privileged: "Privilegované účty",
+  summary: "Souhrn pro vedení",
+};
+/** Pravidla reportu neaktivních účtů. */
+export const IDENTITY_INACTIVE_RULES: IdentityRule[] = ["stale", "never_logged_in"];
+/** Seskupení reportu neaktivních účtů. */
+export const IDENTITY_REPORT_GROUPS = ["department", "ou"] as const;
+export type IdentityReportGroup = (typeof IDENTITY_REPORT_GROUPS)[number];
+
+/** Organizační jednotka z DN: cesta OU (nejvyšší úroveň první), bez CN a DC. */
+export function ouOfDn(dn: string | null | undefined): string | null {
+  if (!dn) return null;
+  const ous = [...dn.matchAll(/(?:^|,)\s*OU=((?:\\,|[^,])+)/gi)].map((m) => m[1]!.replace(/\\,/g, ",").trim());
+  return ous.length ? ous.reverse().join(" / ") : null;
+}
+
+/** Plán měsíčního rozesílání reportu garantovi modulu (garant průvodce „identity“). */
+export const IdentityReportScheduleInput = z.object({
+  enabled: z.boolean(),
+  reports: z.array(z.enum(IDENTITY_REPORT_KINDS)).min(1).max(IDENTITY_REPORT_KINDS.length),
+  format: z.enum(["docx", "pdf"]).default("docx"),
+  /** Den v měsíci (1–28), od kterého se report v daném měsíci odešle. */
+  day: z.number().int().min(1).max(28).default(1),
+  group: z.enum(IDENTITY_REPORT_GROUPS).default("department"),
+});
+export type IdentityReportScheduleInput = z.input<typeof IdentityReportScheduleInput>;
+export interface IdentityReportScheduleDto extends z.output<typeof IdentityReportScheduleInput> {
+  companyId: string;
+  lastSentAt: string | null;
+  lastStatus: string | null;
+  /** Garant modulu (funkční místo) a počet příjemců s e-mailem; null = garant není určen. */
+  guarantor: { positionId: string; name: string; recipients: number } | null;
+  /** Převodní služba pro PDF je nastavená (jinak se posílá Word). */
+  pdfAvailable: boolean;
+}

@@ -3744,6 +3744,82 @@ describe.skipIf(!url)("API (integrace)", () => {
     await admin.json("/api/admin/settings", { method: "PATCH", json: { legalTextSource: "auto" } });
   });
 
+  test("identity v1.89 (ADR-184): počty u filtrů, exporty CSV/XLSX, reporty Word/PDF, hromadné akce, měsíční rozesílání garantovi", async () => {
+    const root = ((await admin.json("/api/companies")).body as any[]).find((x) => !x.parentId);
+    const H = { "x-contix-company": root.id };
+    const [src] = await db.insert(schema.identitySources).values({ companyId: root.id, kind: "ad", name: "Reporty AD", config: {}, policy: {} as any }).returning();
+    const flags = { pwdNeverExpires: false, pwdNotRequired: false, preauthDisabled: false, hasSpn: false, unconstrainedDelegation: false };
+    const old = new Date(Date.now() - 400 * 86_400_000);
+    const acc = async (login: string, o: Record<string, unknown>) =>
+      (await db.insert(schema.identityAccounts).values({ sourceId: src!.id, companyId: root.id, externalId: login, login, displayName: login.toUpperCase(), enabled: true, flags, ...o } as any).returning())[0]!;
+    const adm = await acc("rep-admin", { privileged: true, privilegedVia: ["Domain Admins"], department: "IT", dn: "CN=rep-admin,OU=Admins,OU=IT,DC=e,DC=test", lastLogonAt: old, pwdLastSetAt: old, flags: { ...flags, hasSpn: true, unconstrainedDelegation: true } });
+    const u1 = await acc("rep-novak", { department: "Obchod", dn: "CN=rep-novak,OU=Sales,DC=e,DC=test", lastLogonAt: old });
+    const u2 = await acc("rep-test", { department: "", dn: "CN=rep-test,OU=Test,DC=e,DC=test" });
+    const fnd = async (a: { id: string; login: string }, rule: string, severity: string) =>
+      (await db.insert(schema.identityFindings).values({ sourceId: src!.id, companyId: root.id, accountId: a.id, subject: a.login, rule, severity, detail: `${rule} ${a.login}` } as any).returning())[0]!;
+    const fa = await fnd(adm, "stale", "high");
+    const fb = await fnd(u1, "stale", "medium");
+    const fc = await fnd(u2, "never_logged_in", "medium");
+    await fnd(adm, "kerberoastable", "high");
+    const qs = `sourceId=${src!.id}`;
+    // 1) počty u voleb filtru: pravidlo bez filtru pravidla, závažnost s filtrem pravidla
+    const fac = (await admin.json(`/api/identity/findings/facets?${qs}&rule=stale`, { headers: H })).body;
+    expect(fac.rules).toMatchObject({ stale: 2, never_logged_in: 1, kerberoastable: 1 });
+    expect(fac.severities).toMatchObject({ high: 1, medium: 1 });
+    expect(fac.total).toBe(2);
+    // 2) export podle filtru
+    const csv = await (await admin.req(`/api/identity/findings.csv?${qs}&rule=stale`, { headers: H })).text();
+    expect(csv.trim().split("\r\n")).toHaveLength(3);
+    const xl = await admin.req(`/api/identity/findings.xlsx?${qs}&severity=high`, { headers: H });
+    expect(xl.headers.get("content-type")).toContain("spreadsheetml");
+    const { readXlsx } = await import("../src/modules/import/table");
+    expect(readXlsx(new Uint8Array(await xl.arrayBuffer())).rows).toHaveLength(2);
+    // 3) reporty: neaktivní účty po útvarech, privilegované nahoře; privilegované; souhrn
+    const ina = await (await admin.req(`/api/identity/reports/inactive.html?${qs}`, { headers: H })).text();
+    expect(ina).toContain("Neaktivní a nikdy nepřihlášené účty");
+    expect(ina.indexOf(">IT (")).toBeGreaterThan(-1);
+    expect(ina.indexOf(">IT (")).toBeLessThan(ina.indexOf(">Obchod ("));
+    expect(ina).toContain("Test"); // bez útvaru → OU z DN
+    expect(ina).toContain("ponechat");
+    const ou = await (await admin.req(`/api/identity/reports/inactive.html?${qs}&group=ou`, { headers: H })).text();
+    expect(ou).toContain("IT / Admins");
+    const pri = await (await admin.req(`/api/identity/reports/privileged.html?${qs}`, { headers: H })).text();
+    expect(pri).toContain("Domain Admins");
+    expect(pri).toContain("neomezená");
+    const sum = await (await admin.req(`/api/identity/reports/summary.html?${qs}`, { headers: H })).text();
+    expect(sum).toContain("Největší rizika");
+    expect(sum).toContain("rep-admin");
+    const docx = await admin.req(`/api/identity/reports/summary.docx?${qs}`, { headers: H });
+    expect(docx.headers.get("content-type")).toContain("wordprocessingml");
+    expect((await admin.req(`/api/identity/reports/summary.pdf?${qs}`, { headers: H })).status).toBe(409);
+    // 4) hromadné akce: výjimka a úkoly
+    const ba = (await admin.json("/api/identity/findings/bulk-accept", { method: "POST", headers: H, json: { ids: [fa.id, fb.id], reason: "Ověřeno s vedoucími útvarů", until: new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10) } })).body;
+    expect(ba).toEqual({ accepted: 2, skipped: 0 });
+    expect((await admin.json(`/api/identity/findings/facets?${qs}&status=accepted`, { headers: H })).body.total).toBe(2);
+    const tk = (await admin.json("/api/findings/tasks", { method: "POST", headers: H, json: { keys: [`identity:${fc.id}`] } })).body;
+    expect(tk.created).toBe(1);
+    // 5) měsíční rozesílání garantovi modulu (garant průvodce „identity“)
+    let sch = (await admin.json("/api/identity/reports/schedule", { headers: H })).body;
+    expect(sch.guarantor).toBeNull();
+    sch = (await admin.json("/api/identity/reports/schedule", { method: "PUT", headers: H, json: { enabled: true, reports: ["summary", "inactive"], format: "docx", day: 5, group: "department" } })).body;
+    expect(sch).toMatchObject({ enabled: true, day: 5, reports: ["summary", "inactive"] });
+    const me = (await admin.json("/api/auth/me")).body.user;
+    const unit = (await admin.json("/api/org/units", { method: "POST", json: { name: "Reporty IT" } })).body;
+    const pos = (await admin.json("/api/org/positions", { method: "POST", json: { orgUnitId: unit.id, name: "Garant identit", holderIds: [me.id] } })).body;
+    expect((await admin.json("/api/guides/identity/owner", { method: "PUT", headers: H, json: { positionId: pos.id } })).status).toBeLessThan(300);
+    expect((await admin.json("/api/identity/reports/schedule", { headers: H })).body.guarantor).toMatchObject({ name: "Garant identit", recipients: 1 });
+    const sent: any[] = [];
+    const mailer = { send: async (m: any) => void sent.push(m) };
+    const { processIdentityReports } = await import("../src/modules/identity/reports");
+    expect(await processIdentityReports(db, config, mailer, new Date(2026, 10, 3))).toBe(0); // před nastaveným dnem
+    expect(await processIdentityReports(db, config, mailer, new Date(2026, 10, 6))).toBe(1);
+    expect(sent[0].attachments.map((a: any) => a.filename)).toEqual([expect.stringMatching(/summary.*\.docx$/), expect.stringMatching(/inactive.*\.docx$/)]);
+    expect(sent[0].subject).toContain("2026-11");
+    expect(await processIdentityReports(db, config, mailer, new Date(2026, 10, 20))).toBe(0); // jednou za měsíc
+    expect(await processIdentityReports(db, config, mailer, new Date(2026, 11, 5))).toBe(1);
+    await db.delete(schema.identitySources).where(eq(schema.identitySources.id, src!.id));
+  });
+
   test("vazby v1.88 (ADR-183): software z agenta, nepřímé podněty k riziku, signály SoA, zdroje dat, identity, úkoly, kvalita, rozsah auditu, úklid", async () => {
     const root = ((await admin.json("/api/companies")).body as any[]).find((x) => !x.parentId);
     const H = { "x-contix-company": root.id };

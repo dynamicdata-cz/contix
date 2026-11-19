@@ -155,7 +155,13 @@ const dec = (v: string | null, config: Config) => {
 /* ---------------- kanály ---------------- */
 
 export interface Mailer {
-  send(m: { to: string; subject: string; html: string; text: string }): Promise<void>;
+  send(m: { to: string; subject: string; html: string; text: string; attachments?: { filename: string; content: Buffer; contentType: string }[] }): Promise<void>;
+}
+
+/** Odesílač e-mailů podle nastavení upozornění, nebo null, když je e-mail vypnutý (v1.89). */
+export async function notificationMailer(db: Db, config: Config): Promise<Mailer | null> {
+  const s = await load(db);
+  return s.emailEnabled && s.smtpHost && s.smtpFrom ? smtpMailer(s, config) : null;
 }
 export interface TeamsPoster {
   post(url: string, payload: unknown): Promise<void>;
@@ -488,6 +494,15 @@ export async function runNotifications(d: RunDeps): Promise<{ emails: number; te
           const m = renderGuarantorDigest(row, appUrl, L.t);
           await guard(`e-mail ${u.email}`, () => once(db, `${key}:findings`, "email", u.email, "findings_weekly", async () => void (await mailer.send({ to: u.email, ...m }))), "emails");
         }
+      }
+    }
+    // měsíční reporty identit garantovi modulu (v1.89, ADR-184)
+    if (mailer && (base.enabledModules as string[]).includes("identity")) {
+      const { processIdentityReports } = await import("../identity/reports");
+      try {
+        result.emails += await processIdentityReports(db, config, mailer, now);
+      } catch (e) {
+        result.errors.push(`Reporty identit: ${(e as Error).message}`);
       }
     }
     s.lastDigestDay = day;

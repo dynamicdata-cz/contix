@@ -5,7 +5,7 @@ import { CompanyCell, TargetCompanyField, useTargetCompany } from "@/components/
 import { ColumnChart, Legend, StackedBars } from "@/components/charts";
 import { SEVERITY_COLOR, SeverityBadge } from "@/components/health";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, PageHeader, Select, SuccessBox, Textarea, Kpi } from "@/components/ui";
-import { api } from "@/lib/api";
+import { api, type IdentityFindingFilter } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { cn, fmtDate, fmtDay, useDebounced } from "@/lib/utils";
 import {
@@ -26,10 +26,14 @@ import {
   type IdentitySourceDto,
   type IdentitySourceKind,
   type IdentityTestResult,
+  IDENTITY_REPORT_KINDS,
+  IDENTITY_REPORT_LABELS,
+  type IdentityReportGroup,
+  type IdentityReportScheduleInput,
 } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Download, KeyRound, Plus, RefreshCw, ShieldAlert, Users } from "lucide-react";
-import { useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, Download, FileText, KeyRound, Plus, RefreshCw, ShieldAlert, Users } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { AutomationsTab, ReviewsTab, SodTab } from "./IdentityGovernance";
 
 /* ============================================================
@@ -63,13 +67,6 @@ export function IdentityPage() {
       <PageHeader
         title={t("idn.identityAPristupy")}
         subtitle={t("idn.kontrolyUctuVActiveDirectory")}
-        actions={
-          <a href={api.identity.findingsCsvUrl()} download>
-            <Button variant="secondary">
-              <Download size={15} /> {t("idn.nalezyCsv")}
-            </Button>
-          </a>
-        }
       />
       <ProcessGuide id="identity" />
       <div className="mb-6 flex gap-2 border-b border-slate-200">
@@ -245,8 +242,28 @@ function Findings({
   const dq = useDebounced(q);
   const [accepting, setAccepting] = useState<IdentityFindingDto | null>(null);
   const qc = useQueryClient();
-  const list = useQuery({ queryKey: ["identity", "findings", status, filter, dq], queryFn: () => api.identity.findings({ status, ...filter, q: dq || undefined }) });
+  const fq = { status, ...filter, q: dq || undefined };
+  const list = useQuery({ queryKey: ["identity", "findings", status, filter, dq], queryFn: () => api.identity.findings(fq) });
+  const facets = useQuery({ queryKey: ["identity", "facets", status, filter, dq], queryFn: () => api.identity.facets(fq) });
   const reopen = useMutation({ mutationFn: api.identity.reopen, onSuccess: () => qc.invalidateQueries({ queryKey: ["identity"] }) });
+  // hromadné akce (v1.89): výběr otevřených nálezů → výjimka nebo úkoly
+  const [sel, setSel] = useState<string[]>([]);
+  const [bulkAccept, setBulkAccept] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [reports, setReports] = useState(false);
+  const selectable = (list.data ?? []).filter((f) => f.status === "open");
+  // jiný filtr = jiný seznam → výběr se zruší
+  useEffect(() => setSel([]), [status, filter, dq]);
+  const canBulk = can("identity:write") && status === "open";
+  const tasks = useMutation({
+    mutationFn: () => api.findings.tasks(sel.map((id) => `identity:${id}`)),
+    onSuccess: (r) => {
+      setMsg(t("idn.bulk.tasksDone", { n: r.created, existing: r.existing }));
+      setSel([]);
+      qc.invalidateQueries({ queryKey: ["identity"] });
+    },
+  });
+  const ruleTiles = IDENTITY_RULES.filter((r) => (facets.data?.rules[r] ?? 0) > 0);
   const info = filter.rule ? IDENTITY_RULE_INFO[filter.rule] : null;
   return (
     <>
@@ -262,6 +279,7 @@ function Findings({
             {IDENTITY_SEVERITIES.map((s) => (
               <option key={s} value={s}>
                 {t.lbl(IDENTITY_LABELS.severity[s])}
+                {facets.data ? ` (${facets.data.severities[s] ?? 0})` : ""}
               </option>
             ))}
           </Select>
@@ -270,6 +288,7 @@ function Findings({
             {IDENTITY_RULES.map((r) => (
               <option key={r} value={r}>
                 {t.lbl(IDENTITY_RULE_INFO[r].title)}
+                {facets.data ? ` (${facets.data.rules[r] ?? 0})` : ""}
               </option>
             ))}
           </Select>
@@ -293,7 +312,57 @@ function Findings({
           </div>
         )}
       </Card>
-      <ErrorBox error={list.error ?? reopen.error} />
+      {ruleTiles.length > 0 && (
+        <div className="mb-4 flex flex-wrap gap-2" data-testid="idn-rule-tiles">
+          {ruleTiles.map((r) => {
+            const on = filter.rule === r;
+            return (
+              <button
+                key={r}
+                type="button"
+                aria-pressed={on}
+                title={t.lbl(IDENTITY_RULE_INFO[r].why)}
+                onClick={() => setFilter({ ...filter, rule: on ? undefined : r })}
+                className={cn("rounded-lg border px-3 py-2 text-left text-sm", on ? "border-brand-600 bg-brand-50 text-brand-800" : "border-slate-200 bg-white hover:border-slate-300")}
+              >
+                <span className="block text-lg font-semibold leading-tight">{facets.data?.rules[r] ?? 0}</span>
+                <span className="text-xs text-slate-600">{t.lbl(IDENTITY_RULE_INFO[r].title)}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="mr-auto text-sm text-slate-500">{t("idn.count", { n: facets.data?.total ?? list.data?.length ?? 0 })}</span>
+        {canBulk && sel.length > 0 && (
+          <>
+            <span className="text-sm text-slate-700">{t("idn.bulk.selected", { n: sel.length })}</span>
+            <Button variant="secondary" onClick={() => setBulkAccept(true)}>
+              {t("idn.bulk.accept")}
+            </Button>
+            {can("actions:write") && (
+              <Button variant="secondary" disabled={tasks.isPending} onClick={() => tasks.mutate()}>
+                {t("idn.bulk.tasks")}
+              </Button>
+            )}
+          </>
+        )}
+        <a href={api.identity.findingsCsvUrl(fq)} download>
+          <Button variant="secondary">
+            <Download size={15} /> CSV
+          </Button>
+        </a>
+        <a href={api.identity.findingsXlsxUrl(fq)} download>
+          <Button variant="secondary">
+            <Download size={15} /> XLSX
+          </Button>
+        </a>
+        <Button variant="secondary" onClick={() => setReports(true)}>
+          <FileText size={15} /> {t("idn.rep.button")}
+        </Button>
+      </div>
+      {msg && <SuccessBox>{msg}</SuccessBox>}
+      <ErrorBox error={list.error ?? reopen.error ?? tasks.error} />
       <Card>
         {list.data && !list.data.length ? (
           <EmptyState>{status === "open" ? t("idn.zadneOtevreneNalezyProZvoleny") : t("common.nothingToShow")}</EmptyState>
@@ -302,6 +371,16 @@ function Findings({
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                 <tr>
+                  {canBulk && (
+                    <th className="w-8 px-3 py-2">
+                      <input
+                        type="checkbox"
+                        aria-label={t("idn.bulk.all")}
+                        checked={selectable.length > 0 && sel.length === selectable.length}
+                        onChange={(e) => setSel(e.target.checked ? selectable.map((f) => f.id) : [])}
+                      />
+                    </th>
+                  )}
                   <th className="px-4 py-2">{t("idn.zavaznost")}</th>
                   <th className="px-3 py-2">{t("idn.pravidlo")}</th>
                   <th className="px-3 py-2">{t("idn.ucetSkupina")}</th>
@@ -314,6 +393,13 @@ function Findings({
               <tbody className="divide-y divide-slate-100">
                 {list.data?.map((f) => (
                   <tr key={f.id} className="align-top">
+                    {canBulk && (
+                      <td className="px-3 py-2">
+                        {f.status === "open" && (
+                          <input type="checkbox" aria-label={f.subject} checked={sel.includes(f.id)} onChange={(e) => setSel(e.target.checked ? [...sel, f.id] : sel.filter((x) => x !== f.id))} />
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-2">
                       <SeverityBadge severity={f.severity} />
                     </td>
@@ -361,7 +447,160 @@ function Findings({
         )}
       </Card>
       {accepting && <AcceptModal f={accepting} onClose={() => setAccepting(null)} />}
+      {bulkAccept && (
+        <BulkAcceptModal
+          ids={sel}
+          onClose={(n) => {
+            setBulkAccept(false);
+            if (n !== null) {
+              setMsg(t("idn.bulk.acceptDone", { n }));
+              setSel([]);
+            }
+          }}
+        />
+      )}
+      {reports && <ReportsModal filter={fq} onClose={() => setReports(false)} />}
     </>
+  );
+}
+
+/* ---------------- hromadná výjimka, reporty a měsíční rozesílání (v1.89) ---------------- */
+
+function BulkAcceptModal({ ids, onClose }: { ids: string[]; onClose: (accepted: number | null) => void }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const [reason, setReason] = useState("");
+  const [until, setUntil] = useState(() => new Date(Date.now() + 180 * 86_400_000).toISOString().slice(0, 10));
+  const m = useMutation({
+    mutationFn: () => api.identity.bulkAccept({ ids, reason, until }),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["identity"] });
+      onClose(r.accepted);
+    },
+  });
+  return (
+    <Modal
+      open
+      onClose={() => onClose(null)}
+      title={t("idn.bulk.acceptTitle", { n: ids.length })}
+      footer={
+        <>
+          <Button variant="secondary" onClick={() => onClose(null)}>
+            {t("common.cancelAction")}
+          </Button>
+          <Button disabled={reason.trim().length < 5 || m.isPending} onClick={() => m.mutate()}>
+            {t("idn.udelitVyjimku")}
+          </Button>
+        </>
+      }
+    >
+      <p className="text-sm text-slate-600">{t("idn.bulk.acceptHint")}</p>
+      <Field label={t("idn.oduvodneniProcJeStavPrijatelny")}>
+        <Textarea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+      </Field>
+      <Field label={t("idn.platiDo")} hint={t("idn.nejdele2Roky")}>
+        <Input type="date" value={until} onChange={(e) => setUntil(e.target.value)} />
+      </Field>
+      <ErrorBox error={m.error} />
+    </Modal>
+  );
+}
+
+function ReportsModal({ filter, onClose }: { filter: IdentityFindingFilter; onClose: () => void }) {
+  const t = useT();
+  const can = useCan();
+  const qc = useQueryClient();
+  const [group, setGroup] = useState<IdentityReportGroup>("department");
+  const sched = useQuery({ queryKey: ["identity", "report-schedule"], queryFn: api.identity.reportSchedule });
+  const [plan, setPlan] = useState<IdentityReportScheduleInput | null>(null);
+  const p = plan ?? (sched.data ? { enabled: sched.data.enabled, reports: sched.data.reports, format: sched.data.format, day: sched.data.day, group: sched.data.group } : null);
+  const save = useMutation({
+    mutationFn: (v: IdentityReportScheduleInput) => api.identity.saveReportSchedule(v),
+    onSuccess: (d) => {
+      qc.setQueryData(["identity", "report-schedule"], d);
+      setPlan(null);
+    },
+  });
+  const send = useMutation({ mutationFn: api.identity.sendReportNow, onSuccess: () => qc.invalidateQueries({ queryKey: ["identity", "report-schedule"] }) });
+  const q = { ...filter, group };
+  return (
+    <Modal open onClose={onClose} title={t("idn.rep.title")} wide>
+      <p className="text-sm text-slate-600">{t("idn.rep.hint")}</p>
+      <ul className="divide-y divide-slate-100 rounded-md border border-slate-200" data-testid="idn-reports">
+        {IDENTITY_REPORT_KINDS.map((k) => (
+          <li key={k} className="flex flex-wrap items-center gap-2 px-4 py-3">
+            <span className="mr-auto text-sm font-medium">{t.lbl(IDENTITY_REPORT_LABELS[k])}</span>
+            {k === "inactive" && (
+              <Select className="w-auto" value={group} onChange={(e) => setGroup(e.target.value as IdentityReportGroup)} aria-label={t("idn.rep.group")}>
+                <option value="department">{t("idn.rep.byDepartment")}</option>
+                <option value="ou">{t("idn.rep.byOu")}</option>
+              </Select>
+            )}
+            <a href={api.identity.reportUrl(k, "docx", q)} download>
+              <Button variant="secondary">Word</Button>
+            </a>
+            <a href={api.identity.reportUrl(k, "html", q)} target="_blank" rel="noreferrer">
+              <Button variant="secondary">{t("idn.rep.pdf")}</Button>
+            </a>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-5 border-t border-slate-200 pt-4" data-testid="idn-report-schedule">
+        <div className="text-sm font-medium">{t("idn.rep.scheduleTitle")}</div>
+        {sched.data && (
+          <p className="mt-1 text-xs text-slate-500">
+            {sched.data.guarantor ? t("idn.rep.guarantor", { name: sched.data.guarantor.name, n: sched.data.guarantor.recipients }) : t("idn.rep.noGuarantor")}
+            {sched.data.lastSentAt ? ` · ${t("idn.rep.lastSent", { date: fmtDate(sched.data.lastSentAt) })}` : ""}
+            {sched.data.lastStatus ? ` · ${sched.data.lastStatus}` : ""}
+          </p>
+        )}
+        {p && (
+          <div className="mt-3 space-y-3">
+            <Checkbox checked={p.enabled} disabled={!can("identity:write")} onChange={(v) => setPlan({ ...p, enabled: v })} label={t("idn.rep.enabled")} />
+            <div className="flex flex-wrap gap-4">
+              {IDENTITY_REPORT_KINDS.map((k) => (
+                <Checkbox
+                  key={k}
+                  disabled={!can("identity:write")}
+                  checked={p.reports.includes(k)}
+                  onChange={(v) => setPlan({ ...p, reports: v ? [...p.reports, k] : p.reports.filter((x) => x !== k) })}
+                  label={t.lbl(IDENTITY_REPORT_LABELS[k])}
+                />
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <Field label={t("idn.rep.day")}>
+                <Input type="number" min={1} max={28} disabled={!can("identity:write")} value={p.day ?? 1} onChange={(e) => setPlan({ ...p, day: Math.min(28, Math.max(1, Number(e.target.value) || 1)) })} />
+              </Field>
+              <Field label={t("idn.rep.format")} hint={sched.data && !sched.data.pdfAvailable ? t("idn.rep.pdfNoConverter") : undefined}>
+                <Select value={p.format ?? "docx"} disabled={!can("identity:write")} onChange={(e) => setPlan({ ...p, format: e.target.value as "docx" | "pdf" })}>
+                  <option value="docx">Word</option>
+                  <option value="pdf">PDF</option>
+                </Select>
+              </Field>
+              <Field label={t("idn.rep.group")}>
+                <Select value={p.group ?? "department"} disabled={!can("identity:write")} onChange={(e) => setPlan({ ...p, group: e.target.value as IdentityReportGroup })}>
+                  <option value="department">{t("idn.rep.byDepartment")}</option>
+                  <option value="ou">{t("idn.rep.byOu")}</option>
+                </Select>
+              </Field>
+            </div>
+            {can("identity:write") && (
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={!plan || !p.reports.length || save.isPending} onClick={() => save.mutate(p)}>
+                  {t("idn.rep.save")}
+                </Button>
+                <Button variant="secondary" disabled={!sched.data?.guarantor || send.isPending} onClick={() => send.mutate()}>
+                  {t("idn.rep.sendNow")}
+                </Button>
+              </div>
+            )}
+            {send.data && <SuccessBox>{send.data.status}</SuccessBox>}
+          </div>
+        )}
+        <ErrorBox error={sched.error ?? save.error ?? send.error} />
+      </div>
+    </Modal>
   );
 }
 

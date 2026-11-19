@@ -2,6 +2,16 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.89.0
+
+Identity a přístupy – práce s nálezy a reporty (ADR-184).
+
+- **Počty u filtru**: volby *Pravidlo* a *Závažnost* ukazují počet nálezů (s ostatními filtry); nad tabulkou je řádek **dlaždic podle pravidla** – kliknutím se filtr nastaví nebo zruší.
+- **Export CSV a XLSX podle aktuálního filtru** (stav, závažnost, pravidlo, zdroj, hledání) přímo nad tabulkou nálezů; CSV dřív bralo jen stav a zdroj.
+- **Cílené reporty Word / PDF** z filtru: *Neaktivní a nikdy nepřihlášené účty* (seskupení podle útvaru nebo OU, privilegované nahoře, sloupec pro rozhodnutí vedoucího a podpis), *Privilegované účty* (skupiny, stáří hesla, SPN, delegace, MFA, otevřené nálezy) a *Souhrn pro vedení* (stav, počty podle pravidel, vývoj za 6 měsíců, největší rizika). PDF tiskem stránky, s převodní službou i přímo.
+- **Měsíční rozesílání** vybraných reportů garantovi modulu (funkční místo z panelu *Jak postupovat*) od zvoleného dne v měsíci, Word nebo PDF v příloze; tlačítko *Odeslat teď*.
+- **Hromadné akce v Nálezech**: výběr otevřených nálezů → hromadná výjimka se společným odůvodněním a termínem, nebo úkoly (uzavřou se samy po vyřešení nálezu).
+
 ## 1.88.0
 
 Vazby a slepá místa (ADR-183) – zjištění teď dojdou tam, kde mají něco změnit.

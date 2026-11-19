@@ -94,6 +94,11 @@ import type {
   LangPack,
   IdentityOverviewDto,
   IdentityFindingDto,
+  BulkAcceptIdentityInput,
+  IdentityFindingFacets,
+  IdentityReportKind,
+  IdentityReportScheduleDto,
+  IdentityReportScheduleInput,
   IdentityAccountDto,
   IdentityAccountDetail,
   IdentitySourceDto,
@@ -690,6 +695,9 @@ const VIEW_BASE: Record<ViewPage, string> = { incidents: "/incidents", soc_alert
 const qs = (q: Record<string, unknown>) =>
   new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== "") as [string, string][]).toString();
 
+/** Filtr nálezů identit (v1.89) – seznam, počty, exporty, reporty. */
+export type IdentityFindingFilter = { status?: string; severity?: string; rule?: string; sourceId?: string; accountId?: string; q?: string };
+
 export const api = {
   health: () => request<HealthDto>("/health"),
 
@@ -1011,7 +1019,14 @@ export const api = {
   identity: {
     overview: () => request<IdentityOverviewDto>("/identity/overview"),
     findings: (q: { status?: string; severity?: string; rule?: string; sourceId?: string; accountId?: string; q?: string }) => request<IdentityFindingDto[]>(`/identity/findings?${qs(q)}`),
-    findingsCsvUrl: (q: { status?: string; sourceId?: string } = {}) => withCompany(`/api/identity/findings.csv?${qs(q)}`),
+    findingsCsvUrl: (q: IdentityFindingFilter = {}) => withCompany(`/api/identity/findings.csv?${qs(q)}`),
+    findingsXlsxUrl: (q: IdentityFindingFilter = {}) => withCompany(`/api/identity/findings.xlsx?${qs(q)}`),
+    facets: (q: IdentityFindingFilter) => request<IdentityFindingFacets>(`/identity/findings/facets?${qs(q)}`),
+    bulkAccept: (data: BulkAcceptIdentityInput) => post<{ accepted: number; skipped: number }>("/identity/findings/bulk-accept", data),
+    reportUrl: (kind: IdentityReportKind, format: "html" | "docx" | "pdf", q: IdentityFindingFilter & { group?: string } = {}) => withCompany(`/api/identity/reports/${kind}.${format}?${qs(q)}`),
+    reportSchedule: () => request<IdentityReportScheduleDto>("/identity/reports/schedule"),
+    saveReportSchedule: (data: IdentityReportScheduleInput) => put<IdentityReportScheduleDto>("/identity/reports/schedule", data),
+    sendReportNow: () => post<{ sent: number; status: string }>("/identity/reports/schedule/send", {}),
     accept: (id: string, data: AcceptIdentityFindingInput) => post<IdentityFindingDto>(`/identity/findings/${id}/accept`, data),
     reopen: (id: string) => post<IdentityFindingDto>(`/identity/findings/${id}/reopen`),
     accounts: (q: { sourceId?: string; q?: string; privileged?: "1" | "0"; enabled?: "1" | "0"; kind?: string; withFindings?: "1"; removed?: "1" }) => request<IdentityAccountDto[]>(`/identity/accounts?${qs(q)}`),

@@ -16,7 +16,13 @@ import {
   type IdentityRule,
   type IdentitySeverity,
   type IdentityTestResult,
+  BulkAcceptIdentityInput,
+  IDENTITY_LABELS,
+  type IdentityFindingFacets,
 } from "@contix/shared";
+import { writeXlsx } from "../import/table";
+import { identityReportRoutes } from "./reports";
+import { FindingQuery, findingWhere, type IdentityFindingQuery } from "./query";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { Hono, type Context } from "hono";
@@ -46,14 +52,6 @@ import { ApiError } from "../../lib/apiError";
 const likeEsc = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
 const iso = (d: Date | null | undefined) => d?.toISOString() ?? null;
 
-const FindingQuery = z.object({
-  status: z.enum(IDENTITY_FINDING_STATUSES).optional(),
-  severity: z.enum(IDENTITY_SEVERITIES).optional(),
-  rule: z.enum(IDENTITY_RULES).optional(),
-  sourceId: z.string().uuid().optional(),
-  accountId: z.string().uuid().optional(),
-  q: z.string().trim().max(200).optional(),
-});
 const AccountQuery = z.object({
   sourceId: z.string().uuid().optional(),
   q: z.string().trim().max(200).optional(),
@@ -106,6 +104,54 @@ export function identityRoutes(db: Db, config: Config) {
       lastSeenAt: r.f.lastSeenAt.toISOString(),
       resolvedAt: iso(r.f.resolvedAt),
     }));
+  }
+
+  async function exportFindings(c: Context<AppEnv>, format: "csv" | "xlsx") {
+    const q = c.req.valid("query" as never) as IdentityFindingQuery;
+    const rows = await findings(c, findingWhere(q), 50_000);
+    const t = await tFor(db, c);
+    const head = [
+      t("srv.idn.colSource"),
+      t("srv.idn.colRule"),
+      t("srv.idn.colSeverity"),
+      t("srv.idn.colSubject"),
+      t("srv.idn.colName"),
+      t("srv.idn.colDetail"),
+      t("srv.idn.colStatus"),
+      t("srv.idn.colFirstSeen"),
+      t("srv.idn.colLastSeen"),
+      t("srv.idn.colAcceptedUntil"),
+      t("srv.idn.colAcceptedReason"),
+    ];
+    const data = rows.map((f) => [
+      f.sourceName,
+      t.lbl(IDENTITY_RULE_INFO[f.rule]?.title) ?? f.rule,
+      t.lbl(IDENTITY_LABELS.severity[f.severity]),
+      f.subject,
+      f.account?.displayName ?? "",
+      f.detail,
+      t.lbl(IDENTITY_LABELS.status[f.status]),
+      f.firstSeenAt.slice(0, 10),
+      f.lastSeenAt.slice(0, 10),
+      f.acceptedUntil ?? "",
+      f.acceptedReason ?? "",
+    ]);
+    await audit(db, { c, user: currentUser(c), action: "identity.exported", entityType: "identity", details: { rows: rows.length, format, filter: q } });
+    const name = `nalezy-identity-${new Date().toISOString().slice(0, 10)}`;
+    if (format === "xlsx")
+      return new Response(new Uint8Array(writeXlsx([{ name: t("srv.idn.sheet"), rows: [head, ...data], widths: [18, 26, 10, 24, 26, 50, 12, 12, 12, 12, 30] }])), {
+        headers: {
+          "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "content-disposition": `attachment; filename="${name}.xlsx"`,
+          "cache-control": "private, no-store",
+        },
+      });
+    const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = [head.map(cell).join(";"), ...data.map((r) => r.map(cell).join(";"))];
+    return c.body(`\uFEFF${lines.join("\r\n")}\r\n`, 200, {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${name}.csv"`,
+    });
   }
 
   async function accounts(c: Context<AppEnv>, where: SQL[], limit = 1000): Promise<(IdentityAccountDto & { _row: typeof identityAccounts.$inferSelect })[]> {
@@ -236,56 +282,48 @@ export function identityRoutes(db: Db, config: Config) {
       .route("/sod", sodRoutes(db))
       .route("/reviews", reviewRoutes(db))
       .route("/automations", automationRoutes(db))
+      .route("/reports", identityReportRoutes(db, config))
 
       /* ---------- nálezy ---------- */
 
-      .get("/findings", requirePerm("identity:read"), zValidator("query", FindingQuery), async (c) => {
+      .get("/findings", requirePerm("identity:read"), zValidator("query", FindingQuery), async (c) => c.json(await findings(c, findingWhere(c.req.valid("query")))))
+
+      /** Počty nálezů pro volby filtru Pravidlo a Závažnost a dlaždice pravidel (v1.89). */
+      .get("/findings/facets", requirePerm("identity:read"), zValidator("query", FindingQuery), async (c) => {
         const q = c.req.valid("query");
-        const where: SQL[] = [eq(identityFindings.status, q.status ?? "open")];
-        if (q.severity) where.push(eq(identityFindings.severity, q.severity));
-        if (q.rule) where.push(eq(identityFindings.rule, q.rule));
-        if (q.sourceId) where.push(eq(identityFindings.sourceId, q.sourceId));
-        if (q.accountId) where.push(eq(identityFindings.accountId, q.accountId));
-        if (q.q) {
-          const like = `%${likeEsc(q.q)}%`;
-          where.push(or(ilike(identityAccounts.login, like), ilike(identityAccounts.displayName, like), ilike(identityFindings.detail, like))!);
-        }
-        return c.json(await findings(c, where));
+        const base = (omit?: "rule" | "severity") =>
+          db.select({ k: omit === "severity" ? identityFindings.severity : identityFindings.rule, n: count() }).from(identityFindings).leftJoin(identityAccounts, eq(identityAccounts.id, identityFindings.accountId)).where(and(inScope(c, identityFindings.companyId), ...findingWhere(q, omit)));
+        const [byRule, bySev, [tot]] = await Promise.all([
+          base("rule").groupBy(identityFindings.rule),
+          base("severity").groupBy(identityFindings.severity),
+          db.select({ n: count() }).from(identityFindings).leftJoin(identityAccounts, eq(identityAccounts.id, identityFindings.accountId)).where(and(inScope(c, identityFindings.companyId), ...findingWhere(q))),
+        ]);
+        const dto: IdentityFindingFacets = {
+          rules: Object.fromEntries(byRule.map((r) => [r.k, r.n])),
+          severities: { ...(Object.fromEntries(IDENTITY_SEVERITIES.map((x) => [x, 0])) as Record<IdentitySeverity, number>), ...Object.fromEntries(bySev.map((r) => [r.k, r.n])) },
+          total: tot?.n ?? 0,
+        };
+        return c.json(dto);
       })
 
-      /** Export nálezů pro auditora (CSV, středník, UTF-8 s BOM). */
-      .get("/findings.csv", requirePerm("identity:read"), zValidator("query", FindingQuery), async (c) => {
-        const q = c.req.valid("query");
-        const where: SQL[] = [eq(identityFindings.status, q.status ?? "open")];
-        if (q.sourceId) where.push(eq(identityFindings.sourceId, q.sourceId));
-        const rows = await findings(c, where, 50_000);
-        const t = await tFor(db, c);
-        const cell = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-        const lines = [
-          [
-            t("srv.idn.colSource"),
-            t("srv.idn.colRule"),
-            t("srv.idn.colSeverity"),
-            t("srv.idn.colSubject"),
-            t("srv.idn.colName"),
-            t("srv.idn.colDetail"),
-            t("srv.idn.colStatus"),
-            t("srv.idn.colFirstSeen"),
-            t("srv.idn.colLastSeen"),
-            t("srv.idn.colAcceptedUntil"),
-            t("srv.idn.colAcceptedReason"),
-          ].map(cell).join(";"),
-          ...rows.map((f) =>
-            [f.sourceName, t.lbl(IDENTITY_RULE_INFO[f.rule]?.title) ?? f.rule, f.severity, f.subject, f.account?.displayName ?? "", f.detail, f.status, f.firstSeenAt.slice(0, 10), f.lastSeenAt.slice(0, 10), f.acceptedUntil ?? "", f.acceptedReason ?? ""]
-              .map(cell)
-              .join(";"),
-          ),
-        ];
-        await audit(db, { c, user: currentUser(c), action: "identity.exported", entityType: "identity", details: { rows: rows.length, status: q.status ?? "open" } });
-        return c.body(`﻿${lines.join("\r\n")}\r\n`, 200, {
-          "content-type": "text/csv; charset=utf-8",
-          "content-disposition": `attachment; filename="nalezy-identity-${new Date().toISOString().slice(0, 10)}.csv"`,
-        });
+      /** Export nálezů podle aktuálního filtru – CSV (středník, UTF-8 s BOM) nebo XLSX (v1.89). */
+      .get("/findings.csv", requirePerm("identity:read"), zValidator("query", FindingQuery), (c) => exportFindings(c, "csv"))
+      .get("/findings.xlsx", requirePerm("identity:read"), zValidator("query", FindingQuery), (c) => exportFindings(c, "xlsx"))
+
+      /** Hromadná výjimka z vybraných nálezů (v1.89) – jen otevřené nálezy v rozsahu uživatele. */
+      .post("/findings/bulk-accept", requirePerm("identity:write"), zValidator("json", BulkAcceptIdentityInput), async (c) => {
+        const input = c.req.valid("json");
+        const today = new Date().toISOString().slice(0, 10);
+        const max = new Date(Date.now() + 731 * 86_400_000).toISOString().slice(0, 10);
+        if (input.until <= today || input.until > max) throw new HTTPException(400, { message: "Výjimka musí platit do budoucího data, nejdéle 2 roky." });
+        const rows = await db
+          .update(identityFindings)
+          .set({ status: "accepted", acceptedBy: currentUser(c).id, acceptedReason: input.reason, acceptedUntil: input.until })
+          .where(and(inArray(identityFindings.id, [...new Set(input.ids)]), eq(identityFindings.status, "open"), inScope(c, identityFindings.companyId)))
+          .returning({ id: identityFindings.id, sourceId: identityFindings.sourceId, rule: identityFindings.rule });
+        for (const sid of new Set(rows.map((r) => r.sourceId))) await refreshStats(sid);
+        if (rows.length) await audit(db, { c, user: currentUser(c), action: "identity.findings_bulk_accepted", entityType: "identity_finding", details: { count: rows.length, until: input.until, reason: input.reason } });
+        return c.json({ accepted: rows.length, skipped: input.ids.length - rows.length });
       })
 
       .post("/findings/:id/accept", requirePerm("identity:write"), zValidator("json", AcceptIdentityFindingInput), async (c) => {
