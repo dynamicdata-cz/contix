@@ -13,6 +13,7 @@ export const FindingQuery = z.object({
   rule: z.enum(IDENTITY_RULES).optional(),
   sourceId: z.string().uuid().optional(),
   accountId: z.string().uuid().optional(),
+  computerId: z.string().uuid().optional(),
   q: z.string().trim().max(200).optional(),
 });
 export type IdentityFindingQuery = z.infer<typeof FindingQuery>;
@@ -23,6 +24,7 @@ export function findingWhere(q: IdentityFindingQuery, omit?: "rule" | "severity"
   if (q.rule && omit !== "rule") where.push(eq(identityFindings.rule, q.rule));
   if (q.sourceId) where.push(eq(identityFindings.sourceId, q.sourceId));
   if (q.accountId) where.push(eq(identityFindings.accountId, q.accountId));
+  if (q.computerId) where.push(eq(identityFindings.computerId, q.computerId));
   if (q.q) {
     const like = `%${likeEsc(q.q)}%`;
     where.push(or(ilike(identityAccounts.login, like), ilike(identityAccounts.displayName, like), ilike(identityFindings.detail, like))!);

@@ -4,6 +4,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 // @ts-expect-error – ldapjs nemá typy; jen jako mock LDAP serveru v testech
 import ldap from "ldapjs";
+import { defaultAssetClass } from "@contix/shared";
 import postgres from "postgres";
 import { createApp } from "../src/app";
 import { createAdmin, ensureSystemRoles } from "../src/auth/service";
@@ -67,6 +68,27 @@ const u = (x: U) => ({
     department: "IT",
   },
 });
+type P = { cn: string; n: number; uac?: number; os: string; ver?: string; logon: number; ou?: string; primary?: number; laps?: boolean; delegateTo?: string[] };
+const pc = (x: P) => ({
+  dn: `CN=${x.cn},${x.ou ?? "OU=Servers"},${BASE}`,
+  attributes: {
+    objectClass: ["top", "person", "organizationalPerson", "user", "computer"],
+    objectGUID: guid(100 + x.n),
+    cn: x.cn,
+    sAMAccountName: `${x.cn}$`,
+    dNSHostName: `${x.cn.toLowerCase()}.firma.local`,
+    distinguishedName: `CN=${x.cn},${x.ou ?? "OU=Servers"},${BASE}`,
+    operatingSystem: x.os,
+    operatingSystemVersion: x.ver ?? "10.0 (20348)",
+    userAccountControl: String(x.uac ?? 4096),
+    primaryGroupID: String(x.primary ?? 515),
+    lastLogonTimestamp: fileTime(x.logon),
+    pwdLastSet: fileTime(x.logon),
+    whenCreated: genTime(600),
+    ...(x.laps ? { "msLAPS-PasswordExpirationTime": fileTime(-20) } : {}),
+    ...(x.delegateTo ? { "msDS-AllowedToDelegateTo": x.delegateTo } : {}),
+  },
+});
 const directory = {
   users: [
     u({ sam: "admin.novak", n: 1, uac: 512, logon: 200, pwd: 400, memberOf: [IT] }), // vnořeně Domain Admins → neaktivní privilegovaný + staré heslo
@@ -78,6 +100,7 @@ const directory = {
     u({ sam: "admin.dvorak", n: 7, uac: 512, logon: 1, primary: 512 }), // Domain Admins jako primární skupina
     u({ sam: "krbtgt", n: 8, uac: 514 }),
   ],
+  computers: [] as ReturnType<typeof pc>[],
 };
 let binds = 0;
 const ldapServer = ldap.createServer();
@@ -89,7 +112,7 @@ ldapServer.bind(BASE, (req: any, res: any, next: any) => {
 });
 ldapServer.search(BASE, (req: any, res: any, next: any) => {
   const f = req.filter.toString().toLowerCase();
-  const list = f.includes("objectclass=group") ? groups : directory.users;
+  const list = f.includes("objectcategory=computer") ? directory.computers : f.includes("objectclass=group") ? groups : directory.users;
   // ldapjs filtruje požadované atributy porovnáním s malými písmeny – seznam proto převedeme (jako AD: atributy bez ohledu na velikost)
   res.attributes = res.attributes.map((a: string) => a.toLowerCase());
   for (const e of list) res.send({ dn: e.dn, attributes: { ...e.attributes } });
@@ -673,5 +696,89 @@ describe.skipIf(!url)("Identity a přístupy (AD / Entra ID)", () => {
     expect((await admin.json(`/api/identity/sources/${adId}`, { method: "DELETE" })).status).toBe(200);
     const left = await db.select().from(schema.identityAccounts).where(sql`source_id = ${adId}`);
     expect(left.length).toBe(0);
+  });
+  test("počítače a servery z AD (v1.90): role, nálezy, párování s aktivy, sběr dat, založení aktiv, vyřešení", async () => {
+    directory.computers = [
+      pc({ cn: "DC01", n: 1, uac: 8192 | 0x80000, primary: 516, os: "Windows Server 2022 Standard", logon: 1, ou: "OU=Domain Controllers" }),
+      pc({ cn: "SRV-OLD", n: 2, os: "Windows Server 2012 R2 Standard", ver: "6.3 (9600)", logon: 2, laps: true }),
+      pc({ cn: "SRV-APP01", n: 3, uac: 4096 | 0x80000, os: "Windows Server 2022 Standard", logon: 1, laps: true, delegateTo: ["cifs/fs01"] }),
+      pc({ cn: "PC-STARY", n: 4, os: "Windows 11 Pro", ver: "10.0 (22631)", logon: 200, ou: "CN=Computers" }),
+      pc({ cn: "PC-NOVY", n: 5, os: "Windows 11 Pro", ver: "10.0 (22631)", logon: 3, ou: "OU=Stanice" }),
+    ];
+    // aktiva v CONTIXu: SRV-APP01 s Wazuhem, srv-old bez sběru dat
+    const [app] = await db.insert(schema.assets).values({ name: "Aplikační server", assetType: "server", assetClass: defaultAssetClass("server"), hostname: "srv-app01" }).returning();
+    const [old] = await db.insert(schema.assets).values({ name: "SRV-OLD", assetType: "server", assetClass: defaultAssetClass("server"), hostname: "srv-old.firma.local", osName: null }).returning();
+    await db.insert(schema.assetSources).values({ assetId: app!.id, sourceType: "wazuh", sourceRef: "wz-001" });
+    const test = await admin.json("/api/identity/sources/test", { method: "POST", json: adInput() });
+    expect(test.body.message).toContain("5 počítačů");
+    const src = await admin.json("/api/identity/sources", { method: "POST", json: adInput({ name: "Doména PC" }) });
+    expect(src.status).toBe(201);
+    const pid = src.body.id as string;
+    const s = await admin.json(`/api/identity/sources/${pid}/sync`, { method: "POST" });
+    expect(s.status).toBe(200);
+    expect(s.body.computers).toEqual({ total: 5, removed: 0 });
+
+    const list = (await admin.json(`/api/identity/computers?sourceId=${pid}`)).body;
+    const by = (n: string) => list.items.find((x: any) => x.name === n);
+    expect(by("DC01").role).toBe("dc");
+    expect(by("SRV-OLD")).toMatchObject({ role: "server", support: "eol", laps: true, asset: { id: old!.id } });
+    expect(by("SRV-APP01")).toMatchObject({ monitoring: ["wazuh"], unconstrainedDelegation: true, constrainedDelegation: true, asset: { id: app!.id } });
+    expect(by("PC-STARY")).toMatchObject({ role: "workstation", asset: null, ou: null });
+    expect(by("PC-NOVY").ou).toBe("Stanice");
+    expect(list.summary).toMatchObject({ total: 5, enabled: 5, dcs: 1, servers: 2, workstations: 2, stale: 1, eol: 1, noAsset: 3, unmonitored: 2, laps: 2 });
+    // údaje aktiva se nepřepíšou, jen doplní prázdné
+    const [oldNow] = await db.select().from(schema.assets).where(sql`id = ${old!.id}`);
+    expect(oldNow).toMatchObject({ name: "SRV-OLD", hostname: "srv-old.firma.local", osName: "Windows Server 2012 R2 Standard" });
+    const srcRows = await db.select().from(schema.assetSources).where(sql`source_type = 'ad'`);
+    expect(srcRows.length).toBe(2);
+
+    const f = ((await admin.json(`/api/identity/findings?sourceId=${pid}`)).body as any[]).filter((x) => x.computer || x.rule === "laps_not_deployed");
+    const has = (rule: string, name: string) => f.find((x) => x.rule === rule && x.subject === name);
+    expect(has("computer_eol", "SRV-OLD")?.severity).toBe("high");
+    expect(has("server_unmonitored", "SRV-OLD")?.detail).toContain("aktivum bez agenta");
+    expect(has("server_unmonitored", "DC01")?.severity).toBe("high");
+    expect(has("server_unmonitored", "SRV-APP01")).toBeUndefined();
+    expect(has("computer_delegation", "SRV-APP01")?.severity).toBe("high");
+    expect(has("computer_delegation", "DC01")).toBeUndefined();
+    expect(has("computer_stale", "PC-STARY")?.severity).toBe("medium");
+    expect(has("computer_default_container", "PC-STARY")?.severity).toBe("low");
+    expect(has("computer_no_laps", "PC-STARY")).toBeUndefined(); // neaktivní – řeší se jako neaktivní
+    expect(has("computer_no_laps", "PC-NOVY")?.severity).toBe("medium");
+    expect(f.some((x) => x.rule === "laps_not_deployed")).toBe(false);
+    expect(has("computer_eol", "SRV-OLD").computer).toMatchObject({ name: "SRV-OLD", role: "server", assetId: old!.id });
+    // filtr nálezů podle počítače, pohledy, export
+    expect(((await admin.json(`/api/identity/findings?computerId=${by("PC-STARY").id}`)).body as any[]).map((x) => x.rule).sort()).toEqual(["computer_default_container", "computer_stale"]);
+    expect(((await admin.json(`/api/identity/computers?view=unmonitored`)).body.items as any[]).map((x) => x.name).sort()).toEqual(["DC01", "SRV-OLD"]);
+    const csv = await admin.json(`/api/identity/computers/export.csv?sourceId=${pid}`);
+    expect(csv.headers.get("content-type")).toContain("text/csv");
+    expect(csv.body).toContain("SRV-OLD");
+    expect(csv.body).toContain("Bez podpory");
+    expect((await admin.json(`/api/identity/computers/export.xlsx`)).status).toBe(200);
+    // mapa propojení: servery z AD bez aktiva
+    const map = (await admin.json("/api/integrations/map")).body;
+    expect(map.coverage).toMatchObject({ adServers: 3, adNoAsset: 1 });
+
+    // založení aktiv z počítačů bez aktiva
+    const made = await admin.json("/api/identity/computers/assets", { method: "POST", json: { ids: [by("PC-NOVY").id, by("DC01").id, by("SRV-OLD").id] } });
+    expect(made.body).toMatchObject({ created: 2, linked: 0, skipped: 1 });
+    const after = (await admin.json(`/api/identity/computers?sourceId=${pid}`)).body;
+    const dc = after.items.find((x: any) => x.name === "DC01");
+    expect(dc.asset).not.toBeNull();
+    const [dcAsset] = await db.select().from(schema.assets).where(sql`id = ${dc.asset.id}`);
+    expect(dcAsset).toMatchObject({ assetType: "server", hostname: "dc01", fqdn: "dc01.firma.local" });
+    expect(after.items.find((x: any) => x.name === "PC-NOVY").asset).not.toBeNull();
+
+    // počítač zmizí → označí se a nálezy se vyřeší; vypnuté načítání počítačů nálezy nemění
+    directory.computers = directory.computers.filter((x) => x.attributes.cn !== "PC-STARY");
+    const s2 = await admin.json(`/api/identity/sources/${pid}/sync`, { method: "POST" });
+    expect(s2.body.computers).toEqual({ total: 4, removed: 1 });
+    expect(((await admin.json(`/api/identity/findings?computerId=${by("PC-STARY").id}`)).body as any[]).length).toBe(0);
+    expect(((await admin.json(`/api/identity/computers?removed=1`)).body.items as any[]).map((x) => x.name)).toEqual(["PC-STARY"]);
+    const open = ((await admin.json(`/api/identity/findings?sourceId=${pid}`)).body as any[]).filter((x) => x.computer).length;
+    expect(open).toBeGreaterThan(0);
+    await admin.json(`/api/identity/sources/${pid}`, { method: "PUT", json: adInput({ name: "Doména PC", config: { ...adInput().config, computers: false } }) });
+    expect((await admin.json(`/api/identity/sources/${pid}/sync`, { method: "POST" })).body.computers).toBeUndefined();
+    expect(((await admin.json(`/api/identity/findings?sourceId=${pid}`)).body as any[]).filter((x) => x.computer).length).toBe(open);
+    directory.computers = [];
   });
 });

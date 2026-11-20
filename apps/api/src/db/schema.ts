@@ -4380,6 +4380,40 @@ export const identityAccounts = pgTable(
   (t) => [uniqueIndex("identity_accounts_uq").on(t.sourceId, t.externalId), index("identity_accounts_company_idx").on(t.companyId, t.privileged)],
 );
 
+/** Počítače a servery z Active Directory (v1.90, ADR-185) – inventář, vazba na aktivum, nálezy. */
+export const identityComputers = pgTable(
+  "identity_computers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceId: uuid("source_id")
+      .notNull()
+      .references(() => identitySources.id, { onDelete: "cascade" }),
+    companyId: companyRef(),
+    /** objectGUID */
+    externalId: varchar("external_id", { length: 100 }).notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    dnsName: varchar("dns_name", { length: 255 }),
+    dn: text("dn").notNull(),
+    os: varchar("os", { length: 255 }),
+    osVersion: varchar("os_version", { length: 100 }),
+    role: varchar("role", { length: 20 }).notNull().default("other"),
+    enabled: boolean("enabled").notNull().default(true),
+    lastLogonAt: timestamp("last_logon_at", { withTimezone: true }),
+    pwdLastSetAt: timestamp("pwd_last_set_at", { withTimezone: true }),
+    dirCreatedAt: timestamp("dir_created_at", { withTimezone: true }),
+    description: text("description"),
+    spns: text("spns").array().notNull().default(sql`'{}'::text[]`),
+    unconstrainedDelegation: boolean("unconstrained_delegation").notNull().default(false),
+    constrainedDelegation: boolean("constrained_delegation").notNull().default(false),
+    laps: boolean("laps").notNull().default(false),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
+  },
+  (t) => [unique("identity_computers_src_uq").on(t.sourceId, t.externalId), index("identity_computers_company_idx").on(t.companyId), index("identity_computers_asset_idx").on(t.assetId)],
+);
+
 export const identityFindings = pgTable(
   "identity_findings",
   {
@@ -4389,7 +4423,9 @@ export const identityFindings = pgTable(
       .references(() => identitySources.id, { onDelete: "cascade" }),
     companyId: companyRef(),
     accountId: uuid("account_id").references(() => identityAccounts.id, { onDelete: "cascade" }),
-    /** Účet (id) nebo skupina (group:<název>) – klíč nálezu spolu se zdrojem a pravidlem. */
+    /** Počítač z AD (v1.90, ADR-185). */
+    computerId: uuid("computer_id").references((): AnyPgColumn => identityComputers.id, { onDelete: "cascade" }),
+    /** Účet (id), skupina (group:<název>), počítač (computer:<id>) nebo doména (laps) – klíč nálezu spolu se zdrojem a pravidlem. */
     subject: varchar("subject", { length: 400 }).notNull(),
     rule: varchar("rule", { length: 50 }).notNull(),
     severity: identitySeverityEnum("severity").notNull(),

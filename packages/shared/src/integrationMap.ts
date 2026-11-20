@@ -84,6 +84,9 @@ export interface MapCoverage {
   /** Server hlášený agentem i sběračem současně (duplicitní zdroj). */
   duplicate: number;
   noneSample: { id: string; name: string }[];
+  /** Servery a řadiče domény z AD (aktivní za 90 dní) a kolik z nich nemá aktivum v CONTIXu (v1.90). */
+  adServers?: number;
+  adNoAsset?: number;
 }
 export interface IntegrationMapDto {
   at: string;

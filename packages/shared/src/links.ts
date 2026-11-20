@@ -179,6 +179,7 @@ export const RELATION_COVERAGE: Record<"assets" | "processes" | "risks" | "contr
     host_findings: "detail",
     host_inventories: "detail",
     iam_resources: "backlink:access_resource",
+    identity_computers: "detail", // zdroj „Active Directory“ v detailu aktiva (v1.90)
     incident_assets: "backlink:incident",
     info_assessment_assets: "detail",
     map_placements: "detail",

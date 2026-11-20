@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { osSupport, type SupportStatus } from "./vuln";
 
 /* ============================================================
  * Identity a přístupy (v0.28): kontroly účtů v Active Directory a Microsoft Entra ID.
@@ -30,6 +31,14 @@ export const IDENTITY_RULES = [
   "privileged_pwd_old",
   "no_mfa",
   "privileged_group_size",
+  // v1.90 (ADR-185): počítače a servery z AD
+  "computer_stale",
+  "computer_eol",
+  "computer_delegation",
+  "computer_no_laps",
+  "laps_not_deployed",
+  "computer_default_container",
+  "server_unmonitored",
 ] as const;
 export type IdentityRule = (typeof IDENTITY_RULES)[number];
 
@@ -108,6 +117,48 @@ export const IDENTITY_RULE_INFO: Record<IdentityRule, { title: string; why: stri
     fix: "Omezte členy na nezbytné minimum; pro běžnou práci používejte oddělené neprivilegované účty.",
     sources: ["ad", "entra"],
   },
+  computer_stale: {
+    title: "Neaktivní počítač",
+    why: "Povolený účet počítače, který se dlouho nepřihlásil do domény, patří nejčastěji vyřazenému nebo zapomenutému stroji – nikdo ho neaktualizuje ani nesleduje a jeho účet lze zneužít.",
+    fix: "Ověřte, zda počítač ještě existuje; vyřazený zakažte, přesuňte do OU vyřazených a po čase odstraňte. Aktivum v CONTIXu převeďte do stavu vyřazeno.",
+    sources: ["ad"],
+  },
+  computer_eol: {
+    title: "Systém bez podpory výrobce",
+    why: "Operační systém už nedostává bezpečnostní aktualizace – známé zranitelnosti zůstanou neopravené (vyhláška 409, § 24).",
+    fix: "Naplánujte upgrade nebo náhradu; do té doby počítač oddělte v síti a zapište výjimku s termínem a kompenzačními opatřeními.",
+    sources: ["ad"],
+  },
+  computer_delegation: {
+    title: "Počítač s neomezenou delegací",
+    why: "Server s neomezenou delegací Kerberos uchovává lístky přihlášených uživatelů – po jeho kompromitaci se útočník může vydávat za kohokoli včetně správců domény.",
+    fix: "Nahraďte neomezenou delegaci omezenou (na konkrétní služby) nebo ji zrušte; citlivé účty označte „Account is sensitive and cannot be delegated“.",
+    sources: ["ad"],
+  },
+  computer_no_laps: {
+    title: "Počítač bez LAPS",
+    why: "Bez LAPS mívají počítače stejné heslo místního správce – jeden prolomený stroj otevře cestu k dalším (laterální pohyb).",
+    fix: "Zahrňte počítač do politiky LAPS (Windows LAPS nebo Microsoft LAPS) a ověřte, že heslo rotuje.",
+    sources: ["ad"],
+  },
+  laps_not_deployed: {
+    title: "LAPS není nasazen",
+    why: "V doméně není žádný počítač se spravovaným heslem místního správce – hesla místních správců jsou nejspíš stejná nebo se nemění.",
+    fix: "Nasaďte Windows LAPS (součást Windows od dubna 2023) politikou skupiny a ověřte rotaci hesel.",
+    sources: ["ad"],
+  },
+  computer_default_container: {
+    title: "Počítač ve výchozím kontejneru Computers",
+    why: "Na kontejner CN=Computers nelze navázat politiku skupiny (GPO) – počítač nedostává bezpečnostní nastavení organizace.",
+    fix: "Přesuňte počítač do příslušné organizační jednotky (OU) a výchozí umístění nových počítačů změňte příkazem redircmp.",
+    sources: ["ad"],
+  },
+  server_unmonitored: {
+    title: "Server bez sběru dat",
+    why: "Server je v doméně aktivní, ale CONTIX o něm nemá data z agenta, sběrače ani Wazuhu – jeho zranitelnosti, nastavení a události nikdo nesleduje.",
+    fix: "Nainstalujte agenta CONTIX nebo Wazuh, případně ho spárujte s aktivem v CONTIXu; vyřazený server zakažte v AD.",
+    sources: ["ad"],
+  },
 };
 
 const SEV_RANK: Record<IdentitySeverity, number> = { critical: 4, high: 3, medium: 2, low: 1 };
@@ -126,6 +177,8 @@ export const IdentityPolicySchema = z.object({
   privilegedPwdDays: z.number().int().min(30).max(3650).default(365),
   /** Maximální počet členů privilegované skupiny / role. */
   maxPrivilegedMembers: z.number().int().min(1).max(100).default(5),
+  /** Po kolika dnech bez přihlášení do domény je počítač neaktivní (v1.90). */
+  computerStaleDays: z.number().int().min(14).max(1000).default(90),
 });
 export type IdentityPolicy = z.infer<typeof IdentityPolicySchema>;
 export const DEFAULT_IDENTITY_POLICY: IdentityPolicy = IdentityPolicySchema.parse({});
@@ -144,6 +197,8 @@ export const AdSourceConfig = z.object({
   caCert: z.string().trim().max(20_000).default(""),
   /** Další privilegované skupiny (název CN) k výchozím (Domain Admins, Enterprise Admins…). */
   extraPrivilegedGroups: groupList.default([]),
+  /** Načítat i počítače a servery (v1.90, ADR-185). */
+  computers: z.boolean().default(true),
 });
 export type AdSourceConfig = z.infer<typeof AdSourceConfig>;
 
@@ -199,6 +254,9 @@ export interface IdentitySourceStats {
   accounts: number;
   enabled: number;
   privileged: number;
+  /** Počítače z AD (v1.90): povolené, z toho servery. */
+  computers?: number;
+  servers?: number;
   findings: Record<IdentitySeverity, number>;
 }
 
@@ -245,6 +303,8 @@ export interface IdentityFindingDto {
   detail: string;
   status: IdentityFindingStatus;
   account: { id: string; login: string; displayName: string; kind: IdentityAccountKind; privileged: boolean } | null;
+  /** Počítač z AD, kterého se nález týká (v1.90). */
+  computer: { id: string; name: string; role: ComputerRole; assetId: string | null } | null;
   acceptedByName: string | null;
   acceptedReason: string | null;
   acceptedUntil: string | null;
@@ -404,6 +464,7 @@ export const UAC = {
   PASSWD_NOTREQD: 0x20,
   DONT_EXPIRE_PASSWORD: 0x10000,
   TRUSTED_FOR_DELEGATION: 0x80000,
+  SERVER_TRUST_ACCOUNT: 0x2000,
   DONT_REQ_PREAUTH: 0x400000,
 } as const;
 
@@ -908,3 +969,127 @@ export interface IdentityReportScheduleDto extends z.output<typeof IdentityRepor
   /** Převodní služba pro PDF je nastavená (jinak se posílá Word). */
   pdfAvailable: boolean;
 }
+
+
+/* ============================================================
+ * Počítače a servery z Active Directory (v1.90, ADR-185) – inventář, vazba na aktiva a pokrytí sběrem, nálezy.
+ * ============================================================ */
+
+export const COMPUTER_ROLES = ["dc", "server", "workstation", "other"] as const;
+export type ComputerRole = (typeof COMPUTER_ROLES)[number];
+export const COMPUTER_ROLE_LABELS: Record<ComputerRole, string> = { dc: "Řadič domény", server: "Server", workstation: "Stanice", other: "Jiné" };
+/** Pravidla počítačů (subjekt nálezu = `computer:<id>`, LAPS v doméně = `laps`). */
+export const COMPUTER_RULES: IdentityRule[] = ["computer_stale", "computer_eol", "computer_delegation", "computer_no_laps", "laps_not_deployed", "computer_default_container", "server_unmonitored"];
+
+export interface DirComputer {
+  externalId: string;
+  name: string;
+  dnsName: string | null;
+  dn: string;
+  os: string | null;
+  osVersion: string | null;
+  role: ComputerRole;
+  enabled: boolean;
+  lastLogonAt: Date | null;
+  pwdLastSetAt: Date | null;
+  createdAt: Date | null;
+  description: string | null;
+  spns: string[];
+  unconstrainedDelegation: boolean;
+  constrainedDelegation: boolean;
+  /** Má spravované heslo místního správce (Windows LAPS / Microsoft LAPS). */
+  laps: boolean;
+}
+
+/** Role počítače: řadič domény podle UAC / primární skupiny, server podle názvu systému. */
+export function computerRole(uac: number, primaryGroupId: number | null, os: string | null): ComputerRole {
+  if (uac & UAC.SERVER_TRUST_ACCOUNT || primaryGroupId === 516 || primaryGroupId === 521) return "dc";
+  if (!os) return "other";
+  if (/server/i.test(os)) return "server";
+  if (/windows/i.test(os)) return "workstation";
+  return "other";
+}
+
+export interface ComputerFindingDraft extends FindingDraft {
+  /** externalId počítače; null = nález za doménu (LAPS). */
+  computer: string | null;
+}
+
+/** Nálezy počítačů ze samotného adresáře (bez vazby na CONTIX – `server_unmonitored` počítá služba). */
+export function evaluateComputers(list: DirComputer[], policy: IdentityPolicy, now: Date): ComputerFindingDraft[] {
+  const out: ComputerFindingDraft[] = [];
+  const staleDays = policy.computerStaleDays ?? 90;
+  const windows = (c: DirComputer) => /windows/i.test(c.os ?? "");
+  const lapsDeployed = list.some((c) => c.laps);
+  let withoutLaps = 0;
+  for (const c of list) {
+    if (!c.enabled) continue;
+    const seen = c.lastLogonAt ?? null;
+    const age = seen ? days(seen, now) : c.createdAt ? days(c.createdAt, now) : null;
+    const stale = age !== null && age > staleDays && c.role !== "dc";
+    if (stale)
+      out.push({
+        computer: c.externalId,
+        rule: "computer_stale",
+        severity: c.role === "server" ? "high" : "medium",
+        detail: seen ? `${c.name}: naposledy v doméně před ${age} dny (${seen.toISOString().slice(0, 10)})` : `${c.name}: nikdy se nepřihlásil do domény (založen před ${age} dny)`,
+      });
+    const sup = osSupport(c.os, c.osVersion, now);
+    if (!stale && sup.status === "eol")
+      out.push({ computer: c.externalId, rule: "computer_eol", severity: c.role === "workstation" ? "medium" : "high", detail: `${c.name}: ${c.os}${c.osVersion ? ` ${c.osVersion}` : ""} – podpora skončila ${sup.eolDate}` });
+    if (c.unconstrainedDelegation && c.role !== "dc") out.push({ computer: c.externalId, rule: "computer_delegation", severity: "high", detail: `${c.name}: neomezená delegace Kerberos` });
+    if (windows(c) && c.role !== "dc" && !c.laps) {
+      withoutLaps++;
+      if (lapsDeployed && !stale) out.push({ computer: c.externalId, rule: "computer_no_laps", severity: c.role === "server" ? "high" : "medium", detail: `${c.name}: heslo místního správce není spravováno LAPS` });
+    }
+    if (/,CN=Computers,DC=/i.test(c.dn) && c.role !== "dc") out.push({ computer: c.externalId, rule: "computer_default_container", severity: "low", detail: `${c.name}: ${c.dn}` });
+  }
+  if (!lapsDeployed && withoutLaps > 0) out.push({ computer: null, rule: "laps_not_deployed", severity: "medium", detail: `Žádný z ${withoutLaps} povolených počítačů s Windows nemá spravované heslo místního správce.` });
+  return out;
+}
+
+export interface IdentityComputerDto {
+  id: string;
+  sourceId: string;
+  sourceName: string;
+  name: string;
+  dnsName: string | null;
+  dn: string;
+  ou: string | null;
+  os: string | null;
+  osVersion: string | null;
+  support: SupportStatus;
+  eolDate: string | null;
+  role: ComputerRole;
+  enabled: boolean;
+  lastLogonAt: string | null;
+  pwdLastSetAt: string | null;
+  createdAt: string | null;
+  description: string | null;
+  spns: string[];
+  unconstrainedDelegation: boolean;
+  constrainedDelegation: boolean;
+  laps: boolean;
+  asset: { id: string; name: string } | null;
+  /** Sběr dat o počítači (přes spárované aktivum): agent CONTIX, sběrač, Wazuh. */
+  monitoring: ("agent" | "collector" | "wazuh")[];
+  openFindings: number;
+  removedAt: string | null;
+}
+
+export interface IdentityComputerSummary {
+  total: number;
+  enabled: number;
+  servers: number;
+  workstations: number;
+  dcs: number;
+  stale: number;
+  eol: number;
+  noAsset: number;
+  /** Aktivní servery (vč. řadičů) bez agenta, sběrače i Wazuhu – i bez aktiva. */
+  unmonitored: number;
+  laps: number;
+}
+
+/** Založení aktiv z vybraných počítačů (servery a stanice bez spárovaného aktiva). */
+export const ComputerAssetsInput = z.object({ ids: z.array(z.string().uuid()).min(1).max(1000) });

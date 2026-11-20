@@ -1,9 +1,9 @@
 import { buildIntegrationMap, type IntegrationMapDto, type MapCoverage, type MapNodeDto, type Translate } from "@contix/shared";
-import { and, count, eq, gte, inArray, isNotNull, type SQL } from "drizzle-orm";
+import { and, count, eq, gte, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { Hono } from "hono";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
-import { agentEvents, assets, assetSources, connections, hostInventories, identitySources } from "../../db/schema";
+import { agentEvents, assets, assetSources, connections, hostInventories, identityComputers, identitySources } from "../../db/schema";
 import { hasPerm, requirePerm } from "../../auth/middleware";
 import type { AppEnv } from "../../auth/service";
 import { inScope, scopeOf } from "../../auth/scope";
@@ -31,7 +31,21 @@ export async function serverCoverage(db: Db, companyIds: string[] | null): Promi
     .from(assets)
     .where(and(eq(assets.assetType, "server"), inArray(assets.lifecycleStatus, ["active", "maintenance"]), scope));
   const ids = servers.map((s) => s.id);
-  if (!ids.length) return { servers: 0, agent: 0, collector: 0, wazuh: 0, none: 0, duplicate: 0, noneSample: [] };
+  const pcScope = companyIds ? inArray(identityComputers.companyId, companyIds.length ? companyIds : ["00000000-0000-0000-0000-000000000000"]) : undefined;
+  const [ad] = await db
+    .select({ n: count(), noAsset: sql<number>`count(*) filter (where ${identityComputers.assetId} is null)`.mapWith(Number) })
+    .from(identityComputers)
+    .where(
+      and(
+        pcScope,
+        isNull(identityComputers.removedAt),
+        eq(identityComputers.enabled, true),
+        inArray(identityComputers.role, ["server", "dc"]),
+        gte(identityComputers.lastLogonAt, new Date(Date.now() - 90 * 86_400_000)),
+      ),
+    );
+  const adPart = ad?.n ? { adServers: Number(ad.n), adNoAsset: ad.noAsset } : {};
+  if (!ids.length) return { servers: 0, agent: 0, collector: 0, wazuh: 0, none: 0, duplicate: 0, noneSample: [], ...adPart };
   const [inv, wz] = await Promise.all([
     db
       .select({ assetId: hostInventories.assetId, kind: connections.kind })
@@ -52,6 +66,7 @@ export async function serverCoverage(db: Db, companyIds: string[] | null): Promi
     none: none.length,
     duplicate: [...agent].filter((a) => collector.has(a)).length,
     noneSample: none.slice(0, 10).map((s) => ({ id: s.id, name: s.name })),
+    ...adPart,
   };
 }
 

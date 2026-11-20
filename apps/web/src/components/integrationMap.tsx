@@ -546,6 +546,14 @@ export function Coverage({ m, compact }: { m: IntegrationMapDto; compact?: boole
           </span>
         ))}
       </div>
+      {!!c.adServers && (
+        <p className="mt-2 text-xs text-slate-600" data-testid="map-coverage-ad">
+          {t("imap.cov.ad", { n: c.adServers, noAsset: c.adNoAsset ?? 0 })}{" "}
+          <a href="/identity?tab=computers" className="text-brand-700 hover:underline">
+            {t("imap.cov.adLink")}
+          </a>
+        </p>
+      )}
       {!compact && c.noneSample.length > 0 && (
         <p className="mt-2 text-xs text-slate-600">
           {t("imap.cov.noneList")}{" "}

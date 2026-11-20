@@ -276,11 +276,16 @@ test("identity a přístupy: připojení AD, synchronizace, výjimka (testovací
     { dn: `CN=spravce,OU=IT,${BASE}`, attributes: { sAMAccountName: "spravce", displayName: "Správce domény", userAccountControl: "66048", lastLogonTimestamp: ft(200), pwdLastSet: ft(500), whenCreated: "20200101000000.0Z", memberOf: [`CN=Domain Admins,CN=Users,${BASE}`], objectGUID: Buffer.alloc(16, 1) } },
     { dn: `CN=novak,OU=Lide,${BASE}`, attributes: { sAMAccountName: "novak", displayName: "Jan Novák", userAccountControl: "512", lastLogonTimestamp: ft(3), pwdLastSet: ft(20), whenCreated: "20240101000000.0Z", memberOf: [], objectGUID: Buffer.alloc(16, 2) } },
   ];
+  // v1.90: zakázaná stanice – v záložce Počítače, bez nálezů (nemění počty níže)
+  const computers = [
+    { dn: `CN=PC-E2E,OU=Stanice,${BASE}`, attributes: { cn: "PC-E2E", sAMAccountName: "PC-E2E$", dNSHostName: "pc-e2e.e2e.local", operatingSystem: "Windows 11 Pro", operatingSystemVersion: "10.0 (22631)", userAccountControl: "4098", primaryGroupID: "515", lastLogonTimestamp: ft(400), whenCreated: "20230101000000.0Z", objectGUID: Buffer.alloc(16, 9) } },
+  ];
   const server = ldap.createServer();
   server.bind(BASE, (req: any, res: any, next: any) => (req.credentials === "ad-heslo" ? (res.end(), next()) : next(new ldap.InvalidCredentialsError())));
   server.search(BASE, (req: any, res: any, next: any) => {
     res.attributes = res.attributes.map((a: string) => a.toLowerCase());
-    for (const e of req.filter.toString().toLowerCase().includes("objectclass=group") ? groups : users) res.send({ dn: e.dn, attributes: { ...e.attributes } });
+    const f = req.filter.toString().toLowerCase();
+    for (const e of f.includes("objectcategory=computer") ? computers : f.includes("objectclass=group") ? groups : users) res.send({ dn: e.dn, attributes: { ...e.attributes } });
     res.end();
     next();
   });
@@ -343,6 +348,14 @@ test("identity a přístupy: připojení AD, synchronizace, výjimka (testovací
     await page.getByText("spravce").first().click();
     await expect(page.getByRole("dialog").getByText("Domain Admins").first()).toBeVisible();
     await page.getByRole("button", { name: "Zavřít" }).click();
+    // v1.90: počítače z AD – inventář a založení aktiva
+    await page.getByRole("button", { name: "Počítače", exact: true }).click();
+    await expect(page.getByTestId("pc-table")).toContainText("PC-E2E");
+    await expect(page.getByTestId("pc-table")).toContainText("bez aktiva");
+    await page.getByTestId("pc-table").getByLabel("PC-E2E").check();
+    await page.getByTestId("pc-create-assets").click();
+    await expect(page.getByText("Založeno aktiv: 1, spárováno s existujícími: 0.")).toBeVisible();
+    await expect(page.getByTestId("pc-table").getByRole("link", { name: "PC-E2E" })).toBeVisible();
 
     // toxické kombinace – formulář pravidla se otevře se seznamem skupin
     await page.getByRole("button", { name: "Toxické kombinace" }).click();

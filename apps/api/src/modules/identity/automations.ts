@@ -4,6 +4,7 @@ import {
   ControlAutomationInput,
   IDENTITY_LABELS,
   IDENTITY_RULES,
+  COMPUTER_RULES,
   IDENTITY_RULE_INFO,
   IDENTITY_SEVERITIES,
   effectivenessFromResult,
@@ -13,7 +14,7 @@ import {
   type IdentitySeverity,
 } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, asc, count, eq, inArray, isNull, ne, type SQL } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, ne, sql, type SQL } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { createHash } from "node:crypto";
@@ -32,6 +33,7 @@ import {
   evidenceControls,
   evidenceFiles,
   identityAccounts,
+  identityComputers,
   identityFindings,
   identitySources,
 } from "../../db/schema";
@@ -109,14 +111,17 @@ export async function runIdentityCheck(db: Db, a: AutomationRow, now = new Date(
   const broken = sources.filter((s) => s.lastStatus !== "ok");
   if (broken.length) return fail(`Zdroj bez úspěšné synchronizace: ${broken.map((s) => s.name).join(", ")} – test se neprovede, aby nevycházel z neúplných dat.`);
   const ids = sources.map((s) => s.id);
-  const rules: IdentityRule[] = a.rules.length ? a.rules : [...IDENTITY_RULES];
+  // pravidla počítačů (v1.90) jen tam, kde zdroj počítače načítá – jinak by vzorek „vyhověl“ bez dat
+  const [pcs] = await db.select({ n: count() }).from(identityComputers).where(inArray(identityComputers.sourceId, ids));
+  const rules: IdentityRule[] = a.rules.length ? a.rules : IDENTITY_RULES.filter((r) => pcs?.n || !COMPUTER_RULES.includes(r));
   const where: SQL = and(inArray(identityFindings.sourceId, ids), eq(identityFindings.status, "open"), inArray(identityFindings.rule, rules))!;
   const [findings, [pop], bySev] = await Promise.all([
     db
-      .select({ rule: identityFindings.rule, severity: identityFindings.severity, detail: identityFindings.detail, subject: identityFindings.subject, login: identityAccounts.login, source: identitySources.name, since: identityFindings.firstSeenAt })
+      .select({ rule: identityFindings.rule, severity: identityFindings.severity, detail: identityFindings.detail, subject: identityFindings.subject, login: sql<string | null>`coalesce(${identityAccounts.login}, ${identityComputers.name})`, source: identitySources.name, since: identityFindings.firstSeenAt })
       .from(identityFindings)
       .innerJoin(identitySources, eq(identitySources.id, identityFindings.sourceId))
       .leftJoin(identityAccounts, eq(identityAccounts.id, identityFindings.accountId))
+      .leftJoin(identityComputers, eq(identityComputers.id, identityFindings.computerId))
       .where(where)
       .orderBy(asc(identityFindings.rule)),
     db.select({ n: count() }).from(identityAccounts).where(and(inArray(identityAccounts.sourceId, ids), isNull(identityAccounts.removedAt), eq(identityAccounts.enabled, true))),

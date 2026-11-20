@@ -14,6 +14,7 @@ import {
   type IdentityFindingDto,
   type IdentityOverviewDto,
   type IdentityRule,
+  type ComputerRole,
   type IdentitySeverity,
   type IdentityTestResult,
   BulkAcceptIdentityInput,
@@ -22,6 +23,7 @@ import {
 } from "@contix/shared";
 import { writeXlsx } from "../import/table";
 import { identityReportRoutes } from "./reports";
+import { computerRoutes } from "./computerRoutes";
 import { FindingQuery, findingWhere, type IdentityFindingQuery } from "./query";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
@@ -35,7 +37,7 @@ import { audit, type AppEnv } from "../../auth/service";
 import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
 import { tFor } from "../i18n/service";
-import { identityAccounts, identityFindings, identitySnapshots, identitySources, roles, users } from "../../db/schema";
+import { identityAccounts, identityComputers, identityFindings, identitySnapshots, identitySources, roles, users } from "../../db/schema";
 import { applyProvisioning, managedUsers, planFor, provisioningOf } from "./provisioning";
 import { testAd } from "./ad";
 import { testEntra } from "./entra";
@@ -78,10 +80,12 @@ export function identityRoutes(db: Db, config: Config) {
         sourceKind: identitySources.kind,
         acc: { id: identityAccounts.id, login: identityAccounts.login, displayName: identityAccounts.displayName, kind: identityAccounts.kind, privileged: identityAccounts.privileged },
         acceptedByName: users.displayName,
+        pc: { id: identityComputers.id, name: identityComputers.name, role: identityComputers.role, assetId: identityComputers.assetId },
       })
       .from(identityFindings)
       .innerJoin(identitySources, eq(identitySources.id, identityFindings.sourceId))
       .leftJoin(identityAccounts, eq(identityAccounts.id, identityFindings.accountId))
+      .leftJoin(identityComputers, eq(identityComputers.id, identityFindings.computerId))
       .leftJoin(users, eq(users.id, identityFindings.acceptedBy))
       .where(and(inScope(c, identityFindings.companyId), ...where))
       .orderBy(sql`case ${identityFindings.severity} when 'critical' then 1 when 'high' then 2 when 'medium' then 3 else 4 end`, asc(identityFindings.rule), asc(identityAccounts.login))
@@ -93,9 +97,10 @@ export function identityRoutes(db: Db, config: Config) {
       sourceKind: r.sourceKind,
       rule: r.f.rule as IdentityRule,
       severity: r.f.severity,
-      subject: r.f.accountId ? (r.acc?.login ?? r.f.subject) : r.f.subject.replace(/^group:/, ""),
+      subject: r.f.accountId ? (r.acc?.login ?? r.f.subject) : r.pc?.id ? r.pc.name : r.f.subject.replace(/^group:/, ""),
       detail: r.f.detail,
       status: r.f.status,
+      computer: r.pc?.id ? { id: r.pc.id, name: r.pc.name, role: r.pc.role as ComputerRole, assetId: r.pc.assetId } : null,
       account: r.acc?.id ? { id: r.acc.id, login: r.acc.login, displayName: r.acc.displayName, kind: r.acc.kind, privileged: r.acc.privileged } : null,
       acceptedByName: r.acceptedByName ?? null,
       acceptedReason: r.f.acceptedReason,
@@ -283,6 +288,7 @@ export function identityRoutes(db: Db, config: Config) {
       .route("/reviews", reviewRoutes(db))
       .route("/automations", automationRoutes(db))
       .route("/reports", identityReportRoutes(db, config))
+      .route("/computers", computerRoutes(db))
 
       /* ---------- nálezy ---------- */
 
@@ -413,7 +419,7 @@ export function identityRoutes(db: Db, config: Config) {
           .where(eq(identitySources.id, prev.id))
           .returning();
         if (companyId !== prev.companyId)
-          for (const t of [identityAccounts, identityFindings, identitySnapshots]) await db.update(t).set({ companyId }).where(eq(t.sourceId, prev.id));
+          for (const t of [identityAccounts, identityFindings, identitySnapshots, identityComputers]) await db.update(t).set({ companyId }).where(eq(t.sourceId, prev.id));
         await audit(db, {
           c,
           user: currentUser(c),
@@ -443,7 +449,7 @@ export function identityRoutes(db: Db, config: Config) {
         try {
           if (input.kind === "ad") {
             const r = await testAd({ config: AdSourceConfig.parse(input.config), password: secret });
-            result = { ok: true, message: (await tFor(db, c))("srv.idn.testAdOk", { users: String(r.users), groups: String(r.groups) }) };
+            result = { ok: true, message: (await tFor(db, c))("srv.idn.testAdOk", { users: String(r.users), groups: String(r.groups), computers: String(r.computers) }) };
           } else {
             const r = await testEntra({ config: EntraSourceConfig.parse(input.config), secret, env: config });
             result = { ok: true, message: (await tFor(db, c))("srv.idn.testEntraOk", { users: String(r.users) }), notes: r.notes };

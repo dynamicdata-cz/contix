@@ -62,7 +62,7 @@ export const Environment = z.enum(ENVIRONMENTS);
 export type Environment = z.infer<typeof Environment>;
 
 /** Odkud záznam o aktivu pochází. */
-export const SOURCE_TYPES = ["manual", "wazuh", "network_scan", "import", "collector", "netbox", "agent"] as const;
+export const SOURCE_TYPES = ["manual", "wazuh", "network_scan", "import", "collector", "netbox", "agent", "ad"] as const;
 export const SourceType = z.enum(SOURCE_TYPES);
 export type SourceType = z.infer<typeof SourceType>;
 
@@ -290,7 +290,7 @@ export const LABELS = {
     Environment,
     string
   >,
-  source: { manual: "Ruční", wazuh: "Wazuh", network_scan: "Síťový sken", import: "Import", collector: "Sběrač ze serverů", netbox: "NetBox", agent: "Agent CONTIX" } satisfies Record<
+  source: { manual: "Ruční", wazuh: "Wazuh", network_scan: "Síťový sken", import: "Import", collector: "Sběrač ze serverů", netbox: "NetBox", agent: "Agent CONTIX", ad: "Active Directory" } satisfies Record<
     SourceType,
     string
   >,

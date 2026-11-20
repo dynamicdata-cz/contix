@@ -100,6 +100,8 @@ import type {
   IdentityReportScheduleDto,
   IdentityReportScheduleInput,
   IdentityAccountDto,
+  IdentityComputerDto,
+  IdentityComputerSummary,
   IdentityAccountDetail,
   IdentitySourceDto,
   IdentitySourceInput,
@@ -696,7 +698,8 @@ const qs = (q: Record<string, unknown>) =>
   new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== "") as [string, string][]).toString();
 
 /** Filtr nálezů identit (v1.89) – seznam, počty, exporty, reporty. */
-export type IdentityFindingFilter = { status?: string; severity?: string; rule?: string; sourceId?: string; accountId?: string; q?: string };
+export type IdentityComputerFilter = { sourceId?: string; role?: string; q?: string; view?: "stale" | "eol" | "noAsset" | "unmonitored" | "findings" | "disabled"; removed?: "1" };
+export type IdentityFindingFilter = { status?: string; severity?: string; rule?: string; sourceId?: string; accountId?: string; computerId?: string; q?: string };
 
 export const api = {
   health: () => request<HealthDto>("/health"),
@@ -1018,7 +1021,7 @@ export const api = {
   },
   identity: {
     overview: () => request<IdentityOverviewDto>("/identity/overview"),
-    findings: (q: { status?: string; severity?: string; rule?: string; sourceId?: string; accountId?: string; q?: string }) => request<IdentityFindingDto[]>(`/identity/findings?${qs(q)}`),
+    findings: (q: IdentityFindingFilter) => request<IdentityFindingDto[]>(`/identity/findings?${qs(q)}`),
     findingsCsvUrl: (q: IdentityFindingFilter = {}) => withCompany(`/api/identity/findings.csv?${qs(q)}`),
     findingsXlsxUrl: (q: IdentityFindingFilter = {}) => withCompany(`/api/identity/findings.xlsx?${qs(q)}`),
     facets: (q: IdentityFindingFilter) => request<IdentityFindingFacets>(`/identity/findings/facets?${qs(q)}`),
@@ -1030,6 +1033,9 @@ export const api = {
     accept: (id: string, data: AcceptIdentityFindingInput) => post<IdentityFindingDto>(`/identity/findings/${id}/accept`, data),
     reopen: (id: string) => post<IdentityFindingDto>(`/identity/findings/${id}/reopen`),
     accounts: (q: { sourceId?: string; q?: string; privileged?: "1" | "0"; enabled?: "1" | "0"; kind?: string; withFindings?: "1"; removed?: "1" }) => request<IdentityAccountDto[]>(`/identity/accounts?${qs(q)}`),
+    computers: (q: IdentityComputerFilter) => request<{ items: IdentityComputerDto[]; total: number; summary: IdentityComputerSummary }>(`/identity/computers?${qs(q)}`),
+    computersExportUrl: (format: "csv" | "xlsx", q: IdentityComputerFilter = {}) => withCompany(`/api/identity/computers/export.${format}?${qs(q)}`),
+    computerAssets: (ids: string[]) => post<{ created: number; linked: number; skipped: number }>("/identity/computers/assets", { ids }),
     account: (id: string) => request<IdentityAccountDetail>(`/identity/accounts/${id}`),
     sources: () => request<IdentitySourceDto[]>("/identity/sources"),
     createSource: (data: IdentitySourceInput) => post<IdentitySourceDto>("/identity/sources", data),

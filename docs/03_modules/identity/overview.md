@@ -35,6 +35,22 @@ Nastavení: **Identity a přístupy → Zdroje** (oprávnění `admin:settings`)
 
 Zakázané účty se nehodnotí. Privilegované skupiny AD se určují podle SID (nezávisle na jazyku), včetně vnořených skupin a primární skupiny.
 
+## Počítače a servery z AD – v1.90 (ADR-185)
+
+Zdroj AD čte i objekty počítačů (volba „Načítat počítače a servery“): role, systém a podpora výrobce, poslední přihlášení,
+LAPS, delegace, OU. Počítač se spáruje s aktivem podle jména / DNS (jen jednoznačně, bez přepisu údajů aktiva) a ukáže
+sběr dat přes aktivum (agent, sběrač, Wazuh). Pravidla:
+
+| Pravidlo | Závažnost |
+|---|---|
+| Neaktivní počítač (bez přihlášení > N dní, ne řadiče) | střední, server vysoká |
+| Systém bez podpory výrobce | stanice střední, server / řadič vysoká |
+| Počítač s neomezenou delegací (mimo řadiče) | vysoká |
+| Počítač bez LAPS (když je LAPS v doméně nasazen) | stanice střední, server vysoká |
+| LAPS není nasazen (za doménu) | střední |
+| Počítač ve výchozím kontejneru Computers | nízká |
+| Server bez sběru dat (aktivní server / řadič bez agenta, sběrače i Wazuhu nebo bez aktiva) | střední, řadič vysoká |
+
 ## Toxické kombinace (SoD) – v0.29
 
 Pravidlo má stranu A a B (skupiny AD / role Entra ID podle názvu, funkční místa CONTIXu). Porušení = osoba splňuje obě
@@ -51,12 +67,13 @@ podle aktuálního stavu adresáře, případně ručně. Uzavřený přezkum + 
 
 `identity_sources` (zdroj, šifrované tajemství, pravidla, stav) · `identity_accounts` (normalizovaný účet, skupiny včetně vnořených,
 příznaky, vazba na uživatele CONTIXu podle e-mailu, `removed_at`) · `identity_findings` (zdroj + pravidlo + předmět, stav, výjimka) ·
-`identity_snapshots` (souhrn po synchronizaci – trend a doklad) · `sod_rules`, `sod_violations` · `access_reviews`,
+`identity_computers` (počítače z AD, vazba na aktivum, `removed_at`) · `identity_snapshots` (souhrn po synchronizaci – trend a doklad) · `sod_rules`, `sod_violations` · `access_reviews`,
 `access_review_items` (snímek účtu, recenzent = funkční místo, rozhodnutí).
 
 ## API
 
-`GET /api/identity/overview|findings|findings.csv|accounts|accounts/:id|sources` (identity:read) ·
+`GET /api/identity/overview|findings|findings.csv|accounts|accounts/:id|sources|computers|computers/export.csv|xlsx` (identity:read) ·
+`POST /computers/assets` (identity:write + assets:write) ·
 `POST /findings/:id/accept|reopen`, `POST /sources/:id/sync` (identity:write) ·
 `POST|PUT|DELETE /sources`, `POST /sources/test` (admin:settings) ·
 `/sod/rules|violations|evaluate` · `/reviews` (seznam a detail i pro recenzenty s `obligations:self`), `/reviews/:id/items/:itemId/decide|remediated|reassign`,

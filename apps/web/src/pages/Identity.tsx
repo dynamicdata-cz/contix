@@ -13,6 +13,7 @@ import {
   DEFAULT_PROVISIONING,
   type ProvisioningConfig,
   IDENTITY_LABELS,
+  COMPUTER_ROLE_LABELS,
   IDENTITY_RULE_INFO,
   IDENTITY_RULES,
   IDENTITY_SEVERITIES,
@@ -35,12 +36,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Download, FileText, KeyRound, Plus, RefreshCw, ShieldAlert, Users } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { AutomationsTab, ReviewsTab, SodTab } from "./IdentityGovernance";
+import { Computers } from "./IdentityComputers";
 
 /* ============================================================
  * Identity a přístupy (v0.28) – kontroly účtů v AD a Entra ID.
  * ============================================================ */
 
-type Tab = "overview" | "findings" | "accounts" | "sod" | "reviews" | "automations" | "sources";
+type Tab = "overview" | "findings" | "accounts" | "computers" | "sod" | "reviews" | "automations" | "sources";
 const sevSegments = () => IDENTITY_SEVERITIES.map((s) => ({ key: s, label: lbl(IDENTITY_LABELS.severity[s]), color: SEVERITY_COLOR[s] }));
 const ago = (iso: string | null) => {
   if (!iso) return "nikdy";
@@ -53,7 +55,7 @@ export function IdentityPage() {
   const initialRule = typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("rule") as IdentityRule | null) : null;
   const initialTab = typeof window !== "undefined" ? (new URLSearchParams(window.location.search).get("tab") as Tab | null) : null;
   const [tab, setTab] = useState<Tab>(initialRule ? "findings" : (initialTab ?? "overview"));
-  const [findingFilter, setFindingFilter] = useState<{ rule?: IdentityRule; severity?: IdentitySeverity; sourceId?: string }>(initialRule && IDENTITY_RULES.includes(initialRule) ? { rule: initialRule } : {});
+  const [findingFilter, setFindingFilter] = useState<{ rule?: IdentityRule; severity?: IdentitySeverity; sourceId?: string; computerId?: string }>(initialRule && IDENTITY_RULES.includes(initialRule) ? { rule: initialRule } : {});
   const [accountId, setAccountId] = useState<string | null>(null);
   const ov = useQuery({ queryKey: ["identity", "overview"], queryFn: api.identity.overview });
   const tabCls = (on: boolean) => cn("-mb-px border-b-2 px-3 py-2 text-sm font-medium", on ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800");
@@ -75,6 +77,7 @@ export function IdentityPage() {
             ["overview", t("idn.prehled")],
             ["findings", t("idn.nalezy")],
             ["accounts", t("idn.ucty")],
+            ...(ov.data?.sources.some((x) => x.kind === "ad") ? ([["computers", t("idn.pc.tab")]] as [Tab, string][]) : []),
             ["sod", t("idn.toxickeKombinace")],
             ["reviews", t("idn.prezkumPristupu")],
             ["automations", t("idn.testyOpatreni")],
@@ -90,6 +93,7 @@ export function IdentityPage() {
       {tab === "overview" && ov.data && <Overview data={ov.data} onFindings={openFindings} onSources={() => setTab("sources")} />}
       {tab === "findings" && <Findings filter={findingFilter} setFilter={setFindingFilter} sources={ov.data?.sources ?? []} onAccount={setAccountId} />}
       {tab === "accounts" && <Accounts sources={ov.data?.sources ?? []} onAccount={setAccountId} />}
+      {tab === "computers" && <Computers sources={(ov.data?.sources ?? []).filter((x) => x.kind === "ad")} onFindings={(computerId) => openFindings({ computerId })} />}
       {tab === "sod" && <SodTab />}
       {tab === "reviews" && <ReviewsTab sources={ov.data?.sources ?? []} />}
       {tab === "automations" && <AutomationsTab sources={ov.data?.sources ?? []} />}
@@ -230,8 +234,8 @@ function Findings({
   sources,
   onAccount,
 }: {
-  filter: { rule?: IdentityRule; severity?: IdentitySeverity; sourceId?: string };
-  setFilter: (f: { rule?: IdentityRule; severity?: IdentitySeverity; sourceId?: string }) => void;
+  filter: { rule?: IdentityRule; severity?: IdentitySeverity; sourceId?: string; computerId?: string };
+  setFilter: (f: { rule?: IdentityRule; severity?: IdentitySeverity; sourceId?: string; computerId?: string }) => void;
   sources: IdentitySourceDto[];
   onAccount: (id: string) => void;
 }) {
@@ -267,6 +271,14 @@ function Findings({
   const info = filter.rule ? IDENTITY_RULE_INFO[filter.rule] : null;
   return (
     <>
+      {filter.computerId && (
+        <p className="mb-3 flex items-center gap-2 text-sm text-slate-600" data-testid="finding-computer-filter">
+          {t("idn.pc.filtered", { name: list.data?.[0]?.computer?.name ?? "…" })}
+          <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => setFilter({ ...filter, computerId: undefined })}>
+            {t("idn.pc.clearFilter")}
+          </Button>
+        </p>
+      )}
       <Card className="mb-4 p-4">
         <div className="grid gap-3 md:grid-cols-5">
           <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} aria-label={t("idn.stav")}>
@@ -412,6 +424,21 @@ function Findings({
                           <span className="font-medium">{f.account.login}</span>
                           <span className="block text-xs text-slate-500">{f.account.displayName}</span>
                         </button>
+                      ) : f.computer ? (
+                        <span>
+                          <span className="font-medium">{f.computer.name}</span>
+                          <span className="block text-xs text-slate-500">
+                            {t.lbl(COMPUTER_ROLE_LABELS[f.computer.role])}
+                            {f.computer.assetId && (
+                              <>
+                                {" · "}
+                                <a href={`/assets/${f.computer.assetId}`} className="text-brand-700 hover:underline">
+                                  {t("idn.pc.asset")}
+                                </a>
+                              </>
+                            )}
+                          </span>
+                        </span>
                       ) : (
                         <span className="font-medium">{f.subject}</span>
                       )}
@@ -876,7 +903,7 @@ function SourceModal({ initial, onClose }: { initial: IdentitySourceDto | Identi
   const [policy, setPolicy] = useState<IdentityPolicy>(existing?.policy ?? DEFAULT_IDENTITY_POLICY);
   const [secret, setSecret] = useState("");
   const [ad, setAd] = useState<AdSourceConfig>(
-    kind === "ad" && existing ? (existing.config as AdSourceConfig) : { url: "ldaps://", baseDn: "", bindDn: "", verifyTls: true, caCert: "", extraPrivilegedGroups: [] },
+    kind === "ad" && existing ? { ...(existing.config as AdSourceConfig), computers: (existing.config as Partial<AdSourceConfig>).computers ?? true } : { url: "ldaps://", baseDn: "", bindDn: "", verifyTls: true, caCert: "", extraPrivilegedGroups: [], computers: true },
   );
   const [entra, setEntra] = useState<EntraSourceConfig>(kind === "entra" && existing ? (existing.config as EntraSourceConfig) : { tenantId: "", clientId: "", extraPrivilegedRoles: [], trackedGroups: [] });
   const [extra, setExtra] = useState((kind === "ad" ? ad.extraPrivilegedGroups : entra.extraPrivilegedRoles).join("\n"));
@@ -969,6 +996,9 @@ function SourceModal({ initial, onClose }: { initial: IdentitySourceDto | Identi
           <div className="md:col-span-2">
             <Checkbox checked={ad.verifyTls} onChange={(v) => setAd({ ...ad, verifyTls: v })} label={t("idn.overovatCertifikatServeru")} hint={t("idn.vypinejteJenProKratkyTest")} />
           </div>
+          <div className="md:col-span-2">
+            <Checkbox checked={ad.computers !== false} onChange={(v) => setAd({ ...ad, computers: v })} label={t("idn.pc.load")} hint={t("idn.pc.loadHint")} />
+          </div>
         </div>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
@@ -994,6 +1024,7 @@ function SourceModal({ initial, onClose }: { initial: IdentitySourceDto | Identi
           <Field label={t("idn.nikdyNeprihlasenPoDnech")}>{num("neverLoggedDays")}</Field>
           <Field label={t("idn.maxStariHeslaSpravceDny")}>{num("privilegedPwdDays")}</Field>
           <Field label={t("idn.maxClenuPrivilegovaneSkupiny")}>{num("maxPrivilegedMembers")}</Field>
+          {kind === "ad" && <Field label={t("idn.pc.staleDays")}>{num("computerStaleDays")}</Field>}
           <Field label={t("idn.synchronizaceHodin0Rucne")}>
             <Input type="number" value={syncHours} onChange={(e) => setSyncHours(Number(e.target.value))} />
           </Field>

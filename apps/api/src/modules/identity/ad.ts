@@ -8,7 +8,9 @@ import {
   parseLoginName,
   sidToString,
   type AdSourceConfig,
+  computerRole,
   type DirAccount,
+  type DirComputer,
   type DirGroup,
 } from "@contix/shared";
 import { Client, type Entry } from "ldapts";
@@ -37,6 +39,27 @@ const USER_ATTRS = [
   "title",
   "accountExpires",
 ];
+/** Počítače a servery (v1.90, ADR-185); atributy LAPS jen datum expirace hesla (heslo samo se nečte). */
+const COMPUTER_ATTRS = [
+  "objectGUID",
+  "sAMAccountName",
+  "cn",
+  "dNSHostName",
+  "distinguishedName",
+  "operatingSystem",
+  "operatingSystemVersion",
+  "userAccountControl",
+  "primaryGroupID",
+  "lastLogonTimestamp",
+  "pwdLastSet",
+  "whenCreated",
+  "description",
+  "servicePrincipalName",
+  "msDS-AllowedToDelegateTo",
+  "ms-Mcs-AdmPwdExpirationTime",
+  "msLAPS-PasswordExpirationTime",
+];
+const COMPUTER_FILTER = "(objectCategory=computer)";
 const GROUP_ATTRS = ["distinguishedName", "cn", "objectSid", "memberOf", "description", "adminCount"];
 
 /** Účty, které se nehodnotí (vestavěné, vždy zakázané nebo spravované systémem). */
@@ -97,15 +120,16 @@ export function adError(e: unknown): string {
   return `Chyba LDAP: ${m}`;
 }
 
-export async function testAd(conn: AdConnection): Promise<{ users: number; groups: number }> {
+export async function testAd(conn: AdConnection): Promise<{ users: number; groups: number; computers: number }> {
   const client = await connect(conn);
   try {
     const base = conn.config.baseDn;
-    const [u, g] = await Promise.all([
+    const [u, g, k] = await Promise.all([
       client.search(base, { scope: "sub", filter: "(&(objectCategory=person)(objectClass=user))", attributes: ["cn"], paged: { pageSize: 1000 } }),
       client.search(base, { scope: "sub", filter: "(objectClass=group)", attributes: ["cn"], paged: { pageSize: 1000 } }),
+      conn.config.computers ? client.search(base, { scope: "sub", filter: COMPUTER_FILTER, attributes: ["cn"], paged: { pageSize: 1000 } }).catch(() => ({ searchEntries: [] })) : { searchEntries: [] },
     ]);
-    return { users: u.searchEntries.length, groups: g.searchEntries.length };
+    return { users: u.searchEntries.length, groups: g.searchEntries.length, computers: k.searchEntries.length };
   } catch (e) {
     throw new Error(adError(e));
   } finally {
@@ -113,11 +137,13 @@ export async function testAd(conn: AdConnection): Promise<{ users: number; group
   }
 }
 
-export async function fetchAd(conn: AdConnection, now = new Date()): Promise<{ accounts: DirAccount[]; notes: string[]; groups: DirGroup[] }> {
+export async function fetchAd(conn: AdConnection, now = new Date()): Promise<{ accounts: DirAccount[]; notes: string[]; groups: DirGroup[]; computers?: DirComputer[] }> {
   const client = await connect(conn);
   const { config } = conn;
   let users: Entry[];
   let groups: Entry[];
+  let computers: Entry[] | undefined;
+  const notes: string[] = [];
   try {
     [users, groups] = await Promise.all([
       client
@@ -133,12 +159,56 @@ export async function fetchAd(conn: AdConnection, now = new Date()): Promise<{ a
         .search(config.baseDn, { scope: "sub", filter: "(objectClass=group)", attributes: GROUP_ATTRS, explicitBufferAttributes: ["objectSid"], paged: { pageSize: 500 } })
         .then((r) => r.searchEntries),
     ]);
+    // počítače: chyba (oprávnění, limit) nesmí zastavit synchronizaci účtů – zůstane poznámka a stav beze změny
+    if (config.computers)
+      computers = await client
+        .search(config.baseDn, { scope: "sub", filter: COMPUTER_FILTER, attributes: COMPUTER_ATTRS, explicitBufferAttributes: ["objectGUID"], paged: { pageSize: 500 } })
+        .then((r) => r.searchEntries)
+        .catch((e) => {
+          notes.push(`Počítače se nepodařilo načíst: ${adError(e)}`);
+          return undefined;
+        });
   } catch (e) {
     throw new Error(adError(e));
   } finally {
     await client.unbind().catch(() => {});
   }
-  return { accounts: buildAccounts(users, groups, config, now), notes: users.length ? [] : ["V zadané bázi (Base DN) nebyli nalezeni žádní uživatelé."], groups: buildGroups(users, groups, config) };
+  if (!users.length) notes.push("V zadané bázi (Base DN) nebyli nalezeni žádní uživatelé.");
+  return { accounts: buildAccounts(users, groups, config, now), notes, groups: buildGroups(users, groups, config), ...(computers ? { computers: buildComputers(computers) } : {}) };
+}
+
+/** Převod záznamů LDAP na počítače (v1.90, samostatně kvůli testům). */
+export function buildComputers(entries: Entry[]): DirComputer[] {
+  const out: DirComputer[] = [];
+  for (const e of entries) {
+    const a = lower(e);
+    const guid = buf(a, "objectGUID");
+    const dn = str(a, "distinguishedName") ?? e.dn;
+    const sam = str(a, "sAMAccountName")?.replace(/\$$/, "") ?? null;
+    const name = str(a, "cn") ?? sam ?? cnOf(dn);
+    const uac = Number(str(a, "userAccountControl") ?? 0);
+    const os = str(a, "operatingSystem");
+    const pg = str(a, "primaryGroupID");
+    out.push({
+      externalId: guid ? guidToString(guid) : dn,
+      name,
+      dnsName: str(a, "dNSHostName")?.toLowerCase() ?? null,
+      dn,
+      os,
+      osVersion: str(a, "operatingSystemVersion"),
+      role: computerRole(uac, pg ? Number(pg) : null, os),
+      enabled: !(uac & UAC.ACCOUNTDISABLE),
+      lastLogonAt: fromFileTime(str(a, "lastLogonTimestamp")),
+      pwdLastSetAt: fromFileTime(str(a, "pwdLastSet")),
+      createdAt: fromGeneralizedTime(str(a, "whenCreated")),
+      description: str(a, "description"),
+      spns: list(a, "servicePrincipalName").slice(0, 50),
+      unconstrainedDelegation: !!(uac & UAC.TRUSTED_FOR_DELEGATION),
+      constrainedDelegation: list(a, "msDS-AllowedToDelegateTo").length > 0,
+      laps: !!(str(a, "ms-Mcs-AdmPwdExpirationTime") || str(a, "msLAPS-PasswordExpirationTime")),
+    });
+  }
+  return out;
 }
 
 /** Skupiny pro katalog oprávnění (v1.33): DN, CN, popis, privilegovaná / chráněná, počet přímých členů. */

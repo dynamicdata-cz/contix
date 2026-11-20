@@ -9,19 +9,22 @@ import {
   evaluateAccount,
   evaluateGroups,
   type DirAccount,
+  type DirComputer,
+  COMPUTER_RULES,
   type IdentitySeverity,
   type IdentitySourceDto,
   type IdentitySourceStats,
   type DirGroup,
   type ProvisioningResultDto,
 } from "@contix/shared";
-import { and, count, eq, isNull, lt, ne, sql } from "drizzle-orm";
+import { and, count, eq, isNull, lt, ne, notInArray, sql } from "drizzle-orm";
 import { decrypt } from "../../auth/crypto";
 import { getSettings } from "../../auth/service";
 import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
-import { identityAccounts, identityFindings, identityGroups, identitySnapshots, identitySources, users } from "../../db/schema";
+import { identityAccounts, identityComputers, identityFindings, identityGroups, identitySnapshots, identitySources, users } from "../../db/schema";
 import { fetchAd } from "./ad";
+import { computerFindings, linkComputers, storeComputers } from "./computers";
 import { fetchEntra } from "./entra";
 import { evaluateSod } from "./sod";
 import { applyProvisioning, provisioningOf } from "./provisioning";
@@ -64,7 +67,7 @@ export function sourceDto(r: SourceRow): IdentitySourceDto {
 }
 
 /** Načte účty z adresáře (bez zápisu). */
-export async function fetchDirectory(row: Pick<SourceRow, "kind" | "config" | "provisioning">, secret: string, config: Config): Promise<{ accounts: DirAccount[]; notes: string[]; groups?: DirGroup[] }> {
+export async function fetchDirectory(row: Pick<SourceRow, "kind" | "config" | "provisioning">, secret: string, config: Config): Promise<{ accounts: DirAccount[]; notes: string[]; groups?: DirGroup[]; computers?: DirComputer[] }> {
   if (row.kind === "ad") return fetchAd({ config: AdSourceConfig.parse(row.config), password: secret });
   const cfg = EntraSourceConfig.parse(row.config);
   const prov = ProvisioningConfig.parse(row.provisioning ?? DEFAULT_PROVISIONING);
@@ -82,6 +85,8 @@ export interface SyncResult {
   findings: { opened: number; resolved: number; open: number };
   stats: IdentitySourceStats;
   notes: string[];
+  /** Počítače z AD (v1.90): načtené a zmizelé. */
+  computers?: { total: number; removed: number };
 }
 
 /**
@@ -105,7 +110,7 @@ export async function syncSource(db: Db, config: Config, sourceId: string, opts:
         const [cnt] = await db.select({ n: count() }).from(identityAccounts).where(and(eq(identityAccounts.sourceId, row.id), isNull(identityAccounts.removedAt)));
         if ((cnt?.n ?? 0) > 0) throw new Error("Adresář nevrátil žádné účty – zkontrolujte Base DN a oprávnění účtu. Dosavadní účty a nálezy zůstaly beze změny.");
       }
-      const result = await applyDirectory(db, row, dir.accounts, dir.notes, now);
+      const result = await applyDirectory(db, row, dir.accounts, dir.notes, now, dir.computers);
       // skupiny AD pro katalog oprávnění (v1.33) – jen když adresář nějaké vrátil
       if (dir.groups?.length) await storeGroups(db, row, dir.groups, now);
       // synchronizace uživatelů a struktury (je-li zapnutá)
@@ -140,7 +145,7 @@ export async function storeGroups(db: Db, row: SourceRow, groups: DirGroup[], no
 }
 
 /** Zápis účtů a nálezů pro načtený adresář. */
-export async function applyDirectory(db: Db, row: SourceRow, accounts: DirAccount[], notes: string[], now = new Date()): Promise<SyncResult> {
+export async function applyDirectory(db: Db, row: SourceRow, accounts: DirAccount[], notes: string[], now = new Date(), computers?: DirComputer[]): Promise<SyncResult> {
   const policy = IdentityPolicySchema.parse(row.policy ?? DEFAULT_IDENTITY_POLICY);
   // spárování s uživateli CONTIXu podle e-mailu
   const people = await db.select({ id: users.id, email: users.email, isActive: users.isActive }).from(users);
@@ -216,7 +221,7 @@ export async function applyDirectory(db: Db, row: SourceRow, accounts: DirAccoun
     .returning({ id: identityAccounts.id });
 
   // nálezy
-  const desired: { accountId: string | null; subject: string; rule: string; severity: IdentitySeverity; detail: string }[] = [];
+  const desired: { accountId: string | null; computerId?: string | null; subject: string; rule: string; severity: IdentitySeverity; detail: string }[] = [];
   for (const a of unique) {
     const id = ids.get(a.externalId)!;
     const person = a.email ? byEmail.get(a.email) : undefined;
@@ -224,6 +229,14 @@ export async function applyDirectory(db: Db, row: SourceRow, accounts: DirAccoun
       desired.push({ accountId: id, subject: id, rule: f.rule, severity: f.severity, detail: f.detail });
   }
   for (const g of evaluateGroups(unique, policy)) desired.push({ accountId: null, subject: g.subject.slice(0, 400), rule: g.draft.rule, severity: g.draft.severity, detail: g.draft.detail });
+  // počítače a servery (v1.90, ADR-185) – jen když je adresář vrátil; jinak se jejich nálezy nemění
+  let pcRemoved = 0;
+  if (computers) {
+    const st = await storeComputers(db, row, computers, now);
+    pcRemoved = st.removed;
+    await linkComputers(db, row, now);
+    desired.push(...(await computerFindings(db, row, computers, st.ids, policy, now)));
+  }
 
   const before = new Set(
     (await db.select({ rule: identityFindings.rule, subject: identityFindings.subject }).from(identityFindings).where(and(eq(identityFindings.sourceId, row.id), ne(identityFindings.status, "resolved")))).map(
@@ -234,12 +247,13 @@ export async function applyDirectory(db: Db, row: SourceRow, accounts: DirAccoun
     const part = desired.slice(i, i + 500);
     await db
       .insert(identityFindings)
-      .values(part.map((f) => ({ sourceId: row.id, companyId: row.companyId, ...f, status: "open" as const, firstSeenAt: now, lastSeenAt: now })))
+      .values(part.map((f) => ({ sourceId: row.id, companyId: row.companyId, computerId: null, ...f, status: "open" as const, firstSeenAt: now, lastSeenAt: now })))
       .onConflictDoUpdate({
         target: [identityFindings.sourceId, identityFindings.rule, identityFindings.subject],
         set: {
           companyId: row.companyId,
           accountId: sql`excluded.account_id`,
+          computerId: sql`excluded.computer_id`,
           severity: sql`excluded.severity`,
           detail: sql`excluded.detail`,
           lastSeenAt: now,
@@ -254,7 +268,7 @@ export async function applyDirectory(db: Db, row: SourceRow, accounts: DirAccoun
   const resolved = await db
     .update(identityFindings)
     .set({ status: "resolved", resolvedAt: now })
-    .where(and(eq(identityFindings.sourceId, row.id), lt(identityFindings.lastSeenAt, now), ne(identityFindings.status, "resolved")))
+    .where(and(eq(identityFindings.sourceId, row.id), lt(identityFindings.lastSeenAt, now), ne(identityFindings.status, "resolved"), computers ? undefined : notInArray(identityFindings.rule, COMPUTER_RULES)))
     .returning({ id: identityFindings.id });
   const opened = desired.filter((f) => !before.has(`${f.rule}|${f.subject}`)).length;
 
@@ -266,12 +280,12 @@ export async function applyDirectory(db: Db, row: SourceRow, accounts: DirAccoun
     .where(eq(identitySources.id, row.id));
   // toxické kombinace dané společnosti (skupiny se mohly změnit)
   await evaluateSod(db, { companyId: row.companyId, now });
-  return { accounts: unique.length, removed: removed.length, findings: { opened, resolved: resolved.length, open: desired.length }, stats, notes };
+  return { accounts: unique.length, removed: removed.length, findings: { opened, resolved: resolved.length, open: desired.length }, stats, notes, ...(computers ? { computers: { total: computers.length, removed: pcRemoved } } : {}) };
 }
 
 export async function sourceStats(db: Db, sourceId: string): Promise<IdentitySourceStats> {
   const live = and(eq(identityAccounts.sourceId, sourceId), isNull(identityAccounts.removedAt));
-  const [[acc], bySev] = await Promise.all([
+  const [[acc], bySev, [pc]] = await Promise.all([
     db
       .select({
         accounts: count(),
@@ -285,10 +299,17 @@ export async function sourceStats(db: Db, sourceId: string): Promise<IdentitySou
       .from(identityFindings)
       .where(and(eq(identityFindings.sourceId, sourceId), eq(identityFindings.status, "open")))
       .groupBy(identityFindings.severity),
+    db
+      .select({
+        computers: sql<number>`count(*) filter (where ${identityComputers.enabled})`.mapWith(Number),
+        servers: sql<number>`count(*) filter (where ${identityComputers.enabled} and ${identityComputers.role} in ('server', 'dc'))`.mapWith(Number),
+      })
+      .from(identityComputers)
+      .where(and(eq(identityComputers.sourceId, sourceId), isNull(identityComputers.removedAt))),
   ]);
   const findings = Object.fromEntries(IDENTITY_SEVERITIES.map((s) => [s, 0])) as Record<IdentitySeverity, number>;
   for (const r of bySev) findings[r.s] = r.n;
-  return { accounts: acc?.accounts ?? 0, enabled: acc?.enabled ?? 0, privileged: acc?.privileged ?? 0, findings };
+  return { accounts: acc?.accounts ?? 0, enabled: acc?.enabled ?? 0, privileged: acc?.privileged ?? 0, findings, ...(pc?.computers ? { computers: pc.computers, servers: pc.servers } : {}) };
 }
 
 /** Plánovač: zdroje, kterým uplynul interval synchronizace. Chyba jednoho zdroje nezastaví ostatní. */

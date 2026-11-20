@@ -2,6 +2,16 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.90.0
+
+Identity a přístupy – počítače a servery z Active Directory (ADR-185).
+
+- **Záložka Počítače**: zdroj AD nově čte (jen pro čtení) i počítače – roli (řadič domény, server, stanice), operační systém a jeho podporu výrobcem, poslední přihlášení, LAPS, delegaci a OU. Souhrnné dlaždice (neaktivní, bez podpory, bez aktiva, servery bez sběru dat, podíl LAPS), filtry a export CSV / XLSX. Načítání lze u zdroje vypnout.
+- **Vazba na aktiva**: počítač se sám spáruje s aktivem podle jména nebo DNS (jen jednoznačná shoda, údaje aktiva se nepřepisují, doplní se prázdné FQDN a systém); aktivum dostane zdroj „Active Directory“. Vybrané počítače bez aktiva lze **hromadně založit jako aktiva**.
+- **Nové nálezy**: neaktivní počítač, systém bez podpory výrobce, neomezená delegace Kerberos, počítač bez LAPS, LAPS v doméně nenasazen, počítač ve výchozím kontejneru Computers a **server bez sběru dat** (bez agenta CONTIX, sběrače i Wazuhu). Nálezy ukazují počítač a odkaz na aktivum, filtrují se podle počítače a jdou do reportů, exportů i registru nálezů jako ostatní.
+- **Mapa propojení**: karta pokrytí ukazuje aktivní servery z AD a kolik z nich nemá aktivum v CONTIXu.
+- Nastavení zdroje AD: *Načítat počítače a servery* a *Počítač neaktivní po dnech*.
+
 ## 1.89.0
 
 Identity a přístupy – práce s nálezy a reporty (ADR-184).
