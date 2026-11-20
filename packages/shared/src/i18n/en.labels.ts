@@ -2,6 +2,9 @@ import { hardeningEnLabels } from "../hardening";
 
 /** Anglické překlady hotových českých textů (t.lbl / lbl) – klíč `lbl:<český text>`. Generováno z *_LABELS, MODULES, SECURITY_ROLES, stupnic rizik, map v komponentách a chybových hlášek API. */
 export const EN_LABELS: Record<string, string> = {
+  "lbl:Počítače a servery": "Computers and servers",
+  "lbl:Privilegovaný přístup": "Privileged access",
+  "lbl:Účty a hesla": "Accounts and passwords",
   "lbl:Neaktivní počítač": "Inactive computer",
   "lbl:Povolený účet počítače, který se dlouho nepřihlásil do domény, patří nejčastěji vyřazenému nebo zapomenutému stroji – nikdo ho neaktualizuje ani nesleduje a jeho účet lze zneužít.": "An enabled computer account that has not logged on to the domain for a long time usually belongs to a retired or forgotten machine – nobody patches or monitors it and its account can be abused.",
   "lbl:Ověřte, zda počítač ještě existuje; vyřazený zakažte, přesuňte do OU vyřazených a po čase odstraňte. Aktivum v CONTIXu převeďte do stavu vyřazeno.": "Check whether the computer still exists; disable a retired one, move it to a retired OU and delete it later. Set the asset in CONTIX to retired.",

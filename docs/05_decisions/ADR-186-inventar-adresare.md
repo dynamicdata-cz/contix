@@ -23,3 +23,10 @@ potřeba vědět, kolik účtů a počítačů se skutečně používá – a ry
 ## Důsledky
 
 - Bez migrace.
+
+## Doplněk v1.92.0 – dlaždice nálezů
+
+Dlaždice pravidel v Nálezech jsou ve skupinách (`IDENTITY_RULE_GROUPS`: účty a hesla, privilegovaný přístup, počítače
+a servery). Podíl se počítá z inventáře (povolené účty, privilegované účty, povolené počítače, servery vč. řadičů);
+pravidla za doménu nebo skupinu (`laps_not_deployed`, `privileged_group_size`) podíl nemají. Barva = nejvyšší
+závažnost nálezů pravidla ve filtru (`facets.ruleSeverity`).

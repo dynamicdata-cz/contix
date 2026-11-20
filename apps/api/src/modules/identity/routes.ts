@@ -312,13 +312,20 @@ export function identityRoutes(db: Db, config: Config) {
         const q = c.req.valid("query");
         const base = (omit?: "rule" | "severity") =>
           db.select({ k: omit === "severity" ? identityFindings.severity : identityFindings.rule, n: count() }).from(identityFindings).leftJoin(identityAccounts, eq(identityAccounts.id, identityFindings.accountId)).where(and(inScope(c, identityFindings.companyId), ...findingWhere(q, omit)));
-        const [byRule, bySev, [tot]] = await Promise.all([
+        const [byRule, bySev, [tot], ruleMax] = await Promise.all([
           base("rule").groupBy(identityFindings.rule),
           base("severity").groupBy(identityFindings.severity),
           db.select({ n: count() }).from(identityFindings).leftJoin(identityAccounts, eq(identityAccounts.id, identityFindings.accountId)).where(and(inScope(c, identityFindings.companyId), ...findingWhere(q))),
+          db
+            .select({ k: identityFindings.rule, max: sql<number>`max(case ${identityFindings.severity} when 'critical' then 4 when 'high' then 3 when 'medium' then 2 else 1 end)`.mapWith(Number) })
+            .from(identityFindings)
+            .leftJoin(identityAccounts, eq(identityAccounts.id, identityFindings.accountId))
+            .where(and(inScope(c, identityFindings.companyId), ...findingWhere(q, "rule")))
+            .groupBy(identityFindings.rule),
         ]);
         const dto: IdentityFindingFacets = {
           rules: Object.fromEntries(byRule.map((r) => [r.k, r.n])),
+          ruleSeverity: Object.fromEntries(ruleMax.map((r) => [r.k, (["low", "medium", "high", "critical"] as const)[r.max - 1]])),
           severities: { ...(Object.fromEntries(IDENTITY_SEVERITIES.map((x) => [x, 0])) as Record<IdentitySeverity, number>), ...Object.fromEntries(bySev.map((r) => [r.k, r.n])) },
           total: tot?.n ?? 0,
         };

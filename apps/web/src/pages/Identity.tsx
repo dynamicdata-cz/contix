@@ -39,6 +39,7 @@ import { AlertTriangle, CheckCircle2, Download, FileText, KeyRound, Plus, Refres
 import { useEffect, useMemo, useState } from "react";
 import { AutomationsTab, ReviewsTab, SodTab } from "./IdentityGovernance";
 import { Computers } from "./IdentityComputers";
+import { RuleTiles } from "./IdentityRuleTiles";
 import { InventoryCard, type AccountPreset, type ComputerPreset } from "./IdentityInventory";
 
 /* ============================================================
@@ -300,7 +301,7 @@ function Findings({
       qc.invalidateQueries({ queryKey: ["identity"] });
     },
   });
-  const ruleTiles = IDENTITY_RULES.filter((r) => (facets.data?.rules[r] ?? 0) > 0);
+  const inv = useQuery({ queryKey: ["identity", "inventory", filter.sourceId ?? ""], queryFn: () => api.identity.inventory(filter.sourceId) });
   const info = filter.rule ? IDENTITY_RULE_INFO[filter.rule] : null;
   return (
     <>
@@ -357,26 +358,7 @@ function Findings({
           </div>
         )}
       </Card>
-      {ruleTiles.length > 0 && (
-        <div className="mb-4 flex flex-wrap gap-2" data-testid="idn-rule-tiles">
-          {ruleTiles.map((r) => {
-            const on = filter.rule === r;
-            return (
-              <button
-                key={r}
-                type="button"
-                aria-pressed={on}
-                title={t.lbl(IDENTITY_RULE_INFO[r].why)}
-                onClick={() => setFilter({ ...filter, rule: on ? undefined : r })}
-                className={cn("rounded-lg border px-3 py-2 text-left text-sm", on ? "border-brand-600 bg-brand-50 text-brand-800" : "border-slate-200 bg-white hover:border-slate-300")}
-              >
-                <span className="block text-lg font-semibold leading-tight">{facets.data?.rules[r] ?? 0}</span>
-                <span className="text-xs text-slate-600">{t.lbl(IDENTITY_RULE_INFO[r].title)}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {facets.data && <RuleTiles facets={facets.data} inv={inv.data} active={filter.rule} onRule={(rule) => setFilter({ ...filter, rule })} />}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <span className="mr-auto text-sm text-slate-500">{t("idn.count", { n: facets.data?.total ?? list.data?.length ?? 0 })}</span>
         {canBulk && sel.length > 0 && (

@@ -328,6 +328,7 @@ test("identity a přístupy: připojení AD, synchronizace, výjimka (testovací
     await page.getByLabel("Stav").selectOption("open");
     await page.getByLabel("Pravidlo").selectOption("");
     await expect(page.getByTestId("idn-rule-tiles").getByRole("button").first()).toBeVisible();
+    await expect(page.getByTestId("idn-rule-group-accounts")).toContainText("z 2 povolených účtů");
     await expect(page.getByLabel("Pravidlo").locator("option", { hasText: /\(\d+\)$/ }).first()).toBeAttached();
     await expect(page.getByRole("link", { name: "XLSX" })).toHaveAttribute("href", /findings\.xlsx\?status=open/);
     await page.getByRole("button", { name: "Reporty" }).click();

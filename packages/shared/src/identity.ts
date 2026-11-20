@@ -923,6 +923,8 @@ export function identityCheckResult(open: Record<IdentitySeverity, number>, cfg:
 /** Počty nálezů pro volby filtru – každá dimenze s ostatními filtry, bez sebe sama. */
 export interface IdentityFindingFacets {
   rules: Partial<Record<IdentityRule, number>>;
+  /** Nejvyšší závažnost nálezů pravidla ve filtru (v1.92) – barva dlaždice. */
+  ruleSeverity: Partial<Record<IdentityRule, IdentitySeverity>>;
   severities: Record<IdentitySeverity, number>;
   /** Počet nálezů podle celého filtru. */
   total: number;
@@ -1135,3 +1137,49 @@ export interface IdentityInventory {
   } | null;
   groups: { total: number; privileged: number };
 }
+
+/* ---------- skupiny pravidel pro dlaždice nálezů (v1.92) ---------- */
+
+/** Základ podílu: povolené účty, privilegované účty, povolené počítače, servery (vč. řadičů); null = bez podílu. */
+export type RuleBase = "accounts" | "privileged" | "computers" | "servers" | null;
+export const IDENTITY_RULE_GROUPS: { key: "accounts" | "privileged" | "computers"; title: string; base: RuleBase; rules: { rule: IdentityRule; base: RuleBase }[] }[] = [
+  {
+    key: "accounts",
+    title: "Účty a hesla",
+    base: "accounts",
+    rules: [
+      { rule: "stale", base: "accounts" },
+      { rule: "never_logged_in", base: "accounts" },
+      { rule: "leaver", base: "accounts" },
+      { rule: "pwd_never_expires", base: "accounts" },
+      { rule: "pwd_not_required", base: "accounts" },
+      { rule: "preauth_disabled", base: "accounts" },
+      { rule: "kerberoastable", base: "accounts" },
+      { rule: "no_mfa", base: "accounts" },
+    ],
+  },
+  {
+    key: "privileged",
+    title: "Privilegovaný přístup",
+    base: "privileged",
+    rules: [
+      { rule: "privileged_pwd_old", base: "privileged" },
+      { rule: "unconstrained_delegation", base: "accounts" },
+      { rule: "privileged_group_size", base: null },
+    ],
+  },
+  {
+    key: "computers",
+    title: "Počítače a servery",
+    base: "computers",
+    rules: [
+      { rule: "computer_stale", base: "computers" },
+      { rule: "computer_eol", base: "computers" },
+      { rule: "computer_delegation", base: "computers" },
+      { rule: "computer_no_laps", base: "computers" },
+      { rule: "laps_not_deployed", base: null },
+      { rule: "computer_default_container", base: "computers" },
+      { rule: "server_unmonitored", base: "servers" },
+    ],
+  },
+];

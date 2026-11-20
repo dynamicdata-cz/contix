@@ -2,6 +2,13 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.92.0
+
+Identity a přístupy – přehlednější dlaždice nálezů (doplněk ADR-186).
+
+- Dlaždice nálezů podle pravidla jsou rozdělené do skupin **Účty a hesla**, **Privilegovaný přístup** a **Počítače a servery**; u skupiny je počet nálezů a základ (z kolika povolených účtů / privilegovaných účtů / počítačů).
+- Každé pravidlo má barevný proužek podle nejvyšší závažnosti svých nálezů, podíl v procentech s ukazatelem a řadí se od nejzávažnějšího a nejčastějšího. Kliknutím se filtr nastaví nebo zruší jako dosud.
+
 ## 1.91.0
 
 Identity a přístupy – počty aktivních a neaktivních objektů v adresáři (ADR-186).
