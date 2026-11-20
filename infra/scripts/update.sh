@@ -50,4 +50,4 @@ docker image prune -f >/dev/null 2>&1 || true
 ok "Aktualizováno: ${before:-?} → $(api_version)."
 echo "   Migrace databáze proběhly při startu API."
 info "Kontrola po aktualizaci (infra/scripts/verify.sh)…"
-"$(dirname "$0")/verify.sh" --no-ai || warn "Kontrola našla chyby – viz výpis výše a Administrace → Provoz."
+"$ROOT/infra/scripts/verify.sh" --no-ai || warn "Kontrola našla chyby – viz výpis výše a Administrace → Provoz."

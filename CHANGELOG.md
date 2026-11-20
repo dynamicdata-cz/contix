@@ -2,6 +2,10 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.92.1
+
+- Oprava: `update.sh` spuštěný přímo ze složky `infra/scripts` (`./update.sh`) po úspěšné aktualizaci nenašel kontrolu `verify.sh` („No such file or directory“). Kontrola se teď volá z kořene instalace bez ohledu na to, odkud se skript spustil.
+
 ## 1.92.0
 
 Identity a přístupy – přehlednější dlaždice nálezů (doplněk ADR-186).
