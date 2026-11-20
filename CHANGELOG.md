@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.91.0
+
+Identity a přístupy – počty aktivních a neaktivních objektů v adresáři (ADR-186).
+
+- **Objekty v adresáři** v Přehledu: účty (aktivní, neaktivní, nikdy nepřihlášené, zakázané; uživatelé / servisní / hosté / privilegované a kolik z nich je aktivních), počítače (aktivní, neaktivní, zakázané; řadiče, servery, stanice) a skupiny (celkem, privilegované) s podílem v procentech. Kliknutím se otevře příslušný seznam s filtrem.
+- **Záložka Účty**: dlaždice aktivní / neaktivní / nikdy nepřihlášené / zakázané a nový filtr *Aktivita*.
+- **Záložka Počítače**: dlaždice a výběr *Aktivní*.
+- Aktivní = povolený a přihlášený v limitu ze zásad zdroje (stejný jako u nálezů, výchozí 90 dní). U Entra ID bez údaje o přihlášení (chybí licence) se účet vykazuje jako „přihlášení neznámé“, ne jako nikdy nepřihlášený.
+
 ## 1.90.0
 
 Identity a přístupy – počítače a servery z Active Directory (ADR-185).

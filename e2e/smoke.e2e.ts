@@ -313,6 +313,9 @@ test("identity a přístupy: připojení AD, synchronizace, výjimka (testovací
 
     await page.getByRole("button", { name: "Přehled" }).click();
     await expect(page.getByText("Kritické nálezy")).toBeVisible();
+    // v1.91: objekty v adresáři – aktivní / neaktivní
+    await expect(page.getByTestId("inv-acc-active")).toContainText("1");
+    await expect(page.getByTestId("inv-acc-inactive")).toContainText("1");
     await page.getByRole("button", { name: /Neaktivní účet/ }).click();
     await expect(page.getByText("Co udělat:")).toBeVisible();
     await page.getByRole("button", { name: "Výjimka" }).click();
@@ -344,7 +347,11 @@ test("identity a přístupy: připojení AD, synchronizace, výjimka (testovací
     await page.getByRole("dialog").getByRole("button", { name: "Udělit výjimku" }).click();
     await expect(page.getByText(/Výjimka udělena \d+ nálezům/)).toBeVisible();
 
-    await page.getByRole("button", { name: "Účty" }).click();
+    await page.getByRole("button", { name: "Přehled" }).click();
+    await page.getByTestId("inv-acc-inactive").click();
+    await expect(page.getByLabel("Aktivita")).toHaveValue("inactive");
+    await expect(page.getByText("Jan Novák")).toHaveCount(0);
+    await page.getByRole("button", { name: "Účty", exact: true }).click();
     await page.getByText("spravce").first().click();
     await expect(page.getByRole("dialog").getByText("Domain Admins").first()).toBeVisible();
     await page.getByRole("button", { name: "Zavřít" }).click();

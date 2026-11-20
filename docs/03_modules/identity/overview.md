@@ -51,6 +51,11 @@ sběr dat přes aktivum (agent, sběrač, Wazuh). Pravidla:
 | Počítač ve výchozím kontejneru Computers | nízká |
 | Server bez sběru dat (aktivní server / řadič bez agenta, sběrače i Wazuhu nebo bez aktiva) | střední, řadič vysoká |
 
+## Objekty v adresáři – v1.91 (ADR-186)
+
+Přehled počítá aktivní / neaktivní / nikdy nepřihlášené / zakázané účty, počítače podle role a aktivity a skupiny.
+Aktivní = povolený a přihlášený v limitu ze zásad zdroje. `GET /api/identity/inventory?sourceId=`, filtr účtů `activity`.
+
 ## Toxické kombinace (SoD) – v0.29
 
 Pravidlo má stranu A a B (skupiny AD / role Entra ID podle názvu, funkční místa CONTIXu). Porušení = osoba splňuje obě

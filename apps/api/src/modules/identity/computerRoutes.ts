@@ -33,7 +33,7 @@ export const ComputerQuery = z.object({
   role: z.enum(COMPUTER_ROLES).optional(),
   q: z.string().trim().max(200).optional(),
   /** stale = neaktivní, eol = nepodporovaný systém, noAsset = bez aktiva, unmonitored = server bez sběru dat, findings = s nálezy */
-  view: z.enum(["stale", "eol", "noAsset", "unmonitored", "findings", "disabled"]).optional(),
+  view: z.enum(["active", "stale", "eol", "noAsset", "unmonitored", "findings", "disabled"]).optional(),
   removed: z.enum(["1"]).optional(),
 });
 export type IdentityComputerQuery = z.infer<typeof ComputerQuery>;
@@ -72,6 +72,7 @@ export function computerRoutes(db: Db) {
       const sup = osSupport(r.pc.os, r.pc.osVersion, now);
       const last = r.pc.lastLogonAt ?? r.pc.dirCreatedAt;
       const stale = r.pc.enabled && r.pc.role !== "dc" && (!last || now.getTime() - last.getTime() > staleDays * 86_400_000);
+      const active = r.pc.enabled && !!r.pc.lastLogonAt && now.getTime() - r.pc.lastLogonAt.getTime() <= staleDays * 86_400_000;
       const monitoring = [...(r.pc.assetId ? (mon.get(r.pc.assetId) ?? []) : [])].sort();
       const server = r.pc.role === "server" || r.pc.role === "dc";
       const dto: IdentityComputerDto = {
@@ -101,10 +102,11 @@ export function computerRoutes(db: Db) {
         openFindings: Number(r.n ?? 0),
         removedAt: iso(r.pc.removedAt),
       };
-      return { dto, stale, unmonitored: server && r.pc.enabled && !stale && !monitoring.length };
+      return { dto, stale, active, unmonitored: server && r.pc.enabled && !stale && !monitoring.length };
     });
     const summary: IdentityComputerSummary = {
       total: all.length,
+      active: all.filter((x) => x.active).length,
       enabled: all.filter((x) => x.dto.enabled).length,
       servers: all.filter((x) => x.dto.role === "server").length,
       workstations: all.filter((x) => x.dto.role === "workstation").length,
@@ -117,6 +119,8 @@ export function computerRoutes(db: Db) {
     };
     const pick = all.filter((x) => {
       switch (q.view) {
+        case "active":
+          return x.active;
         case "stale":
           return x.stale;
         case "eol":

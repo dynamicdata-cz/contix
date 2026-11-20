@@ -14,6 +14,8 @@ import {
   type ProvisioningConfig,
   IDENTITY_LABELS,
   COMPUTER_ROLE_LABELS,
+  ACCOUNT_ACTIVITIES,
+  type AccountActivity,
   IDENTITY_RULE_INFO,
   IDENTITY_RULES,
   IDENTITY_SEVERITIES,
@@ -37,6 +39,7 @@ import { AlertTriangle, CheckCircle2, Download, FileText, KeyRound, Plus, Refres
 import { useEffect, useMemo, useState } from "react";
 import { AutomationsTab, ReviewsTab, SodTab } from "./IdentityGovernance";
 import { Computers } from "./IdentityComputers";
+import { InventoryCard, type AccountPreset, type ComputerPreset } from "./IdentityInventory";
 
 /* ============================================================
  * Identity a přístupy (v0.28) – kontroly účtů v AD a Entra ID.
@@ -57,6 +60,9 @@ export function IdentityPage() {
   const [tab, setTab] = useState<Tab>(initialRule ? "findings" : (initialTab ?? "overview"));
   const [findingFilter, setFindingFilter] = useState<{ rule?: IdentityRule; severity?: IdentitySeverity; sourceId?: string; computerId?: string }>(initialRule && IDENTITY_RULES.includes(initialRule) ? { rule: initialRule } : {});
   const [accountId, setAccountId] = useState<string | null>(null);
+  // předvolby filtrů z inventáře v přehledu (v1.91); `n` = nové připojení záložky
+  const [accPreset, setAccPreset] = useState<AccountPreset & { n?: number }>({});
+  const [pcPreset, setPcPreset] = useState<ComputerPreset & { n?: number }>({});
   const ov = useQuery({ queryKey: ["identity", "overview"], queryFn: api.identity.overview });
   const tabCls = (on: boolean) => cn("-mb-px border-b-2 px-3 py-2 text-sm font-medium", on ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800");
   const openFindings = (f: typeof findingFilter) => {
@@ -90,10 +96,24 @@ export function IdentityPage() {
         ))}
       </div>
       <ErrorBox error={ov.error} />
-      {tab === "overview" && ov.data && <Overview data={ov.data} onFindings={openFindings} onSources={() => setTab("sources")} />}
+      {tab === "overview" && ov.data && (
+        <Overview
+          data={ov.data}
+          onFindings={openFindings}
+          onSources={() => setTab("sources")}
+          onAccounts={(p) => {
+            setAccPreset({ ...p, n: Date.now() });
+            setTab("accounts");
+          }}
+          onComputers={(p) => {
+            setPcPreset({ ...p, n: Date.now() });
+            setTab("computers");
+          }}
+        />
+      )}
       {tab === "findings" && <Findings filter={findingFilter} setFilter={setFindingFilter} sources={ov.data?.sources ?? []} onAccount={setAccountId} />}
-      {tab === "accounts" && <Accounts sources={ov.data?.sources ?? []} onAccount={setAccountId} />}
-      {tab === "computers" && <Computers sources={(ov.data?.sources ?? []).filter((x) => x.kind === "ad")} onFindings={(computerId) => openFindings({ computerId })} />}
+      {tab === "accounts" && <Accounts key={accPreset.n ?? 0} preset={accPreset} sources={ov.data?.sources ?? []} onAccount={setAccountId} />}
+      {tab === "computers" && <Computers key={pcPreset.n ?? 0} preset={pcPreset} sources={(ov.data?.sources ?? []).filter((x) => x.kind === "ad")} onFindings={(computerId) => openFindings({ computerId })} />}
       {tab === "sod" && <SodTab />}
       {tab === "reviews" && <ReviewsTab sources={ov.data?.sources ?? []} />}
       {tab === "automations" && <AutomationsTab sources={ov.data?.sources ?? []} />}
@@ -105,7 +125,19 @@ export function IdentityPage() {
 
 /* ---------------- přehled ---------------- */
 
-function Overview({ data, onFindings, onSources }: { data: IdentityOverviewDto; onFindings: (f: { rule?: IdentityRule; severity?: IdentitySeverity }) => void; onSources: () => void }) {
+function Overview({
+  data,
+  onFindings,
+  onSources,
+  onAccounts,
+  onComputers,
+}: {
+  data: IdentityOverviewDto;
+  onFindings: (f: { rule?: IdentityRule; severity?: IdentitySeverity }) => void;
+  onSources: () => void;
+  onAccounts: (p: AccountPreset) => void;
+  onComputers: (p: ComputerPreset) => void;
+}) {
   const t = useT();
   const can = useCan();
   if (!data.sources.length)
@@ -133,6 +165,7 @@ function Overview({ data, onFindings, onSources }: { data: IdentityOverviewDto; 
           <Kpi key={tx.label} icon={tx.icon} label={tx.label} value={<span className={tx.value ? tx.tone : undefined}>{tx.value}</span>} onClick={tx.onClick} />
         ))}
       </div>
+      {data.inventory && <InventoryCard inv={data.inventory} onAccounts={onAccounts} onComputers={onComputers} />}
 
       <div className="mb-6 grid gap-6 lg:grid-cols-2">
         <Card>
@@ -675,9 +708,21 @@ function AcceptModal({ f, onClose }: { f: IdentityFindingDto; onClose: () => voi
 
 /* ---------------- účty ---------------- */
 
-function Accounts({ sources, onAccount }: { sources: IdentitySourceDto[]; onAccount: (id: string) => void }) {
+function Accounts({ sources, onAccount, preset = {} }: { sources: IdentitySourceDto[]; onAccount: (id: string) => void; preset?: AccountPreset }) {
   const t = useT();
-  const [f, setF] = useState<{ q: string; sourceId: string; privileged: boolean; withFindings: boolean; kind: string; disabled: boolean; removed: boolean }>({ q: "", sourceId: "", privileged: false, withFindings: false, kind: "", disabled: false, removed: false });
+  const [f, setF] = useState<{ q: string; sourceId: string; privileged: boolean; withFindings: boolean; kind: string; disabled: boolean; removed: boolean; activity: AccountActivity | "" }>({
+    q: "",
+    sourceId: "",
+    privileged: !!preset.privileged,
+    withFindings: false,
+    kind: preset.kind ?? "",
+    disabled: !!preset.disabled,
+    removed: false,
+    activity: preset.activity ?? "",
+  });
+  const inv = useQuery({ queryKey: ["identity", "inventory", f.sourceId], queryFn: () => api.identity.inventory(f.sourceId || undefined) });
+  const ia = inv.data?.accounts;
+  const setActivity = (a: AccountActivity | "") => setF({ ...f, activity: f.activity === a ? "" : a, disabled: false });
   const list = useQuery({
     queryKey: ["identity", "accounts", f],
     queryFn: () =>
@@ -689,18 +734,41 @@ function Accounts({ sources, onAccount }: { sources: IdentitySourceDto[]; onAcco
         kind: f.kind || undefined,
         enabled: f.disabled ? "0" : undefined,
         removed: f.removed ? "1" : undefined,
+        activity: f.activity || undefined,
       }),
   });
   return (
     <>
+      {ia && (
+        <div className="mb-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6" data-testid="acc-summary">
+          <Kpi label={t("idn.inv.enabled")} value={ia.enabled} note={t("idn.inv.ofTotal", { n: ia.total })} />
+          <Kpi label={t("idn.inv.active")} value={ia.active} tone="green" active={f.activity === "active"} onClick={() => setActivity("active")} />
+          <Kpi label={t("idn.inv.inactive")} value={ia.inactive} tone={ia.inactive ? "amber" : "slate"} active={f.activity === "inactive"} onClick={() => setActivity("inactive")} />
+          <Kpi label={t("idn.inv.never")} value={ia.never} tone={ia.never ? "amber" : "slate"} active={f.activity === "never"} onClick={() => setActivity("never")} />
+          {ia.unknown > 0 ? (
+            <Kpi label={t("idn.inv.unknown")} value={ia.unknown} active={f.activity === "unknown"} onClick={() => setActivity("unknown")} />
+          ) : (
+            <Kpi label={t("idn.privilegovaneUcty")} value={ia.privileged} note={t("idn.inv.privActive", { n: ia.privilegedActive })} active={f.privileged} onClick={() => setF({ ...f, privileged: !f.privileged })} />
+          )}
+          <Kpi label={t("idn.inv.disabled")} value={ia.disabled} active={f.disabled} onClick={() => setF({ ...f, disabled: !f.disabled, activity: "" })} />
+        </div>
+      )}
       <Card className="mb-4 p-4">
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-4">
           <Input placeholder={t("idn.prihlasovaciJmenoJmenoEMail")} value={f.q} onChange={(e) => setF({ ...f, q: e.target.value })} />
           <Select value={f.sourceId} onChange={(e) => setF({ ...f, sourceId: e.target.value })} aria-label={t("idn.zdroj")}>
             <option value="">{t("idn.vsechnyZdroje")}</option>
             {sources.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
+              </option>
+            ))}
+          </Select>
+          <Select value={f.activity} onChange={(e) => setF({ ...f, activity: e.target.value as AccountActivity | "" })} aria-label={t("idn.inv.activity")}>
+            <option value="">{t("idn.inv.anyActivity")}</option>
+            {ACCOUNT_ACTIVITIES.map((a) => (
+              <option key={a} value={a}>
+                {t.dyn(`idn.inv.${a}`, a)}
               </option>
             ))}
           </Select>

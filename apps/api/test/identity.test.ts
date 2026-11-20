@@ -302,6 +302,13 @@ describe.skipIf(!url)("Identity a přístupy (AD / Entra ID)", () => {
     expect(ov.sources[0]).toMatchObject({ lastStatus: "ok", stats: { accounts: 7, enabled: 6, privileged: 2 } });
     expect(ov.trend.length).toBe(1);
     expect(ov.byRule[0].severity).toBe("critical");
+    // inventář (v1.91): aktivní / neaktivní / nikdy / zakázané
+    expect(ov.inventory.accounts).toMatchObject({ total: 7, enabled: 6, active: 4, inactive: 1, never: 1, unknown: 0, disabled: 1, privileged: 2, privilegedActive: 1, service: 1 });
+    expect(ov.inventory.computers).toBeNull();
+    expect(ov.inventory.groups).toEqual({ total: 5, privileged: 2 });
+    expect(((await admin.json("/api/identity/accounts?activity=inactive")).body as any[]).map((a) => a.login)).toEqual(["admin.novak"]);
+    expect(((await admin.json("/api/identity/accounts?activity=never")).body as any[]).map((a) => a.login)).toEqual(["test.user"]);
+    expect(((await admin.json("/api/identity/accounts?activity=active")).body as any[]).length).toBe(4);
 
     // filtry účtů
     expect(((await admin.json("/api/identity/accounts?privileged=1")).body as any[]).map((a) => a.login).sort()).toEqual(["admin.dvorak", "admin.novak"]);
@@ -725,7 +732,10 @@ describe.skipIf(!url)("Identity a přístupy (AD / Entra ID)", () => {
     expect(by("SRV-APP01")).toMatchObject({ monitoring: ["wazuh"], unconstrainedDelegation: true, constrainedDelegation: true, asset: { id: app!.id } });
     expect(by("PC-STARY")).toMatchObject({ role: "workstation", asset: null, ou: null });
     expect(by("PC-NOVY").ou).toBe("Stanice");
-    expect(list.summary).toMatchObject({ total: 5, enabled: 5, dcs: 1, servers: 2, workstations: 2, stale: 1, eol: 1, noAsset: 3, unmonitored: 2, laps: 2 });
+    const inv = (await admin.json(`/api/identity/inventory?sourceId=${pid}`)).body;
+    expect(inv.computers).toMatchObject({ total: 5, enabled: 5, active: 4, inactive: 1, disabled: 0, dc: 1, server: 2, workstation: 2, serversActive: 3, workstationsActive: 1 });
+    expect(((await admin.json(`/api/identity/computers?sourceId=${pid}&view=active`)).body.items as any[]).length).toBe(4);
+    expect(list.summary).toMatchObject({ active: 4, total: 5, enabled: 5, dcs: 1, servers: 2, workstations: 2, stale: 1, eol: 1, noAsset: 3, unmonitored: 2, laps: 2 });
     // údaje aktiva se nepřepíšou, jen doplní prázdné
     const [oldNow] = await db.select().from(schema.assets).where(sql`id = ${old!.id}`);
     expect(oldNow).toMatchObject({ name: "SRV-OLD", hostname: "srv-old.firma.local", osName: "Windows Server 2012 R2 Standard" });

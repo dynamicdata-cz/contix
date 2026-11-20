@@ -15,6 +15,7 @@ import {
   type IdentityOverviewDto,
   type IdentityRule,
   type ComputerRole,
+  ACCOUNT_ACTIVITIES,
   type IdentitySeverity,
   type IdentityTestResult,
   BulkAcceptIdentityInput,
@@ -24,6 +25,7 @@ import {
 import { writeXlsx } from "../import/table";
 import { identityReportRoutes } from "./reports";
 import { computerRoutes } from "./computerRoutes";
+import { accountActivity, identityInventory } from "./inventory";
 import { FindingQuery, findingWhere, type IdentityFindingQuery } from "./query";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, gte, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
@@ -37,7 +39,7 @@ import { audit, type AppEnv } from "../../auth/service";
 import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
 import { tFor } from "../i18n/service";
-import { identityAccounts, identityComputers, identityFindings, identitySnapshots, identitySources, roles, users } from "../../db/schema";
+import { identityAccounts, identityComputers, identityFindings, identityGroups, identitySnapshots, identitySources, roles, users } from "../../db/schema";
 import { applyProvisioning, managedUsers, planFor, provisioningOf } from "./provisioning";
 import { testAd } from "./ad";
 import { testEntra } from "./entra";
@@ -62,6 +64,7 @@ const AccountQuery = z.object({
   kind: z.enum(["user", "service", "guest"]).optional(),
   withFindings: z.enum(["1"]).optional(),
   removed: z.enum(["1"]).optional(),
+  activity: z.enum(ACCOUNT_ACTIVITIES).optional(),
 });
 
 export function identityRoutes(db: Db, config: Config) {
@@ -215,6 +218,14 @@ export function identityRoutes(db: Db, config: Config) {
     if (!r) throw new ApiError(400, "err.identity.roleNotFound", { role: String(p.defaultRoleKey) });
   }
 
+  /** Počty aktivních / neaktivních objektů adresáře v rozsahu uživatele (v1.91). */
+  const inventory = (c: Context<AppEnv>, sourceId?: string) =>
+    identityInventory(db, {
+      accounts: and(inScope(c, identityAccounts.companyId), sourceId ? eq(identityAccounts.sourceId, sourceId) : undefined),
+      computers: and(inScope(c, identityComputers.companyId), sourceId ? eq(identityComputers.sourceId, sourceId) : undefined),
+      groups: and(inScope(c, identityGroups.companyId), sourceId ? eq(identityGroups.sourceId, sourceId) : undefined),
+    });
+
   const strip = <T extends { _row: unknown }>({ _row, ...rest }: T) => rest;
 
   /** Uložení tajemství: nové zašifrovat, prázdné = ponechat. */
@@ -277,10 +288,12 @@ export function identityRoutes(db: Db, config: Config) {
           privileged: acc?.privileged ?? 0,
           accounts: acc?.accounts ?? 0,
           trend: trend.slice(-60),
+          inventory: await inventory(c),
         };
         return c.json(dto);
       })
 
+      .get("/inventory", requirePerm("identity:read"), zValidator("query", z.object({ sourceId: z.string().uuid().optional() })), async (c) => c.json(await inventory(c, c.req.valid("query").sourceId)))
       .get("/rules", requirePerm("identity:read"), (c) => c.json(IDENTITY_RULE_INFO))
 
       .get("/groups", requirePerm("identity:read"), async (c) => c.json(await groupList(db, inScope(c, identityAccounts.companyId))))
@@ -370,6 +383,7 @@ export function identityRoutes(db: Db, config: Config) {
         if (q.privileged) where.push(eq(identityAccounts.privileged, q.privileged === "1"));
         if (q.enabled) where.push(eq(identityAccounts.enabled, q.enabled === "1"));
         if (q.kind) where.push(eq(identityAccounts.kind, q.kind));
+        if (q.activity) where.push(accountActivity(q.activity));
         if (q.withFindings) where.push(sql`exists (select 1 from ${identityFindings} where ${identityFindings.accountId} = ${identityAccounts.id} and ${identityFindings.status} = 'open')`);
         if (q.q) {
           const like = `%${likeEsc(q.q)}%`;

@@ -102,6 +102,8 @@ import type {
   IdentityAccountDto,
   IdentityComputerDto,
   IdentityComputerSummary,
+  AccountActivity,
+  IdentityInventory,
   IdentityAccountDetail,
   IdentitySourceDto,
   IdentitySourceInput,
@@ -698,7 +700,7 @@ const qs = (q: Record<string, unknown>) =>
   new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== "") as [string, string][]).toString();
 
 /** Filtr nálezů identit (v1.89) – seznam, počty, exporty, reporty. */
-export type IdentityComputerFilter = { sourceId?: string; role?: string; q?: string; view?: "stale" | "eol" | "noAsset" | "unmonitored" | "findings" | "disabled"; removed?: "1" };
+export type IdentityComputerFilter = { sourceId?: string; role?: string; q?: string; view?: "active" | "stale" | "eol" | "noAsset" | "unmonitored" | "findings" | "disabled"; removed?: "1" };
 export type IdentityFindingFilter = { status?: string; severity?: string; rule?: string; sourceId?: string; accountId?: string; computerId?: string; q?: string };
 
 export const api = {
@@ -1032,7 +1034,8 @@ export const api = {
     sendReportNow: () => post<{ sent: number; status: string }>("/identity/reports/schedule/send", {}),
     accept: (id: string, data: AcceptIdentityFindingInput) => post<IdentityFindingDto>(`/identity/findings/${id}/accept`, data),
     reopen: (id: string) => post<IdentityFindingDto>(`/identity/findings/${id}/reopen`),
-    accounts: (q: { sourceId?: string; q?: string; privileged?: "1" | "0"; enabled?: "1" | "0"; kind?: string; withFindings?: "1"; removed?: "1" }) => request<IdentityAccountDto[]>(`/identity/accounts?${qs(q)}`),
+    accounts: (q: { sourceId?: string; q?: string; privileged?: "1" | "0"; enabled?: "1" | "0"; kind?: string; withFindings?: "1"; removed?: "1"; activity?: AccountActivity }) => request<IdentityAccountDto[]>(`/identity/accounts?${qs(q)}`),
+    inventory: (sourceId?: string) => request<IdentityInventory>(`/identity/inventory?${qs({ sourceId })}`),
     computers: (q: IdentityComputerFilter) => request<{ items: IdentityComputerDto[]; total: number; summary: IdentityComputerSummary }>(`/identity/computers?${qs(q)}`),
     computersExportUrl: (format: "csv" | "xlsx", q: IdentityComputerFilter = {}) => withCompany(`/api/identity/computers/export.${format}?${qs(q)}`),
     computerAssets: (ids: string[]) => post<{ created: number; linked: number; skipped: number }>("/identity/computers/assets", { ids }),

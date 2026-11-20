@@ -353,6 +353,8 @@ export interface IdentityOverviewDto {
   accounts: number;
   /** Trend otevřených nálezů (posledních 12 synchronizací za všechny zdroje v rozsahu, po dnech). */
   trend: { day: string; critical: number; high: number; medium: number; low: number }[];
+  /** Počty objektů adresáře – aktivní / neaktivní (v1.91). */
+  inventory: IdentityInventory;
 }
 
 /* ---------- normalizovaný účet z konektoru ---------- */
@@ -1079,6 +1081,8 @@ export interface IdentityComputerDto {
 
 export interface IdentityComputerSummary {
   total: number;
+  /** Povolené a přihlášené v limitu zdroje (v1.91). */
+  active: number;
   enabled: number;
   servers: number;
   workstations: number;
@@ -1093,3 +1097,41 @@ export interface IdentityComputerSummary {
 
 /** Založení aktiv z vybraných počítačů (servery a stanice bez spárovaného aktiva). */
 export const ComputerAssetsInput = z.object({ ids: z.array(z.string().uuid()).min(1).max(1000) });
+
+/* ---------- inventář adresáře: aktivní / neaktivní objekty (v1.91, ADR-186) ---------- */
+
+/** Aktivita účtu: aktivní = povolený a přihlášený v limitu zdroje; neznámá = Entra bez údaje o přihlášení. */
+export const ACCOUNT_ACTIVITIES = ["active", "inactive", "never", "unknown"] as const;
+export type AccountActivity = (typeof ACCOUNT_ACTIVITIES)[number];
+
+export interface IdentityInventory {
+  accounts: {
+    total: number;
+    enabled: number;
+    active: number;
+    inactive: number;
+    never: number;
+    unknown: number;
+    disabled: number;
+    privileged: number;
+    privilegedActive: number;
+    user: number;
+    service: number;
+    guest: number;
+  };
+  /** null = žádný zdroj počítače nenačítá. */
+  computers: {
+    total: number;
+    enabled: number;
+    active: number;
+    inactive: number;
+    disabled: number;
+    dc: number;
+    server: number;
+    workstation: number;
+    other: number;
+    serversActive: number;
+    workstationsActive: number;
+  } | null;
+  groups: { total: number; privileged: number };
+}

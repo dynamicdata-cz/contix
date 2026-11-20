@@ -8,6 +8,7 @@ import { COMPUTER_ROLE_LABELS, COMPUTER_ROLES, type ComputerRole, type IdentityS
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, Download } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { ComputerPreset } from "./IdentityInventory";
 
 /* ============================================================
  * Počítače a servery z AD (v1.90, ADR-185) – inventář, vazba na aktiva, sběr dat a nálezy.
@@ -15,11 +16,11 @@ import { useEffect, useState } from "react";
 
 type View = NonNullable<IdentityComputerFilter["view"]>;
 
-export function Computers({ sources, onFindings }: { sources: IdentitySourceDto[]; onFindings: (computerId: string) => void }) {
+export function Computers({ sources, onFindings, preset = {} }: { sources: IdentitySourceDto[]; onFindings: (computerId: string) => void; preset?: ComputerPreset }) {
   const t = useT();
   const can = useCan();
   const qc = useQueryClient();
-  const [f, setF] = useState<{ q: string; sourceId: string; role: string; view: View | ""; removed: boolean }>({ q: "", sourceId: "", role: "", view: "", removed: false });
+  const [f, setF] = useState<{ q: string; sourceId: string; role: string; view: View | ""; removed: boolean }>({ q: "", sourceId: "", role: preset.role ?? "", view: preset.view ?? "", removed: false });
   const dq = useDebounced(f.q);
   const fq: IdentityComputerFilter = { q: dq || undefined, sourceId: f.sourceId || undefined, role: f.role || undefined, view: f.view || undefined, removed: f.removed ? "1" : undefined };
   const list = useQuery({ queryKey: ["identity", "computers", fq], queryFn: () => api.identity.computers(fq) });
@@ -47,8 +48,9 @@ export function Computers({ sources, onFindings }: { sources: IdentitySourceDto[
   return (
     <>
       {s && (
-        <div className="mb-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6" data-testid="pc-summary">
+        <div className="mb-4 grid gap-3 sm:grid-cols-4 lg:grid-cols-7" data-testid="pc-summary">
           <Kpi label={t("idn.pc.total")} value={s.enabled} note={t("idn.pc.totalNote", { dcs: s.dcs, servers: s.servers, ws: s.workstations })} />
+          {tile("active", t("idn.pc.vActive"), s.active)}
           {tile("stale", t("idn.pc.vStale"), s.stale, "amber")}
           {tile("eol", t("idn.pc.vEol"), s.eol, "red")}
           {tile("noAsset", t("idn.pc.vNoAsset"), s.noAsset, "amber")}
@@ -77,7 +79,7 @@ export function Computers({ sources, onFindings }: { sources: IdentitySourceDto[
           </Select>
           <Select value={f.view} onChange={(e) => setF({ ...f, view: e.target.value as View | "" })} aria-label={t("idn.pc.view")}>
             <option value="">{t("idn.pc.vAll")}</option>
-            {(["stale", "eol", "noAsset", "unmonitored", "findings", "disabled"] as const).map((v) => (
+            {(["active", "stale", "eol", "noAsset", "unmonitored", "findings", "disabled"] as const).map((v) => (
               <option key={v} value={v}>
                 {t.dyn(`idn.pc.v${v[0]!.toUpperCase()}${v.slice(1)}`, v)}
               </option>
