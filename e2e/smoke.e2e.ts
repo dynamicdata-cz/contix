@@ -1873,6 +1873,28 @@ test("mapy a půdorysy: nahrání, umístění aktiva, semafor (v1.25)", async (
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("bezpečnostní zóny: výchozí sada, rozsah IP, mapa a zóna v detailu aktiva (v1.97)", async () => {
+  await page.goto("/assets");
+  const headers = { origin: new URL(page.url()).origin };
+  const asset = await (await page.request.post("/api/assets", { data: { name: "E2E zónový server", assetType: "server", ipAddresses: ["10.197.3.10"] }, headers })).json();
+  await page.getByTestId("nav-zones").click();
+  await expect(page.getByRole("heading", { name: "Bezpečnostní zóny", level: 1 })).toBeVisible();
+  await page.getByTestId("zn-defaults").click();
+  await expect(page.getByTestId("zn-band-server")).toBeVisible();
+  await expect(page.getByTestId("zn-list")).toContainText("Servery");
+  await page.getByTestId("zn-list").locator("div", { hasText: "Servery" }).getByRole("button", { name: "Upravit zónu" }).first().click();
+  await page.getByTestId("zn-cidrs").fill("10.197.3.0/24");
+  await page.getByTestId("zn-save").click();
+  await page.getByTestId("zn-assign").click();
+  await expect(page.getByTestId("zn-chip").filter({ hasText: "E2E zónový server" })).toBeVisible();
+  await page.goto(`/assets/${asset.id}`);
+  await expect(page.getByTestId("asset-zone")).toBeVisible();
+  await expect(page.getByTestId("asset-zone").locator("option").first()).toHaveText("Podle IP: Servery");
+  await page.getByTestId("asset-zone").selectOption({ label: "DMZ" });
+  await expect(page.getByTestId("asset-zone-mode")).toHaveText("ručně");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("žádosti o přístup: import osob, žádost, vyřízení (v1.26)", async () => {
   await page.goto("/access");
   await expect(page.getByRole("heading", { name: "Žádosti o přístup", level: 1 })).toBeVisible();

@@ -529,6 +529,15 @@ export function startNotificationScheduler(db: Db, config: Config, intervalMs = 
       await closeResolvedSourceTasks(db).catch((e) => console.error("Úkoly z nálezů:", (e as Error).message));
       // nálezy monitoringu – doba bez spojení agentů roste i bez synchronizace Wazuhu (v1.96, ADR-190)
       await import("../integrations/monitoringFindings").then((m) => m.syncMonitoringFindings(db)).catch((e) => console.error("Nálezy monitoringu:", (e as Error).message));
+      // bezpečnostní zóny: přeřazení aktiv podle IP (nová aktiva z discovery) a kontroly zón (v1.97, ADR-191)
+      await import("../zones/service")
+        .then(async (m) => {
+          const { securityZones } = await import("../../db/schema");
+          const cos = [...new Set((await db.selectDistinct({ c: securityZones.companyId }).from(securityZones)).map((x) => x.c))];
+          for (const co of cos) await m.assignZones(db, co);
+          await m.syncZoneFindings(db, cos);
+        })
+        .catch((e) => console.error("Bezpečnostní zóny:", (e as Error).message));
       // odkazy na smazané záznamy (štítky, výjimky, vazby infoservisu) – úklid
       await sweepDangling(db).catch((e) => console.error("Úklid odkazů:", (e as Error).message));
       // nejdřív Wazuh alerty (nové návrhy událostí), pak upozornění

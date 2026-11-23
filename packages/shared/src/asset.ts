@@ -186,6 +186,9 @@ export interface AssetDto {
   availability: number | null;
   redundant: boolean;
   internetFacing: boolean;
+  /** Bezpečnostní zóna (v1.97); `zoneManual` = zvolena ručně, jinak podle IP. */
+  zoneId?: string | null;
+  zoneManual?: boolean;
   lifecycleStatus: LifecycleStatus;
   environment: Environment | null;
   tags: string[];

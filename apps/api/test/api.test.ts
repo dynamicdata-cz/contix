@@ -11297,6 +11297,75 @@ describe.skipIf(!url)("API (integrace)", () => {
     await db.delete(schema.assets).where(sql`name like 'wz-%' or name = 'wazuh-manager'`);
   });
 
+  test("bezpečnostní zóny: výchozí katalog, zařazení podle IP, ruční zóna, mapa, kontroly zón jako nálezy (v1.97)", async () => {
+    const H = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
+    const empty = (await admin.json("/api/zones", { headers: H })).body;
+    expect(empty).toEqual([]);
+    const seeded = await admin.json("/api/zones/defaults", { method: "POST", headers: H });
+    expect(seeded.body.created).toBe(7);
+    const zs = seeded.body.zones as any[];
+    const zid = (k: string) => zs.find((z) => z.kind === k).id;
+    expect((await admin.json("/api/zones/defaults", { method: "POST", headers: H })).body.created).toBe(0);
+    // rozsahy zón; vlastní zóna s přesnějším rozsahem
+    const put = (k: string, cidrs: string[]) => {
+      const z = zs.find((x) => x.kind === k);
+      return admin.json(`/api/zones/${z.id}`, { method: "PUT", headers: H, json: { name: z.name, kind: z.kind, trust: z.trust, color: z.color, description: z.description, cidrs, sortOrder: z.sortOrder } });
+    };
+    expect((await put("dmz", ["10.97.1.0/24"])).status).toBe(200);
+    await put("user", ["10.97.2.0/24"]);
+    await put("server", ["10.97.3.0/24"]);
+    await put("management", ["10.97.4.0/24"]);
+    expect((await put("ot", ["10.97.5.0/33"])).status).toBe(400);
+    const custom = await admin.json("/api/zones", { method: "POST", headers: H, json: { name: "Kamery", kind: "custom", trust: 1, cidrs: ["10.97.3.200/29"] } });
+    expect(custom.status).toBe(201);
+    const mk = async (name: string, ip: string, assetType = "server", extra: Record<string, unknown> = {}) => (await admin.json("/api/assets", { method: "POST", headers: H, json: { name, assetType, ipAddresses: [ip], ...extra } })).body;
+    const web = await mk("z97-web", "10.97.1.10", "server", { internetFacing: true });
+    const pc = await mk("z97-pc", "10.97.2.15", "workstation");
+    const db97 = await mk("z97-db", "10.97.3.20");
+    const hv = await mk("z97-hyperv", "10.97.4.5");
+    const cam = await mk("z97-cam", "10.97.3.201", "network_device");
+    const admpc = await mk("z97-adminpc", "10.97.4.50", "workstation");
+    // vazby: web → db (DMZ → servery, skok o 2 úrovně), pc → hyperv (uživatelé → správa), db → pc (dolů = v pořádku)
+    for (const [a, b] of [[web, db97], [pc, hv], [db97, pc]]) await db.insert(schema.assetDependencies).values({ fromId: a.id, toId: b.id });
+    const asg = await admin.json("/api/zones/assign", { method: "POST", headers: H });
+    expect(asg.status).toBe(200);
+    const zoneOf = async (id: string) => (await admin.json(`/api/assets/${id}`, { headers: H })).body.zoneId;
+    expect(await zoneOf(web.id)).toBe(zid("dmz"));
+    expect(await zoneOf(db97.id)).toBe(zid("server"));
+    expect(await zoneOf(cam.id)).toBe(custom.body.id); // přesnější rozsah vyhrává
+    // ruční zóna a návrat k automatice
+    expect((await admin.json(`/api/zones/assets/${cam.id}`, { method: "PUT", headers: H, json: { zoneId: zid("ot") } })).body).toEqual({ zoneId: zid("ot"), zoneManual: true });
+    expect((await admin.json(`/api/zones/assets/${cam.id}`, { method: "PUT", headers: H, json: { zoneId: null } })).body).toEqual({ zoneId: custom.body.id, zoneManual: false });
+    // mapa: vazby přes hranice s hodnocením
+    const m = (await admin.json("/api/zones/map", { headers: H })).body;
+    const lv = (a: any, b: any) => m.flows.find((f: any) => f.fromId === a.id && f.toId === b.id)?.level;
+    expect(lv(web, db97)).toBe("high");
+    expect(lv(pc, hv)).toBe("high");
+    expect(lv(db97, pc)).toBe("ok");
+    expect(m.zones.find((z: any) => z.kind === "dmz")).toMatchObject({ assets: 1, monitored: 0, internetFacing: 1 });
+    // kontroly zón → nálezy (zdroj monitoring)
+    const f = (await admin.json("/api/findings?source=monitoring&status=open", { headers: H })).body.items as any[];
+    expect(f.find((x) => x.assetId === web.id && x.title.startsWith("Aktivum v DMZ"))).toMatchObject({ severity: "high" });
+    expect(f.find((x) => x.assetId === admpc.id && x.title.startsWith("Pracovní stanice v zóně"))).toMatchObject({ severity: "medium" });
+    expect(f.filter((x) => x.title.startsWith("Vazba přes hranici zón")).map((x) => x.title).sort()).toEqual(["Vazba přes hranici zón bez řízeného přechodu: z97-pc → z97-hyperv", "Vazba přes hranici zón bez řízeného přechodu: z97-web → z97-db"]);
+    expect(f.some((x) => x.title.startsWith("Zóna bez jediného sledovaného aktiva") && x.title.endsWith(": Servery"))).toBe(true);
+    expect(f.filter((x) => x.assetId === db97.id && !x.title.startsWith("Vazba"))).toEqual([]); // server v serverové zóně je v pořádku
+    // přesun stanice do uživatelské zóny → nález se uzavře
+    await admin.json(`/api/zones/assets/${admpc.id}`, { method: "PUT", headers: H, json: { zoneId: zid("user") } });
+    const f2 = (await admin.json("/api/findings?source=monitoring&status=open", { headers: H })).body.items as any[];
+    expect(f2.some((x) => x.assetId === admpc.id && x.title.startsWith("Pracovní stanice"))).toBe(false);
+    // smazání zóny vrátí aktiva do automatiky
+    expect((await admin.json(`/api/zones/${zid("management")}`, { method: "DELETE", headers: H })).status).toBe(200);
+    expect(await zoneOf(hv.id)).toBeNull();
+    const viewer = browser();
+    expect((await viewer.json("/api/zones")).status).toBe(401);
+    // úklid: zóny pryč, nálezy zón se uzavřou
+    for (const z of (await admin.json("/api/zones", { headers: H })).body as any[]) await admin.json(`/api/zones/${z.id}`, { method: "DELETE", headers: H });
+    const { syncZoneFindings } = await import("../src/modules/zones/service");
+    await syncZoneFindings(db);
+    expect(((await admin.json("/api/findings?source=monitoring&status=open", { headers: H })).body.items as any[]).filter((x) => x.title.startsWith("Vazba přes hranici"))).toHaveLength(0);
+  });
+
   /* ============ Audit a odhlášení ============ */
 
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {

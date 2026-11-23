@@ -41,6 +41,7 @@ const PAGES: [string, MsgKey][] = [
   ["/continuity/exercises", "nav.exercises"],
   ["/assets", "nav.assets"],
   ["/assets/maps", "map.title"],
+  ["/assets/zones", "zn.title"],
   ["/vulnerabilities", "nav.vulnerabilities"],
   ["/processes", "nav.processes"],
   ["/incidents", "nav.incidents"],

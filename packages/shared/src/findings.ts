@@ -77,7 +77,7 @@ export const FindingsQuery = z.object({
 export type FindingsQuery = z.input<typeof FindingsQuery>;
 
 export const FINDING_LABELS = {
-  source: { sectest: "Bezpečnostní test", host: "Konfigurace serveru", vulnerability: "Zranitelnost", audit: "Zjištění auditu", identity: "Identity a přístupy", monitoring: "Monitoring (Wazuh)" } as Record<FindingSource, string>,
+  source: { sectest: "Bezpečnostní test", host: "Konfigurace serveru", vulnerability: "Zranitelnost", audit: "Zjištění auditu", identity: "Identity a přístupy", monitoring: "Monitoring a zóny" } as Record<FindingSource, string>,
   severity: { critical: "Kritická", high: "Vysoká", medium: "Střední", low: "Nízká", info: "Info" } as Record<UnifiedSeverity, string>,
   status: { open: "Otevřený", in_progress: "V řešení", accepted: "Přijaté riziko", fixed: "Opraveno", dismissed: "Zamítnuto" } as Record<UnifiedStatus, string>,
 };
@@ -238,7 +238,7 @@ export interface FindingEscalationDto {
 }
 
 /* ---------- nálezy monitoringu (v1.96, ADR-190) ---------- */
-export const MONITORING_CODES = ["wazuh_agent_stale", "wazuh_agent_outdated"] as const;
+export const MONITORING_CODES = ["wazuh_agent_stale", "wazuh_agent_outdated", "zone_exposed_unmonitored", "zone_workstation_in_server", "zone_boundary_flow", "zone_unmonitored"] as const;
 export type MonitoringCode = (typeof MONITORING_CODES)[number];
 export const MONITORING_INFO: Record<MonitoringCode, { title: string; fix: string }> = {
   wazuh_agent_stale: {
@@ -248,5 +248,22 @@ export const MONITORING_INFO: Record<MonitoringCode, { title: string; fix: strin
   wazuh_agent_outdated: {
     title: "Agent Wazuhu má starší verzi než manager",
     fix: "Aktualizujte agenta na verzi manageru (Wazuh → Agents → Upgrade, nebo balíček wazuh-agent).",
+  },
+  // bezpečnostní zóny (v1.97, ADR-191)
+  zone_exposed_unmonitored: {
+    title: "Aktivum v DMZ / dostupné z internetu bez sběru dat",
+    fix: "Nasaďte agenta Wazuhu nebo CONTIX, případně sběrač – aktivum na hranici sítě musí být sledované (události, zranitelnosti).",
+  },
+  zone_workstation_in_server: {
+    title: "Pracovní stanice v zóně serverů nebo správy",
+    fix: "Přesuňte stanici do uživatelské sítě (VLAN, DHCP rozsah); administraci provádějte přes jump server ve zóně Správa.",
+  },
+  zone_boundary_flow: {
+    title: "Vazba přes hranici zón bez řízeného přechodu",
+    fix: "Ověřte, že tok prochází firewallem / proxy s pravidlem jen pro potřebné porty, a zapište výjimku; jinak vazbu přesuňte nebo zrušte.",
+  },
+  zone_unmonitored: {
+    title: "Zóna bez jediného sledovaného aktiva",
+    fix: "Zapojte do sběru dat (Wazuh, agent CONTIX, sběrač) aspoň klíčová aktiva zóny.",
   },
 };

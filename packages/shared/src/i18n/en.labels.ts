@@ -2,7 +2,20 @@ import { hardeningEnLabels } from "../hardening";
 
 /** Anglické překlady hotových českých textů (t.lbl / lbl) – klíč `lbl:<český text>`. Generováno z *_LABELS, MODULES, SECURITY_ROLES, stupnic rizik, map v komponentách a chybových hlášek API. */
 export const EN_LABELS: Record<string, string> = {
-  "lbl:Monitoring (Wazuh)": "Monitoring (Wazuh)",
+  "lbl:Rozsah zadejte jako 10.0.0.0/24": "Enter the range as 10.0.0.0/24",
+  "lbl:Zóna nepatří do společnosti aktiva": "The zone does not belong to the asset's company",
+  "lbl:Zóna nenalezena": "Zone not found",
+  "lbl:Vlastní": "Custom",
+  "lbl:OT / průmyslové řízení": "OT / industrial control",
+  "lbl:Správa": "Management",
+  "lbl:Servery": "Servers",
+  "lbl:Uživatelé": "Users",
+  "lbl:Hosté": "Guests",
+  "lbl:Chráněná": "Protected",
+  "lbl:Vnitřní": "Internal",
+  "lbl:Hraniční": "Boundary",
+  "lbl:Nedůvěryhodná": "Untrusted",
+  "lbl:Monitoring a zóny": "Monitoring and zones",
   "lbl:Opravený nález nelze změnit.": "A fixed finding cannot be changed.",
   "lbl:Výjimku zdůvodněte (aspoň 5 znaků).": "Justify the exception (at least 5 characters).",
   "lbl:Počítače a servery z AD": "Computers and servers from AD",

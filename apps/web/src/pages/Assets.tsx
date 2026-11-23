@@ -26,7 +26,7 @@ import { HealthIndicator, VulnCounts } from "@/components/health";
 import { HEALTH_STATUSES, VULN_LABELS, type HealthStatus } from "@contix/shared";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Copy, Map as MapIcon, Network, Plus, Search, Share2, ShieldAlert, ShieldCheck } from "lucide-react";
+import { Copy, Map as MapIcon, Network, Plus, Search, Share2, ShieldAlert, ShieldCheck , Layers } from "lucide-react";
 import { useState } from "react";
 
 const PAGE = 50;
@@ -88,6 +88,11 @@ export function AssetsPage() {
             <Link to="/assets/maps">
               <Button variant="secondary">
                 <MapIcon size={16} /> {t("map.title")}
+              </Button>
+            </Link>
+            <Link to="/assets/zones">
+              <Button variant="secondary">
+                <Layers size={16} /> {t("zn.title")}
               </Button>
             </Link>
             <Link to="/assets/graph">

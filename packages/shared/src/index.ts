@@ -112,3 +112,4 @@ export * from "./quality";
 export * from "./bulk";
 export * from "./hardening";
 export * from "./integrationMap";
+export * from "./zones";

@@ -3975,3 +3975,30 @@ describe("provozní skripty (v1.95, ADR-189)", () => {
     }
   });
 });
+
+describe("bezpečnostní zóny (v1.97, ADR-191)", () => {
+  test("rozsahy IP, nejpřesnější zóna, hodnocení vazeb přes hranice", async () => {
+    const { cidrRange, matchZone, zoneFlowLevel, ipToInt } = await import("@contix/shared");
+    expect(ipToInt("10.0.0.1")).toBe(167772161);
+    expect(ipToInt("300.1.1.1")).toBeNull();
+    expect(cidrRange("10.0.0.0/24")).toEqual([167772160, 167772415, 24]);
+    expect(cidrRange("10.0.0.7")).toEqual([167772167, 167772167, 32]);
+    const zones = [
+      { id: "lan", cidrs: ["10.0.0.0/16"], sortOrder: 10 },
+      { id: "srv", cidrs: ["10.0.5.0/24"], sortOrder: 20 },
+      { id: "fw", cidrs: ["10.0.5.1"], sortOrder: 30 },
+    ];
+    expect(matchZone(["10.0.9.9"], zones)?.id).toBe("lan");
+    expect(matchZone(["10.0.5.20"], zones)?.id).toBe("srv");
+    expect(matchZone(["192.168.1.1", "10.0.5.1"], zones)?.id).toBe("fw");
+    expect(matchZone(["192.168.1.1", "fe80::1"], zones)).toBeNull();
+    const z = (kind: any, trust: number) => ({ kind, trust });
+    expect(zoneFlowLevel(z("user", 2), z("management", 4))).toBe("high");
+    expect(zoneFlowLevel(z("server", 3), z("management", 4))).toBe("warn");
+    expect(zoneFlowLevel(z("dmz", 1), z("server", 3))).toBe("high");
+    expect(zoneFlowLevel(z("dmz", 1), z("user", 2))).toBe("warn");
+    expect(zoneFlowLevel(z("user", 2), z("ot", 4))).toBe("high");
+    expect(zoneFlowLevel(z("server", 3), z("user", 2))).toBe("ok");
+    expect(zoneFlowLevel(z("custom", 2), z("custom", 2))).toBe("ok");
+  });
+});

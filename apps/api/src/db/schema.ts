@@ -388,6 +388,24 @@ export const appSettings = pgTable("app_settings", {
  * ================================================================ */
 
 /** Aktivum – "zlatý záznam" sjednocený ze všech zdrojů. */
+/** Bezpečnostní zóny sítě (v1.97, ADR-191) – rozšiřitelný katalog s úrovní důvěry a rozsahy IP. */
+export const securityZones = pgTable(
+  "security_zones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    name: varchar("name", { length: 120 }).notNull(),
+    kind: varchar("kind", { length: 20 }).notNull().default("custom"),
+    trust: smallint("trust").notNull().default(2),
+    color: varchar("color", { length: 7 }).notNull().default("#64748b"),
+    description: text("description").notNull().default(""),
+    cidrs: text("cidrs").array().notNull().default(sql`'{}'::text[]`),
+    sortOrder: smallint("sort_order").notNull().default(100),
+    ...timestamps,
+  },
+  (t) => [index("security_zones_company_idx").on(t.companyId)],
+);
+
 export const assets = pgTable(
   "assets",
   {
@@ -426,6 +444,9 @@ export const assets = pgTable(
     redundant: boolean("redundant").notNull().default(false),
     /** Aktivum dosažitelné z internetu (ADR-095) – zvyšuje prioritu kritických a vysokých zranitelností. */
     internetFacing: boolean("internet_facing").notNull().default(false),
+    /** Bezpečnostní zóna (v1.97, ADR-191): podle IP, nebo ručně (`zoneManual`). */
+    zoneId: uuid("zone_id").references(() => securityZones.id, { onDelete: "set null" }),
+    zoneManual: boolean("zone_manual").notNull().default(false),
     environment: environmentEnum("environment"),
     tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
     attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
@@ -445,6 +466,7 @@ export const assets = pgTable(
   },
   (t) => [
     index("assets_type_idx").on(t.assetType),
+    index("assets_zone_idx").on(t.zoneId),
     index("assets_health_idx").on(t.healthStatus),
     index("assets_class_idx").on(t.assetClass),
     index("assets_owner_idx").on(t.ownerUserId),

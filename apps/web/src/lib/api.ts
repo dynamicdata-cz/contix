@@ -105,6 +105,9 @@ import type {
   AccountActivity,
   IdentityInventory,
   WazuhAgentsDto,
+  SecurityZoneDto,
+  SecurityZoneInput,
+  ZoneMapDto,
   IdentityAccountDetail,
   IdentitySourceDto,
   IdentitySourceInput,
@@ -1975,6 +1978,16 @@ export const api = {
     reportUrl: (q: { batchIds?: string; from?: string; to?: string; all?: "1" }, fmt: "html" | "docx" = "html") => withCompany(`/api/security-tests/report.${fmt}?${qs(q)}`),
   },
 
+  zones: {
+    list: () => request<SecurityZoneDto[]>("/zones"),
+    map: () => request<ZoneMapDto>("/zones/map"),
+    defaults: () => post<{ created: number; moved: number; zones: SecurityZoneDto[] }>("/zones/defaults", {}),
+    assign: () => post<{ moved: number; zones: SecurityZoneDto[] }>("/zones/assign", {}),
+    create: (d: SecurityZoneInput) => post<{ id: string; moved: number; zones: SecurityZoneDto[] }>("/zones", d),
+    update: (id: string, d: SecurityZoneInput) => put<{ moved: number; zones: SecurityZoneDto[] }>(`/zones/${id}`, d),
+    remove: (id: string) => del<{ moved: number; zones: SecurityZoneDto[] }>(`/zones/${id}`),
+    setAssetZone: (assetId: string, zoneId: string | null) => put<{ zoneId: string | null; zoneManual: boolean }>(`/zones/assets/${assetId}`, { zoneId }),
+  },
   integrations: {
     /** Mapa propojení (v1.86): zóny, uzly, spojení, stavy a pokrytí serverů. */
     map: () => request<IntegrationMapDto>("/integrations/map"),

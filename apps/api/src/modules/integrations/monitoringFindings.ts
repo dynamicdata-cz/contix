@@ -1,5 +1,5 @@
 import { MONITORING_INFO, WAZUH_STALE_DAYS, type MonitoringCode } from "@contix/shared";
-import { and, eq, inArray, lt, ne, or, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "../../db/client";
 import { assets, connections, monitoringFindings } from "../../db/schema";
 import { wazuhAgents } from "./wazuhAgents";
@@ -11,16 +11,6 @@ import { wazuhAgents } from "./wazuhAgents";
  * Nález, jehož příčina pominula, se uzavře jako opravený; přijatý (výjimka) zůstane do svého termínu.
  * ============================================================ */
 
-interface Desired {
-  companyId: string;
-  connectionId: string;
-  assetId: string;
-  key: string;
-  code: MonitoringCode;
-  severity: string;
-  subject: string;
-  detail: string;
-}
 
 export async function syncMonitoringFindings(db: Db, now = new Date()) {
   const conns = await db.select({ id: connections.id }).from(connections).where(and(eq(connections.kind, "wazuh"), eq(connections.enabled, true)));
@@ -30,7 +20,7 @@ export async function syncMonitoringFindings(db: Db, now = new Date()) {
   const offClose = await db
     .update(monitoringFindings)
     .set({ status: "fixed", fixedAt: now, updatedAt: now })
-    .where(and(eq(monitoringFindings.status, "open"), ids.length ? sql`(${monitoringFindings.connectionId} is null or ${monitoringFindings.connectionId} not in (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)}))` : undefined))
+    .where(and(eq(monitoringFindings.status, "open"), sql`${monitoringFindings.code} like 'wazuh\\_%'`, ids.length ? sql`(${monitoringFindings.connectionId} is null or ${monitoringFindings.connectionId} not in (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)}))` : undefined))
     .returning({ id: monitoringFindings.id });
   res.fixed += offClose.length;
   if (!ids.length) return res;
@@ -38,7 +28,7 @@ export async function syncMonitoringFindings(db: Db, now = new Date()) {
   const assetIds = [...new Set([...agents.values()].flatMap((a) => a.items.map((i) => i.asset?.id)).filter((x): x is string => !!x))];
   const meta = assetIds.length ? await db.select({ id: assets.id, companyId: assets.companyId, assetType: assets.assetType }).from(assets).where(inArray(assets.id, assetIds)) : [];
   const am = new Map(meta.map((m) => [m.id, m]));
-  const desired: Desired[] = [];
+  const desired: MonitoringDesired[] = [];
   for (const [cid, r] of agents)
     for (const a of r.items) {
       const m = a.asset ? am.get(a.asset.id) : undefined;
@@ -54,6 +44,28 @@ export async function syncMonitoringFindings(db: Db, now = new Date()) {
       if (a.outdated && r.managerVersion)
         desired.push({ ...base, code: "wazuh_agent_outdated", severity: "low", detail: `${a.name}: agent ${a.version ?? "?"}, manager ${r.managerVersion}.` });
     }
+  const r = await applyMonitoringFindings(db, desired, and(sql`${monitoringFindings.code} like 'wazuh\\_%'`, or(inArray(monitoringFindings.connectionId, ids), sql`${monitoringFindings.connectionId} is null`))!, now);
+  return { opened: res.opened + r.opened, fixed: res.fixed + r.fixed, reopened: r.reopened };
+}
+
+export interface MonitoringDesired {
+  companyId: string;
+  connectionId: string | null;
+  assetId: string | null;
+  key: string;
+  code: string;
+  severity: string;
+  subject: string;
+  detail: string;
+}
+
+/**
+ * Společný životní cyklus nálezů monitoringu: požadované nálezy založí / obnoví (opravený nebo výjimka po termínu se
+ * znovu otevře), ostatní otevřené a přijaté v rozsahu `scope` (druh nálezů, společnosti) uzavře jako opravené.
+ */
+export async function applyMonitoringFindings(db: Db, desired: MonitoringDesired[], scope: SQL, now = new Date()) {
+  const res = { opened: 0, fixed: 0, reopened: 0 };
+  const today = now.toISOString().slice(0, 10);
   for (const d of desired) {
     const [cur] = await db.select({ id: monitoringFindings.id, status: monitoringFindings.status, acceptedUntil: monitoringFindings.acceptedUntil }).from(monitoringFindings).where(and(eq(monitoringFindings.key, d.key), eq(monitoringFindings.code, d.code)));
     if (!cur) {
@@ -61,7 +73,6 @@ export async function syncMonitoringFindings(db: Db, now = new Date()) {
       res.opened++;
       continue;
     }
-    const today = now.toISOString().slice(0, 10);
     // opravený znovu vznikl, nebo výjimce uplynul termín → znovu otevřít
     const reopen = cur.status === "fixed" || (cur.status === "accepted" && !!cur.acceptedUntil && cur.acceptedUntil < today);
     await db
@@ -70,11 +81,11 @@ export async function syncMonitoringFindings(db: Db, now = new Date()) {
       .where(eq(monitoringFindings.id, cur.id));
     if (reopen) res.reopened++;
   }
-  // nálezy, jejichž příčina pominula (agent se připojil, aktualizoval, byl odebrán)
+  // nálezy, jejichž příčina pominula
   const gone = await db
     .update(monitoringFindings)
     .set({ status: "fixed", fixedAt: now, updatedAt: now })
-    .where(and(inArray(monitoringFindings.status, ["open", "accepted"]), lt(monitoringFindings.lastSeenAt, now), or(inArray(monitoringFindings.connectionId, ids), sql`${monitoringFindings.connectionId} is null`)))
+    .where(and(inArray(monitoringFindings.status, ["open", "accepted"]), lt(monitoringFindings.lastSeenAt, now), scope))
     .returning({ id: monitoringFindings.id });
   res.fixed += gone.length;
   return res;

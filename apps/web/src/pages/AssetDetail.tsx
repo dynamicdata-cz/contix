@@ -2,6 +2,7 @@ import { Tabs, useTab } from "@/components/ui/tabs";
 import { HostInventoryCard } from "@/components/hostInventory";
 import { AssetSecTestsCard } from "@/pages/SecurityTests";
 import { AssetFindingsCard } from "@/pages/Findings";
+import { AssetZoneSelect } from "@/pages/Zones";
 import { askConfirm } from "@/components/ui/overlay";
 import { LinkedRecordsCard } from "@/components/linkedRecords";
 import { TagBar } from "@/components/tags";
@@ -172,6 +173,9 @@ export function AssetDetailPage() {
               <Item label={t("ast.hostname")}>{a.hostname}</Item>
               <Item label={t("ast.fqdn")}>{a.fqdn && a.fqdn !== a.hostname ? a.fqdn : null}</Item>
               <Item label={t("ast.ipAdresy")}>{a.ipAddresses.length ? <AddrList items={a.ipAddresses} ip /> : null}</Item>
+              <Item label={t("zn.assetZone")}>
+                <AssetZoneSelect assetId={a.id} zoneId={a.zoneId ?? null} manual={!!a.zoneManual} />
+              </Item>
               <Item label={t("ast.macAdresy")}>{a.macAddresses.length ? <AddrList items={a.macAddresses} /> : null}</Item>
               <Item label={t("ast.operacniSystem")}>{osLabel(a.osName, a.osVersion)}</Item>
               <Item label={t("ast.vyrobceModel")}>{[a.manufacturer, a.model].filter(Boolean).join(" ")}</Item>

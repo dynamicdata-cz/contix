@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.97.0
+
+Bezpečnostní zóny a vrstvená mapa (ADR-191).
+
+- **Bezpečnostní zóny** (Aktiva → Bezpečnostní zóny): jedním tlačítkem vznikne výchozí sada Internet, DMZ, Hosté, Uživatelé, Servery, Správa a OT s úrovní důvěry 0–4. Zóny jde přejmenovat, smazat a přidávat **vlastní** (např. Kamery, Interní DMS) s vlastní úrovní důvěry – základ je hotový, další vrstvy si doplníte podle své sítě.
+- **Zařazení aktiv podle IP**: do zóny zapíšete rozsahy IP a aktiva se zařadí sama (nejpřesnější rozsah vyhrává); přepočet po uložení zóny, tlačítkem i plánovačem. V detailu aktiva jde zónu nastavit ručně a zase vrátit na automatiku.
+- **Vrstvená mapa zón**: zóny od nedůvěryhodné po kritickou, u aktiv sběr dat a dostupnost z internetu, šipky vazeb přes hranice zón obarvené podle rizika (skok o víc úrovní nebo do správy či OT = červená).
+- **Kontroly segmentace jako nálezy** (zdroj registru nálezů se nově jmenuje *Monitoring a zóny*): aktivum v DMZ / z internetu bez sběru dat, pracovní stanice v zóně serverů či správy, riziková vazba přes hranici zón, zóna bez sledovaného aktiva. Po nápravě se nález sám uzavře.
+
 ## 1.96.0
 
 Nálezy monitoringu a report počítačů z AD (ADR-190).
