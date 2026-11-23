@@ -153,7 +153,7 @@ function RequestsTab({ onOpen, manage }: { onOpen: (id: string) => void; manage:
   const rows = (q.data ?? []).filter((r) => filter !== "mine" || r.canDecide);
   return (
     <Card>
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3">
         {(["open", "mine", "all"] as const).map((k) => (
           <Button key={k} variant={filter === k ? "primary" : "secondary"} className="px-3 py-1 text-xs" onClick={() => setFilter(k)}>
             {t(`acc.filter.${k}`)}
@@ -183,7 +183,7 @@ function RequestsTab({ onOpen, manage }: { onOpen: (id: string) => void; manage:
             </thead>
             <tbody>
               {rows.map((r) => (
-                <tr key={r.id} className="cursor-pointer border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/50" onClick={() => onOpen(r.id)}>
+                <tr key={r.id} className="cursor-pointer border-b border-slate-100 hover:bg-slate-50" onClick={() => onOpen(r.id)}>
                   <td className="px-5 py-2 font-medium" onClick={(e) => e.stopPropagation()}>
                     <PersonLink id={r.personId} name={r.personName} />
                   </td>
@@ -288,7 +288,7 @@ function RequestModal({ id, onClose }: { id: string; onClose: () => void }) {
                         {a.decidedByName} · {fmtDay(a.decidedAt)}
                       </span>
                     )}
-                    {a.comment && <span className="w-full pl-5 text-slate-600 dark:text-slate-300">„{a.comment}“</span>}
+                    {a.comment && <span className="w-full pl-5 text-slate-600">„{a.comment}“</span>}
                   </li>
                 ))}
               </ol>
@@ -368,7 +368,7 @@ function NewRequestModal({ open, init, onClose, onCreated }: { open: boolean; in
     >
       <div className="space-y-3">
         <ErrorBox error={m.error ?? people.error} />
-        {people.data && !people.data.length && <div className="rounded bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">{t("acc.noPersonForYou")}</div>}
+        {people.data && !people.data.length && <div className="rounded bg-amber-50 p-3 text-sm text-amber-800">{t("acc.noPersonForYou")}</div>}
         <Field label={t("acc.person")}>
           <Select value={f.personId} onChange={(e) => setF({ ...f, personId: e.target.value })}>
             <option value="">—</option>
@@ -430,7 +430,7 @@ function GrantsTab() {
   const q = useQuery({ queryKey: ["access", "grants", history], queryFn: () => api.access.grants(history) });
   return (
     <Card>
-      <div className="border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+      <div className="border-b border-slate-100 px-5 py-3">
         <Checkbox checked={history} onChange={setHistory} label={t("acc.showRevoked")} />
       </div>
       <ErrorBox error={q.error} />
@@ -449,7 +449,7 @@ function GrantsTab() {
             </thead>
             <tbody>
               {q.data?.map((g) => (
-                <tr key={g.id} className="border-b border-slate-100 dark:border-slate-800">
+                <tr key={g.id} className="border-b border-slate-100">
                   <td className="px-5 py-2">
                     <PersonLink id={g.personId} name={g.personName} /> {g.personStatus !== "active" && <Badge tone={personTone[g.personStatus]}>{t.lbl(ACCESS_LABELS.personStatus[g.personStatus])}</Badge>}
                   </td>
@@ -533,7 +533,7 @@ function ResourcesTab({ manage }: { manage: boolean }) {
             </thead>
             <tbody>
               {q.data?.map((r) => (
-                <tr key={r.id} className={`border-b border-slate-100 dark:border-slate-800 ${r.active ? "" : "opacity-50"}`}>
+                <tr key={r.id} className={`border-b border-slate-100 ${r.active ? "" : "opacity-50"}`}>
                   <td className="px-5 py-2">
                     <div className="font-medium">
                       {r.name} {r.privileged && <Badge tone="amber">{t("acc.privileged")}</Badge>}
@@ -678,7 +678,7 @@ function PeopleTab() {
           </div>
         }
       />
-      <div className="border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+      <div className="border-b border-slate-100 px-5 py-3">
         <Input placeholder={t("acc.searchPeople")} value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
       <ErrorBox error={q.error ?? remove.error} />
@@ -700,7 +700,7 @@ function PeopleTab() {
             </thead>
             <tbody>
               {rows.map((p) => (
-                <tr key={p.id} className="border-b border-slate-100 dark:border-slate-800">
+                <tr key={p.id} className="border-b border-slate-100">
                   <td className="px-5 py-2">
                     <PersonLink id={p.id} name={p.name} />
                     <div className="text-xs text-slate-500">{[p.email, p.jobTitle].filter(Boolean).join(" · ")}</div>
@@ -836,7 +836,7 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
     >
       <div className="space-y-3 text-sm">
         <ErrorBox error={preview.error ?? commit.error} />
-        <p className="text-slate-600 dark:text-slate-300">{t("acc.importHint")}</p>
+        <p className="text-slate-600">{t("acc.importHint")}</p>
         <Input
           type="file"
           accept=".csv,.xlsx,.txt"
@@ -857,27 +857,27 @@ function ImportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
               {prev.counts.leavers > 0 && <Badge tone="amber">{t("acc.imp.leavers", { n: prev.counts.leavers })}</Badge>}
             </div>
             {prev.ignoredSensitive.length > 0 && (
-              <div className="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">{t("acc.imp.sensitive", { cols: prev.ignoredSensitive.join(", ") })}</div>
+              <div className="rounded bg-amber-50 p-3 text-amber-900">{t("acc.imp.sensitive", { cols: prev.ignoredSensitive.join(", ") })}</div>
             )}
             {prev.counts.missing > 0 && (
-              <div className="rounded border border-slate-200 p-3 dark:border-slate-700">
+              <div className="rounded border border-slate-200 p-3">
                 <Checkbox checked={missingAsLeft} onChange={setMissingAsLeft} label={t("acc.imp.missingAsLeft", { n: prev.counts.missing })} hint={prev.missingNames.join(", ")} />
               </div>
             )}
             <div className="text-xs text-slate-500">
               {t("acc.imp.columns")}: {prev.headers.map((h, i) => `${h} → ${prev.mapping[i] ? t(`acc.col.${prev.mapping[i]}` as never) : "—"}`).join(" · ")}
             </div>
-            <div className="max-h-80 overflow-auto rounded border border-slate-200 dark:border-slate-700">
+            <div className="max-h-80 overflow-auto rounded border border-slate-200">
               <table className="w-full text-xs">
                 <tbody>
                   {prev.rows
                     .filter((r) => r.action !== "skip" || r.errors.length || r.warnings.length)
                     .map((r) => (
-                      <tr key={r.row} className="border-b border-slate-100 align-top dark:border-slate-800">
+                      <tr key={r.row} className="border-b border-slate-100 align-top">
                         <td className="px-2 py-1 text-slate-400">{r.row}</td>
                         <td className="px-2 py-1 font-medium">{r.name}</td>
                         <td className="px-2 py-1">{r.errors.length ? <Badge tone="red">{t("acc.imp.error")}</Badge> : <Badge tone={r.action === "create" ? "green" : r.action === "update" ? "blue" : "slate"}>{t(`acc.imp.${r.action}Short` as never)}</Badge>}</td>
-                        <td className="px-2 py-1 text-slate-600 dark:text-slate-300">{[...r.errors, ...r.warnings, ...(r.changes.length ? [r.changes.map((c) => t(`acc.col.${c}` as never)).join(", ")] : [])].join(" · ")}</td>
+                        <td className="px-2 py-1 text-slate-600">{[...r.errors, ...r.warnings, ...(r.changes.length ? [r.changes.map((c) => t(`acc.col.${c}` as never)).join(", ")] : [])].join(" · ")}</td>
                       </tr>
                     ))}
                 </tbody>
@@ -912,7 +912,7 @@ function AutoImportCard() {
       <CardHeader title={t("acc.auto.title")} subtitle={t("acc.auto.subtitle", { dir: d?.dir ?? "/import" })} />
       <div className="space-y-3 px-5 py-4 text-sm">
         <ErrorBox error={q.error ?? save.error ?? run.error} />
-        {d && !d.dirAvailable && <div className="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">{t("acc.auto.noDir", { dir: d.dir })}</div>}
+        {d && !d.dirAvailable && <div className="rounded bg-amber-50 p-3 text-amber-900">{t("acc.auto.noDir", { dir: d.dir })}</div>}
         {f && (
           <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
             <Field label={t("acc.auto.file")} hint={d?.fileName && !d.fileFound ? t("acc.auto.notFound") : undefined}>
@@ -933,7 +933,7 @@ function AutoImportCard() {
           </div>
         )}
         {d?.lastRunAt && (
-          <div className="text-slate-600 dark:text-slate-300">
+          <div className="text-slate-600">
             {t("acc.auto.last", { at: fmtDay(d.lastRunAt) })}{" "}
             {d.lastError ? (
               <span className="text-red-600">{d.lastError}</span>
@@ -982,9 +982,9 @@ function ReviewsTab({ manage }: { manage: boolean }) {
       {q.data && !q.data.length ? (
         <EmptyState>{t("acc.rev.empty")}</EmptyState>
       ) : (
-        <div className="divide-y divide-slate-100 dark:divide-slate-800">
+        <div className="divide-y divide-slate-100">
           {q.data?.map((c) => (
-            <button key={c.id} className="flex w-full flex-wrap items-center gap-3 px-5 py-3 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800/50" onClick={() => setCertId(c.id)}>
+            <button key={c.id} className="flex w-full flex-wrap items-center gap-3 px-5 py-3 text-left text-sm hover:bg-slate-50" onClick={() => setCertId(c.id)}>
               <span className="min-w-48 flex-1 font-medium">{c.name}</span>
               <span className="text-slate-500">{t.lbl(AL.certReviewer[c.reviewer])}</span>
               <span className="tabular-nums">
@@ -1105,7 +1105,7 @@ function CertificationModal({ id, manage, onClose }: { id: string; manage: boole
               </thead>
               <tbody>
                 {d.items.map((i) => (
-                  <tr key={i.id} className="border-b border-slate-100 align-top dark:border-slate-800">
+                  <tr key={i.id} className="border-b border-slate-100 align-top">
                     <td className="py-2 pr-3">
                       <div className="font-medium">{i.personName}</div>
                       <div className="text-xs text-slate-500">
@@ -1180,9 +1180,9 @@ function ReconcileTab({ onOpenRequest }: { onOpenRequest: (id: string) => void }
         <CardHeader title={t("acc.tab.reconcile")} subtitle={t("acc.rec.subtitle")} />
         <div className="space-y-2 px-5 py-4 text-sm">
           <ErrorBox error={q.error ?? adopt.error ?? revoke.error} />
-          {d && !d.sources.length && <div className="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">{t("acc.rec.noSource")}</div>}
+          {d && !d.sources.length && <div className="rounded bg-amber-50 p-3 text-amber-900">{t("acc.rec.noSource")}</div>}
           {d?.sources.map((s) => (
-            <div key={s.id} className="text-slate-600 dark:text-slate-300">
+            <div key={s.id} className="text-slate-600">
               {s.name}: {s.lastSyncAt ? t("acc.rec.synced", { at: fmtDay(s.lastSyncAt) }) : t("acc.rec.neverSynced")}
             </div>
           ))}
@@ -1210,11 +1210,11 @@ function ReconcileTab({ onOpenRequest }: { onOpenRequest: (id: string) => void }
               }
             />
             {r.items.length === 0 ? (
-              <div className="px-5 py-3 text-sm text-emerald-700 dark:text-emerald-400">
+              <div className="px-5 py-3 text-sm text-emerald-700">
                 <Check size={14} className="inline" /> {t("acc.rec.ok")}
               </div>
             ) : (
-              <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+              <ul className="divide-y divide-slate-100 text-sm">
                 {r.items.map((i) => (
                   <li key={`${i.type}:${i.personId ?? i.accountId}`} className="flex flex-wrap items-center gap-2 px-5 py-2">
                     <Badge tone={reconTone[i.type]}>{t.lbl(RECON_LABELS[i.type])}</Badge>
@@ -1356,7 +1356,7 @@ function ProvisioningTab({ onOpenRequest }: { onOpenRequest: (id: string) => voi
       {(newGroups.data?.length ?? 0) > 0 && (
         <Card>
           <CardHeader title={t("acc.adg.newGroups")} subtitle={t("acc.adg.newGroupsHint")} />
-          <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+          <ul className="divide-y divide-slate-100 text-sm">
             {newGroups.data!.map((g) => {
               const r = results?.find((y) => y.requestId === g.resourceId);
               return (
@@ -1407,7 +1407,7 @@ function ProvisioningTab({ onOpenRequest }: { onOpenRequest: (id: string) => voi
                 {plan.data?.map((x) => {
                   const r = results?.find((y) => y.requestId === x.requestId);
                   return (
-                    <tr key={x.requestId} className="border-b border-slate-100 align-top dark:border-slate-800">
+                    <tr key={x.requestId} className="border-b border-slate-100 align-top">
                       <td className="px-5 py-2">
                         <input
                           type="checkbox"
@@ -1431,7 +1431,7 @@ function ProvisioningTab({ onOpenRequest }: { onOpenRequest: (id: string) => voi
                         {x.groupDn && <div className="break-all font-mono text-xs text-slate-500">{x.groupDn}</div>}
                       </td>
                       <td className="py-2 pr-5 text-xs">
-                        {x.error ? <span className="text-red-600">{x.error}</span> : <span className="text-emerald-700 dark:text-emerald-400">{t("acc.prov.ok")}</span>}
+                        {x.error ? <span className="text-red-600">{x.error}</span> : <span className="text-emerald-700">{t("acc.prov.ok")}</span>}
                         {r && <div className={r.ok ? "text-emerald-700" : "text-red-600"}>{r.message}</div>}
                       </td>
                     </tr>
@@ -1482,7 +1482,7 @@ function NewGroupFields({ value, ous, onChange }: { value: string; ous: string[]
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [name, ou]);
   return (
-    <div className="grid gap-3 rounded border border-blue-200 bg-blue-50/50 p-3 sm:grid-cols-2 dark:border-blue-900 dark:bg-blue-950/20">
+    <div className="grid gap-3 rounded border border-blue-200 bg-blue-50/50 p-3 sm:grid-cols-2">
       <Field label={t("acc.adg.name")} hint={t("acc.adg.nameHint")}>
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="GG_APP_Nazev" />
       </Field>
@@ -1535,19 +1535,19 @@ function AdGroupsImportModal({ users, onClose }: { users: { id: string; displayN
     >
       <div className="space-y-3 text-sm">
         <ErrorBox error={q.error ?? m.error} />
-        {q.data && !q.data.groups.length && <div className="rounded bg-amber-50 p-3 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">{t("acc.adg.none")}</div>}
+        {q.data && !q.data.groups.length && <div className="rounded bg-amber-50 p-3 text-amber-900">{t("acc.adg.none")}</div>}
         {q.data?.sources.map((s) => (
           <div key={s.id} className="text-xs text-slate-500">
             {s.name}: {s.lastSyncAt ? t("acc.rec.synced", { at: fmtDay(s.lastSyncAt) }) : t("acc.rec.neverSynced")}
           </div>
         ))}
         <Input placeholder={t("acc.adg.filter")} value={filter} onChange={(e) => setFilter(e.target.value)} />
-        <div className="max-h-[45vh] overflow-auto rounded border border-slate-200 dark:border-slate-700">
+        <div className="max-h-[45vh] overflow-auto rounded border border-slate-200">
           {[...byOu.entries()].map(([ou, gs]) => {
             const free = gs.filter((g) => !g.resourceId && !g.privileged && !g.protectedGroup).map((g) => g.dn);
             return (
-              <div key={ou} className="border-b border-slate-100 dark:border-slate-800">
-                <label className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 dark:bg-slate-800/60 dark:text-slate-300">
+              <div key={ou} className="border-b border-slate-100">
+                <label className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
                   <input type="checkbox" disabled={!free.length} checked={free.length > 0 && free.every((d) => sel.has(d))} onChange={(e) => toggle(free, e.target.checked)} />
                   {ouLabel(ou) || ou}
                 </label>

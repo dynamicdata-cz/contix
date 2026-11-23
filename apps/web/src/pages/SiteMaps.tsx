@@ -55,7 +55,7 @@ export function SiteMapsPage() {
       {current && (
         <div className="grid gap-6 lg:grid-cols-[16rem_1fr]">
           <Card className="self-start">
-            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+            <div className="divide-y divide-slate-100">
               {groups.map(([g, ms]) => (
                 <div key={g} className="px-3 py-2">
                   <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{g}</div>
@@ -63,7 +63,7 @@ export function SiteMapsPage() {
                     <button
                       key={m.id}
                       onClick={() => setMapId(m.id)}
-                      className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800", m.id === current.id && "bg-brand-50 font-medium text-brand-800 dark:bg-slate-800 dark:text-brand-300")}
+                      className={cn("flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-slate-50", m.id === current.id && "bg-brand-50 font-medium text-brand-800")}
                     >
                       <span className="truncate">{m.floor ? `${m.floor} – ${m.name}` : m.name}</span>
                       <span className="flex shrink-0 gap-1">
@@ -253,11 +253,11 @@ function MapView({ id, focus }: { id: string; focus: string }) {
           }
         />
         {editing && (
-          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-brand-50/50 px-5 py-3 text-sm dark:border-slate-800 dark:bg-slate-800/40">
+          <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 bg-brand-50/50 px-5 py-3 text-sm">
             <div className="min-w-64 flex-1">
               <AssetPicker value={picked} onChange={(v) => setPicked(v.slice(-1))} />
             </div>
-            <span className="text-slate-600 dark:text-slate-300">{picked[0] ? t("map.clickToPlace", { name: picked[0].name }) : t("map.editHint")}</span>
+            <span className="text-slate-600">{picked[0] ? t("map.clickToPlace", { name: picked[0].name }) : t("map.editHint")}</span>
           </div>
         )}
         <div className="flex flex-wrap gap-2 px-5 py-3 text-xs">
@@ -265,14 +265,14 @@ function MapView({ id, focus }: { id: string; focus: string }) {
             <button
               key={s}
               onClick={() => setShown((x) => (x.has(s) && x.size > 1 ? new Set([...x].filter((y) => y !== s)) : new Set([...x, s])))}
-              className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-1", shown.has(s) ? "border-slate-300 dark:border-slate-600" : "border-transparent opacity-40")}
+              className={cn("flex items-center gap-1.5 rounded-full border px-2.5 py-1", shown.has(s) ? "border-slate-300" : "border-transparent opacity-40")}
             >
               <span className={cn("h-2.5 w-2.5 rounded-full", markerColor[s])} />
               {t.lbl(SITE_MAP_LABELS.status[s])} <b className="tabular-nums">{d.counts[s]}</b>
             </button>
           ))}
         </div>
-        <div className="max-h-[75vh] overflow-auto border-t border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-900" data-testid="map-viewport">
+        <div className="max-h-[75vh] overflow-auto border-t border-slate-100 bg-slate-50" data-testid="map-viewport">
           <div ref={box} className={cn("relative select-none", editing && picked[0] && "cursor-crosshair")} style={{ width: `${zoom * 100}%` }} onClick={onBackground} onPointerMove={moveDrag} onPointerUp={endDrag}>
             <img src={api.maps.imageUrl(d.id, d.createdAt)} alt={d.name} draggable={false} className="block w-full bg-white" />
             {visible.map((p) => {
@@ -311,7 +311,7 @@ function MapView({ id, focus }: { id: string; focus: string }) {
                 <Badge tone={markerTone[selected.status]}>{t.lbl(SITE_MAP_LABELS.status[selected.status])}</Badge>
               </div>
               {selected.reasons.length ? (
-                <ul className="list-disc pl-5 text-slate-600 dark:text-slate-300">
+                <ul className="list-disc pl-5 text-slate-600">
                   {selected.reasons.map((r) => (
                     <li key={r.key}>
                       {t.lbl(SITE_MAP_LABELS.reason[r.key])}

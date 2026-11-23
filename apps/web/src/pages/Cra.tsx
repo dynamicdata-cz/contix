@@ -1570,7 +1570,7 @@ function CraDocumentsCard({ p }: { p: CraProductDto }) {
         }
       />
       <ErrorBox error={q.error} />
-      <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+      <ul className="divide-y divide-slate-100 text-sm">
         {q.data?.documents
           .filter((d) => d.allowed)
           .map((d) => (

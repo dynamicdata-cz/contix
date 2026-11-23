@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.98.2
+
+Opravy rozvržení a tmavého režimu.
+
+- **Záhlaví stránek s mnoha tlačítky** (např. Aktiva): při velkém počtu akcí se popis stránky zúžil na úzký sloupec po jednom slově. Nadpis a popis mají teď základní šířku a tlačítka se zalomí pod ně.
+- **Tmavý režim podle CONTIXu, ne podle systému**: některé obrazovky (projekty, přístupy a IdM, mapy a půdorysy, CRA, profil) měly vlastní tmavé barvy, které se zapínaly podle nastavení systému (macOS/Windows v tmavém režimu). Ve světlém režimu CONTIXu pak dělaly tmavé ostrůvky a v tmavém světlé pruhy při najetí myší. Odstraněno – tmavý režim řídí jen volba v CONTIXu.
+- **Hlavní tlačítka v tmavém režimu**: při najetí myší zesvětlela do bledé barvy s bílým textem (např. „Přečíst a potvrdit“). Nyní jen mírně zesvětlí plnou barvu.
+- Kontrola všech obrazovek (světlý i tmavý režim, šířka 1280 a 1700 px): bez dalších nalezených problémů s kontrastem či přetečením.
+
 ## 1.98.1
 
 Opravy zobrazení grafu vazeb aktiv.

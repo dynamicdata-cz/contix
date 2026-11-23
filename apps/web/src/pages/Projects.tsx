@@ -37,7 +37,7 @@ export function ProjectsPage() {
         subtitle={t("prj.subtitle")}
         actions={
           <div className="flex gap-2">
-            <div className="flex rounded-md border border-slate-200 p-0.5 dark:border-slate-700" role="group" aria-label={t("pm.view")}>
+            <div className="flex rounded-md border border-slate-200 p-0.5" role="group" aria-label={t("pm.view")}>
               {(
                 [
                   ["cards", LayoutGrid, t("pm.view.cards")],
@@ -45,7 +45,7 @@ export function ProjectsPage() {
                   ["timeline", CalendarRange, t("prj.timeline")],
                 ] as const
               ).map(([k, Icon, label]) => (
-                <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)} className={cn("flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm", view === k ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800")}>
+                <button key={k} type="button" aria-pressed={view === k} onClick={() => setView(k)} className={cn("flex items-center gap-1.5 rounded px-2.5 py-1.5 text-sm", view === k ? "bg-brand-600 text-white" : "text-slate-600 hover:bg-slate-100")}>
                   <Icon size={15} /> {label}
                 </button>
               ))}
@@ -93,7 +93,7 @@ export function ProjectsPage() {
               </thead>
               <tbody>
                 {q.data?.map((p) => (
-                  <tr key={p.id} className="border-b border-slate-100 dark:border-slate-800">
+                  <tr key={p.id} className="border-b border-slate-100">
                     <td className="px-5 py-2">
                       <RagDot rag={p.info.rag ?? p.info.suggestedRag} size={9} />{" "}
                       <Link to="/projects/$projectId" params={{ projectId: p.id }} className="font-medium text-brand-700 hover:underline">
@@ -107,7 +107,7 @@ export function ProjectsPage() {
                     </td>
                     <td className="py-2 pr-3">
                       <div className="flex items-center gap-2">
-                        <div className="h-1.5 w-24 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
+                        <div className="h-1.5 w-24 overflow-hidden rounded bg-slate-200">
                           <div className="h-full bg-brand-600" style={{ width: `${p.progress.phases ? (p.progress.approved / p.progress.phases) * 100 : 0}%` }} />
                         </div>
                         <span className="text-xs tabular-nums text-slate-500">
@@ -281,7 +281,7 @@ export function ProjectDetailPage() {
       />
       {tab === "overview" && (
         <>
-          {p.description && <p className="mb-4 whitespace-pre-wrap text-sm text-slate-600 dark:text-slate-300">{p.description}</p>}
+          {p.description && <p className="mb-4 whitespace-pre-wrap text-sm text-slate-600">{p.description}</p>}
           <ProjectOverview p={p} onTab={(k) => setTab(k as typeof tab)} onChange={set} />
         </>
       )}
@@ -294,7 +294,7 @@ export function ProjectDetailPage() {
       <ol className="mb-6 flex flex-wrap items-center gap-2 text-sm" aria-label={t("prj.phases")}>
         {p.phases.map((ph, i) => (
           <li key={ph.id} className="flex items-center gap-2">
-            <span className={cn("flex items-center gap-1.5 rounded-full px-3 py-1", ph.status === "approved" ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300" : ph.status === "active" ? "bg-brand-50 font-medium text-brand-800 ring-1 ring-brand-300 dark:bg-slate-800 dark:text-brand-300" : "bg-slate-100 text-slate-500 dark:bg-slate-800")}>
+            <span className={cn("flex items-center gap-1.5 rounded-full px-3 py-1", ph.status === "approved" ? "bg-emerald-50 text-emerald-800" : ph.status === "active" ? "bg-brand-50 font-medium text-brand-800 ring-1 ring-brand-300" : "bg-slate-100 text-slate-500")}>
               {ph.status === "approved" ? <CheckCircle2 size={14} /> : <Circle size={14} />} {t.lbl(ph.name)}
             </span>
             {i < p.phases.length - 1 && <span className="text-slate-300">→</span>}
@@ -374,7 +374,7 @@ function PhaseCard({ p, ph, onChange }: { p: ProjectDetailDto; ph: PhaseDto; onC
       {open && (
         <>
           <ErrorBox error={gate.error ?? due.error ?? add.error} />
-          <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
+          <ul className="divide-y divide-slate-100 text-sm">
             {ph.docs.map((d) => (
               <DocRow key={d.id} p={p} d={d} editable={editable} onChange={onChange} />
             ))}
@@ -400,7 +400,7 @@ function PhaseCard({ p, ph, onChange }: { p: ProjectDetailDto; ph: PhaseDto; onC
             </div>
           )}
           {ph.status === "active" && (p.canApproveGate || ph.blockers.length > 0) && (
-            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-5 py-3 dark:border-slate-800">
+            <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 px-5 py-3">
               {ph.blockers.length > 0 ? (
                 <span className="text-xs text-slate-500">{t("prj.gateWaits", { list: ph.blockers.map((b) => t.lbl(b)).join(", ") })}</span>
               ) : (
@@ -413,7 +413,7 @@ function PhaseCard({ p, ph, onChange }: { p: ProjectDetailDto; ph: PhaseDto; onC
               )}
             </div>
           )}
-          {ph.gateComment && <div className="border-t border-slate-100 px-5 py-2 text-xs text-slate-500 dark:border-slate-800">„{ph.gateComment}“</div>}
+          {ph.gateComment && <div className="border-t border-slate-100 px-5 py-2 text-xs text-slate-500">„{ph.gateComment}“</div>}
         </>
       )}
     </Card>
@@ -512,7 +512,7 @@ function DocRow({ p, d, editable, onChange }: { p: ProjectDetailDto; d: DocReqDt
 /* ---------------- harmonogram, rozpočet, vazby, šablony (v1.32, ADR-129) ---------------- */
 
 const czk = (n: number) => `${n.toLocaleString("cs-CZ", { maximumFractionDigits: 0 })} Kč`;
-const barColor: Record<string, string> = { approved: "bg-emerald-500", closed: "bg-emerald-500", active: "bg-brand-600", planned: "bg-slate-300 dark:bg-slate-600", on_hold: "bg-amber-400", overdue: "bg-red-500" };
+const barColor: Record<string, string> = { approved: "bg-emerald-500", closed: "bg-emerald-500", active: "bg-brand-600", planned: "bg-slate-300", on_hold: "bg-amber-400", overdue: "bg-red-500" };
 
 /** Jednoduchý Gantt: pruh plán (začátek–konec), tečka skutečného konce (schválení brány), svislá čára dnes. */
 function Timeline({ bars, link, marks = [] }: { bars: TimelineBar[]; link?: (id: string) => string; marks?: { id: string; date: string; label: string; done: boolean; overdue: boolean }[] }) {
@@ -525,7 +525,7 @@ function Timeline({ bars, link, marks = [] }: { bars: TimelineBar[]; link?: (id:
   return (
     <div className="overflow-x-auto px-5 py-4" data-testid="timeline">
       <div className="relative min-w-[36rem]">
-        <div className="relative ml-48 h-5 border-b border-slate-200 text-[10px] text-slate-500 dark:border-slate-700">
+        <div className="relative ml-48 h-5 border-b border-slate-200 text-[10px] text-slate-500">
           {months.map((m) => (
             <span key={m} className="absolute -translate-x-1/2" style={{ left: `${timelinePct(m < r.from ? r.from : m, r)}%` }}>
               {new Date(`${m}T00:00:00Z`).toLocaleDateString(undefined, { month: "short", year: "2-digit", timeZone: "UTC" })}
@@ -546,7 +546,7 @@ function Timeline({ bars, link, marks = [] }: { bars: TimelineBar[]; link?: (id:
                   b.label
                 )}
               </div>
-              <div className="relative h-5 flex-1 rounded bg-slate-50 dark:bg-slate-800/50">
+              <div className="relative h-5 flex-1 rounded bg-slate-50">
                 {start && end && (
                   <div className={cn("absolute top-1 h-3 rounded", barColor[b.status] ?? "bg-slate-400")} style={{ left: `${timelinePct(start, r)}%`, width: `${Math.max(0.8, timelinePct(end, r) - timelinePct(start, r))}%` }} title={`${fmtDay(b.start)} – ${fmtDay(b.end)}`} />
                 )}
@@ -559,7 +559,7 @@ function Timeline({ bars, link, marks = [] }: { bars: TimelineBar[]; link?: (id:
         {marks.length > 0 && (
           <div className="flex items-center py-1 text-sm">
             <div className="w-48 shrink-0 pr-2 text-slate-500">{t("pm.milestones")}</div>
-            <div className="relative h-6 flex-1 rounded bg-slate-50 dark:bg-slate-800/50">
+            <div className="relative h-6 flex-1 rounded bg-slate-50">
               {marks.map((m) => (
                 <div
                   key={m.id}
@@ -619,7 +619,7 @@ function BudgetCard({ p, onChange }: { p: ProjectDetailDto; onChange: (d: Projec
       <ErrorBox error={add.error ?? remove.error ?? saveBudget.error} />
       {p.budget !== null && (
         <div className="px-5 pt-3">
-          <div className="h-2 overflow-hidden rounded bg-slate-200 dark:bg-slate-700">
+          <div className="h-2 overflow-hidden rounded bg-slate-200">
             <div className={cn("h-full", p.budgetState === "over" ? "bg-red-500" : p.budgetState === "warn" ? "bg-amber-500" : "bg-emerald-500")} style={{ width: `${pct}%` }} />
           </div>
           {p.budgetState === "over" && <div className="mt-1 text-xs font-medium text-red-600">{t("prj.overBudget")}</div>}
@@ -682,7 +682,7 @@ function BudgetCard({ p, onChange }: { p: ProjectDetailDto; onChange: (d: Projec
           <table className="w-full text-sm">
             <tbody>
               {p.costs.map((x) => (
-                <tr key={x.id} className="border-t border-slate-100 dark:border-slate-800">
+                <tr key={x.id} className="border-t border-slate-100">
                   <td className="px-5 py-2 text-slate-500">{fmtDay(x.date)}</td>
                   <td className="py-2 pr-3">
                     {x.description}
@@ -745,25 +745,25 @@ function ProjectLinksCard({ p }: { p: ProjectDetailDto }) {
       <div className="grid gap-4 p-5 md:grid-cols-2">
         {mod("assets") && (
           <div>
-            <div className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">{t("prj.linkAssets")}</div>
+            <div className="mb-2 text-sm font-medium text-slate-700">{t("prj.linkAssets")}</div>
             <AssetPicker value={cur.assets} onChange={(v) => setF({ ...cur, assets: v })} disabled={!edit} />
           </div>
         )}
         {mod("risks") && (
           <div>
-            <div className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">{t("prj.linkRisks")}</div>
+            <div className="mb-2 text-sm font-medium text-slate-700">{t("prj.linkRisks")}</div>
             <IdMultiSelect linkKind="risk" value={cur.riskIds} onChange={(v) => setF({ ...cur, riskIds: v })} disabled={!edit} options={(risks.data?.items ?? []).map((x) => ({ id: x.id, label: label(x) }))} known={d.risks} />
           </div>
         )}
         {mod("suppliers") && (
           <div>
-            <div className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">{t("prj.linkSuppliers")}</div>
+            <div className="mb-2 text-sm font-medium text-slate-700">{t("prj.linkSuppliers")}</div>
             <IdMultiSelect linkKind="supplier" value={cur.supplierIds} onChange={(v) => setF({ ...cur, supplierIds: v })} disabled={!edit} options={(suppliers.data ?? []).map((x) => ({ id: x.id, label: x.name }))} known={d.suppliers.map((x) => ({ id: x.id, label: x.name }))} />
           </div>
         )}
         {mod("processes") && (
           <div>
-            <div className="mb-2 text-sm font-medium text-slate-700 dark:text-slate-300">{t("prj.linkProcesses")}</div>
+            <div className="mb-2 text-sm font-medium text-slate-700">{t("prj.linkProcesses")}</div>
             <IdMultiSelect linkKind="process" value={cur.processIds} onChange={(v) => setF({ ...cur, processIds: v })} disabled={!edit} options={(processes.data ?? []).map((x) => ({ id: x.id, label: label(x) }))} known={d.processes} />
           </div>
         )}
@@ -797,7 +797,7 @@ function TemplatesModal({ onClose }: { onClose: () => void }) {
       {!edit && (
         <div className="space-y-2 text-sm">
           <p className="text-slate-500">{t("prj.templatesHint")}</p>
-          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          <ul className="divide-y divide-slate-100">
             {q.data?.map((x) => (
               <li key={x.key} className={cn("flex flex-wrap items-center gap-2 py-2", !x.active && "opacity-50")}>
                 <span className="min-w-56 flex-1">
@@ -836,7 +836,7 @@ function TemplatesModal({ onClose }: { onClose: () => void }) {
             <Checkbox checked={edit.f.active !== false} onChange={(v) => setEdit({ ...edit, f: { ...edit.f, active: v } })} label={t("prj.templateActive")} />
           </div>
           {edit.f.phases.map((ph, i) => (
-            <div key={i} className="rounded border border-slate-200 p-3 dark:border-slate-700">
+            <div key={i} className="rounded border border-slate-200 p-3">
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-400">{i + 1}.</span>
                 <Input className="h-8 flex-1" placeholder={t("prj.phaseName")} value={ph.name} onChange={(e) => setPh(i, { ...ph, name: e.target.value })} />

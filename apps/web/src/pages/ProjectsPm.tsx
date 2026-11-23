@@ -60,9 +60,9 @@ export function ProjectOverview({ p, onTab, onChange }: { p: ProjectDetailDto; o
   const nextMs = p.milestones.find((m) => !m.doneAt);
   const cur = p.phases.find((x) => x.status === "active");
   const tile = (label: string, value: string | number, sub: string | null, tab: string, tone?: Tone) => (
-    <button type="button" onClick={() => onTab(tab)} className="rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:ring-1 hover:ring-brand-300 dark:border-slate-800 dark:bg-slate-900">
+    <button type="button" onClick={() => onTab(tab)} className="rounded-lg border border-slate-200 bg-white p-3 text-left transition hover:ring-1 hover:ring-brand-300">
       <div className="text-xs text-slate-500">{label}</div>
-      <div className={cn("mt-1 text-xl font-semibold tabular-nums", tone === "red" && "text-red-700 dark:text-red-300", tone === "amber" && "text-amber-700 dark:text-amber-300")}>{value}</div>
+      <div className={cn("mt-1 text-xl font-semibold tabular-nums", tone === "red" && "text-red-700", tone === "amber" && "text-amber-700")}>{value}</div>
       {sub && <div className="mt-0.5 truncate text-xs text-slate-500">{sub}</div>}
     </button>
   );
@@ -82,7 +82,7 @@ export function ProjectOverview({ p, onTab, onChange }: { p: ProjectDetailDto; o
           </div>
           <div className="grid flex-1 grid-cols-3 gap-3">
             {(["schedule", "budget", "scope"] as const).map((k) => (
-              <div key={k} className="rounded-md bg-slate-50 p-3 dark:bg-slate-800/50">
+              <div key={k} className="rounded-md bg-slate-50 p-3">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <RagDot rag={rag[k]} /> {t(`pm.rag.${k}`)}
                 </div>
@@ -96,7 +96,7 @@ export function ProjectOverview({ p, onTab, onChange }: { p: ProjectDetailDto; o
             </Button>
           )}
         </div>
-        {rep && <p className="border-t border-slate-100 px-5 py-3 text-sm whitespace-pre-wrap text-slate-700 dark:border-slate-800 dark:text-slate-200">{rep.summary}</p>}
+        {rep && <p className="border-t border-slate-100 px-5 py-3 text-sm whitespace-pre-wrap text-slate-700">{rep.summary}</p>}
       </Card>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         {tile(t("pm.k.phase"), `${p.progress.approved}/${p.progress.phases}`, cur ? t.lbl(cur.name) : null, "phases", cur?.overdue ? "red" : undefined)}
@@ -135,7 +135,7 @@ function Attn({ tone, text, onClick }: { tone: "red" | "amber" | "green" | "blue
   const c = { red: "bg-red-500", amber: "bg-amber-400", green: "bg-emerald-500", blue: "bg-blue-500" }[tone];
   return (
     <li>
-      <button type="button" onClick={onClick} className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800">
+      <button type="button" onClick={onClick} className="flex w-full items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-slate-50">
         <span className={cn("h-2 w-2 shrink-0 rounded-full", c)} /> {text}
       </button>
     </li>
@@ -164,7 +164,7 @@ function TeamCard({ p, onChange }: { p: ProjectDetailDto; onChange: OnChange }) 
         }
       />
       <ErrorBox error={add.error ?? remove.error} />
-      <ul className="divide-y divide-slate-100 px-5 pb-4 text-sm dark:divide-slate-800">
+      <ul className="divide-y divide-slate-100 px-5 pb-4 text-sm">
         <li className="flex items-center gap-2 py-1.5">
           <Badge tone="blue">A</Badge> <span className="font-medium">{p.sponsorName ?? "—"}</span> <span className="text-slate-500">{t("prj.sponsor")}</span>
         </li>
@@ -272,10 +272,10 @@ export function TasksBoard({ p, onChange }: { p: ProjectDetailDto; onChange: OnC
               onDragOver={(e) => (e.preventDefault(), setOver(s))}
               onDragLeave={() => setOver(null)}
               onDrop={drop(s)}
-              className={cn("min-h-40 rounded-lg border-t-4 bg-slate-50 p-2 dark:bg-slate-800/40", colTone[s], over === s && "ring-2 ring-brand-400")}
+              className={cn("min-h-40 rounded-lg border-t-4 bg-slate-50 p-2", colTone[s], over === s && "ring-2 ring-brand-400")}
             >
               <div className="mb-2 flex items-center justify-between px-1 text-sm font-semibold">
-                {t.lbl(PROJECT_LABELS2.task[s])} <span className="rounded bg-white px-1.5 text-xs text-slate-500 dark:bg-slate-900">{col.length}</span>
+                {t.lbl(PROJECT_LABELS2.task[s])} <span className="rounded bg-white px-1.5 text-xs text-slate-500">{col.length}</span>
               </div>
               <div className="space-y-2">
                 {col.map((x) => (
@@ -283,17 +283,17 @@ export function TasksBoard({ p, onChange }: { p: ProjectDetailDto; onChange: OnC
                     key={x.id}
                     draggable={x.canMove}
                     onDragStart={() => setDrag(x.id)}
-                    className={cn("group rounded-md border border-slate-200 bg-white p-2.5 text-sm shadow-sm dark:border-slate-700 dark:bg-slate-900", x.canMove && "cursor-grab", x.overdue && "border-l-4 border-l-red-500")}
+                    className={cn("group rounded-md border border-slate-200 bg-white p-2.5 text-sm shadow-sm", x.canMove && "cursor-grab", x.overdue && "border-l-4 border-l-red-500")}
                   >
                     <button type="button" className="w-full text-left font-medium hover:underline" onClick={() => open(x)}>
                       {x.title}
                     </button>
                     <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
                       {x.priority !== "medium" && <Badge tone={x.priority === "high" ? "red" : "slate"}>{t.lbl(PROJECT_LABELS2.priority[x.priority])}</Badge>}
-                      {x.phaseName && <span className="rounded bg-slate-100 px-1.5 dark:bg-slate-800">{t.lbl(x.phaseName)}</span>}
+                      {x.phaseName && <span className="rounded bg-slate-100 px-1.5">{t.lbl(x.phaseName)}</span>}
                       {x.dueDate && <span className={cn(x.overdue && "font-medium text-red-600")}>{fmtDay(x.dueDate)}</span>}
                       {x.assigneeName && (
-                        <span className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-800 dark:bg-brand-900 dark:text-brand-100" title={x.assigneeName}>
+                        <span className="ml-auto inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-100 text-[10px] font-semibold text-brand-800" title={x.assigneeName}>
                           {x.assigneeName
                             .split(" ")
                             .map((w) => w[0])
@@ -305,7 +305,7 @@ export function TasksBoard({ p, onChange }: { p: ProjectDetailDto; onChange: OnC
                     {x.canMove && (
                       <div className="mt-1.5 hidden gap-1 group-hover:flex">
                         {PROJECT_TASK_STATUSES.filter((st) => st !== s).map((st) => (
-                          <button key={st} type="button" className="rounded border border-slate-200 px-1.5 text-[11px] text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800" onClick={() => move.mutate({ id: x.id, status: st })}>
+                          <button key={st} type="button" className="rounded border border-slate-200 px-1.5 text-[11px] text-slate-600 hover:bg-slate-100" onClick={() => move.mutate({ id: x.id, status: st })}>
                             → {t.lbl(PROJECT_LABELS2.task[st])}
                           </button>
                         ))}
@@ -416,7 +416,7 @@ export function MilestonesCard({ p, onChange }: { p: ProjectDetailDto; onChange:
       {!p.milestones.length ? (
         <EmptyState>{t("pm.milestone.none")}</EmptyState>
       ) : (
-        <ul className="divide-y divide-slate-100 px-5 pb-4 text-sm dark:divide-slate-800">
+        <ul className="divide-y divide-slate-100 px-5 pb-4 text-sm">
           {p.milestones.map((m) => (
             <li key={m.id} className="flex flex-wrap items-center gap-3 py-2">
               <button type="button" disabled={!p.canEdit} onClick={() => toggle.mutate(m)} title={m.doneAt ? t("pm.milestone.undo") : t("pm.milestone.done")} className={cn("flex h-5 w-5 rotate-45 items-center justify-center border-2", m.doneAt ? "border-emerald-600 bg-emerald-500" : m.overdue ? "border-red-500" : "border-slate-400")}>
@@ -526,7 +526,7 @@ export function RaidTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnChan
               </thead>
               <tbody>
                 {list.map((x) => (
-                  <tr key={x.id} className={cn("cursor-pointer border-b border-slate-100 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/40", x.status === "closed" && "opacity-60")} onClick={() => open(x)}>
+                  <tr key={x.id} className={cn("cursor-pointer border-b border-slate-100 hover:bg-slate-50", x.status === "closed" && "opacity-60")} onClick={() => open(x)}>
                     <td className="px-5 py-2">
                       <div className="flex items-center gap-2">
                         <Badge tone={x.kind === "issue" ? "red" : "slate"}>{t.lbl(PROJECT_LABELS2.issueKind[x.kind])}</Badge>
@@ -559,7 +559,7 @@ export function RaidTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnChan
                 {row.map((cell, j) => {
                   const score = (3 - i) * (j + 1);
                   return (
-                    <div key={j} className={cn("flex h-14 items-center justify-center rounded text-base font-semibold", score >= 6 ? "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200" : score >= 3 ? "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200" : "bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200")} title={cell.map((x) => x.title).join(", ")}>
+                    <div key={j} className={cn("flex h-14 items-center justify-center rounded text-base font-semibold", score >= 6 ? "bg-red-100 text-red-800" : score >= 3 ? "bg-amber-100 text-amber-800" : "bg-emerald-50 text-emerald-800")} title={cell.map((x) => x.title).join(", ")}>
                       {cell.length || ""}
                     </div>
                   );
@@ -700,7 +700,7 @@ export function ChangesTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnC
       ) : (
         <ul className="space-y-3 px-5 pb-5">
           {p.changes.map((x) => (
-            <li key={x.id} className="rounded-md border border-slate-200 p-3 text-sm dark:border-slate-800">
+            <li key={x.id} className="rounded-md border border-slate-200 p-3 text-sm">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-semibold">
                   {x.number}. {x.title}
@@ -710,20 +710,20 @@ export function ChangesTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnC
                   {x.requestedByName} · {fmtDay(x.createdAt)}
                 </span>
               </div>
-              <p className="mt-1 whitespace-pre-wrap text-slate-700 dark:text-slate-200">{x.description}</p>
+              <p className="mt-1 whitespace-pre-wrap text-slate-700">{x.description}</p>
               <div className="mt-2 flex flex-wrap gap-2 text-xs">
                 {x.newEndDate && (
-                  <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
+                  <span className="rounded bg-slate-100 px-2 py-0.5">
                     {t("pm.change.date")}: {x.oldEndDate ? fmtDay(x.oldEndDate) : "—"} → <b>{fmtDay(x.newEndDate)}</b>
                   </span>
                 )}
                 {x.budgetDelta !== null && (
-                  <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
+                  <span className="rounded bg-slate-100 px-2 py-0.5">
                     {t("pm.change.budget")}: <b>{x.budgetDelta > 0 ? "+" : ""}{czk(x.budgetDelta)}</b>
                   </span>
                 )}
                 {x.scope && (
-                  <span className="rounded bg-slate-100 px-2 py-0.5 dark:bg-slate-800">
+                  <span className="rounded bg-slate-100 px-2 py-0.5">
                     {t("pm.change.scope")}: {x.scope}
                   </span>
                 )}
@@ -821,7 +821,7 @@ export function StatusTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnCh
             key={r}
             type="button"
             onClick={() => setF({ ...f!, [k]: r })}
-            className={cn("flex flex-1 items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-xs", f![k] === r ? "border-brand-500 ring-1 ring-brand-500" : "border-slate-200 dark:border-slate-700")}
+            className={cn("flex flex-1 items-center justify-center gap-1.5 rounded border px-2 py-1.5 text-xs", f![k] === r ? "border-brand-500 ring-1 ring-brand-500" : "border-slate-200")}
           >
             <RagDot rag={r} /> {t.lbl(PROJECT_LABELS2.rag[r])}
           </button>
@@ -839,14 +839,14 @@ export function StatusTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnCh
           subtitle={t("pm.reportsHint")}
           action={
             <div className="flex flex-wrap gap-2">
-              <a className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800" href={api.projects.reportUrl(p.id, closed ? "closure" : "status", "html")} target="_blank" rel="noreferrer">
+              <a className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" href={api.projects.reportUrl(p.id, closed ? "closure" : "status", "html")} target="_blank" rel="noreferrer">
                 <Printer size={16} /> {closed ? t("pm.out.closure") : t("pm.out.status")}
               </a>
-              <a className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800" href={api.projects.reportUrl(p.id, closed ? "closure" : "status", "docx")}>
+              <a className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" href={api.projects.reportUrl(p.id, closed ? "closure" : "status", "docx")}>
                 <FileDown size={16} /> Word
               </a>
               {!closed && (
-                <a className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800" href={api.projects.reportUrl(p.id, "closure", "docx")}>
+                <a className="inline-flex items-center gap-1.5 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-50" href={api.projects.reportUrl(p.id, "closure", "docx")}>
                   <FileDown size={16} /> {t("pm.out.closureDraft")}
                 </a>
               )}
@@ -863,7 +863,7 @@ export function StatusTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnCh
         ) : (
           <ol className="space-y-3 px-5 pb-5">
             {p.reports.map((r) => (
-              <li key={r.id} className="rounded-md border border-slate-200 p-3 text-sm dark:border-slate-800">
+              <li key={r.id} className="rounded-md border border-slate-200 p-3 text-sm">
                 <div className="flex flex-wrap items-center gap-3">
                   <RagDot rag={r.overall} size={14} />
                   <span className="font-semibold tabular-nums">{fmtDay(r.date)}</span>
@@ -876,7 +876,7 @@ export function StatusTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnCh
                 </div>
                 <p className="mt-2 whitespace-pre-wrap">{r.summary}</p>
                 {(r.achievements || r.nextSteps) && (
-                  <div className="mt-2 grid gap-3 text-xs text-slate-600 sm:grid-cols-2 dark:text-slate-300">
+                  <div className="mt-2 grid gap-3 text-xs text-slate-600 sm:grid-cols-2">
                     {r.achievements && (
                       <div>
                         <div className="font-semibold text-slate-500">{t("pm.report.achievements")}</div>
@@ -907,7 +907,7 @@ export function StatusTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnCh
               </div>
               <ul className="space-y-1 text-sm">
                 {p.lessons.filter((x) => x.kind === k).map((x) => (
-                  <li key={x.id} className="group flex items-start gap-2 rounded bg-slate-50 px-2 py-1 dark:bg-slate-800/50">
+                  <li key={x.id} className="group flex items-start gap-2 rounded bg-slate-50 px-2 py-1">
                     <span className="flex-1">{x.text}</span>
                     <span className="text-xs text-slate-400">{x.createdByName}</span>
                     {(p.canEdit || closed) && (
@@ -923,7 +923,7 @@ export function StatusTab({ p, onChange }: { p: ProjectDetailDto; onChange: OnCh
         </div>
         {(p.canEdit || closed) && (
         <form
-          className="flex flex-wrap items-end gap-2 border-t border-slate-100 px-5 py-3 dark:border-slate-800"
+          className="flex flex-wrap items-end gap-2 border-t border-slate-100 px-5 py-3"
           onSubmit={(e) => {
             e.preventDefault();
             if (lesson.text.trim().length >= 3) addLesson.mutate();
@@ -998,7 +998,7 @@ export function PortfolioView({ rows }: { rows: ProjectDto[] }) {
   const kpi = (label: string, n: number, tone?: "red" | "amber") => (
     <Card className="px-4 py-3">
       <div className="text-xs text-slate-500">{label}</div>
-      <div className={cn("mt-1 text-2xl font-semibold tabular-nums", n > 0 && tone === "red" && "text-red-700 dark:text-red-300", n > 0 && tone === "amber" && "text-amber-700 dark:text-amber-300")}>{n}</div>
+      <div className={cn("mt-1 text-2xl font-semibold tabular-nums", n > 0 && tone === "red" && "text-red-700", n > 0 && tone === "amber" && "text-amber-700")}>{n}</div>
     </Card>
   );
   return (
@@ -1045,7 +1045,7 @@ export function PortfolioView({ rows }: { rows: ProjectDto[] }) {
                 key={p.id}
                 to="/projects/$projectId"
                 params={{ projectId: p.id }}
-                className={cn("block rounded-lg border border-l-4 border-slate-200 bg-white p-4 transition hover:shadow-md dark:border-slate-800 dark:bg-slate-900", rag === "red" ? "border-l-red-500" : rag === "amber" ? "border-l-amber-400" : "border-l-emerald-500")}
+                className={cn("block rounded-lg border border-l-4 border-slate-200 bg-white p-4 transition hover:shadow-md", rag === "red" ? "border-l-red-500" : rag === "amber" ? "border-l-amber-400" : "border-l-emerald-500")}
               >
                 <div className="flex items-start gap-2">
                   <RagDot rag={p.info.rag} size={12} title={p.info.rag ? t("pm.reportedOn", { d: fmtDay(p.info.ragDate!), who: "" }) : t("pm.suggestedOnly")} />
@@ -1060,7 +1060,7 @@ export function PortfolioView({ rows }: { rows: ProjectDto[] }) {
                   </div>
                   {!p.info.rag && <span className="text-[10px] text-slate-400">{t("pm.pf.suggested")}</span>}
                 </div>
-                <div className="mt-3 h-1.5 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
+                <div className="mt-3 h-1.5 overflow-hidden rounded bg-slate-100">
                   <div className="h-full bg-brand-600" style={{ width: `${pct}%` }} />
                 </div>
                 <div className="mt-1 flex justify-between text-[11px] text-slate-500">
@@ -1071,18 +1071,18 @@ export function PortfolioView({ rows }: { rows: ProjectDto[] }) {
                 </div>
                 <div className="mt-3 flex flex-wrap gap-1.5 text-xs">
                   {p.info.tasks.open > 0 && (
-                    <span className={cn("rounded px-1.5 py-0.5", p.info.tasks.overdue ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300" : "bg-slate-100 dark:bg-slate-800")}>
+                    <span className={cn("rounded px-1.5 py-0.5", p.info.tasks.overdue ? "bg-red-50 text-red-700" : "bg-slate-100")}>
                       <ListTodo size={11} className="mr-0.5 inline" /> {p.info.tasks.open}
                       {p.info.tasks.overdue > 0 && ` (${p.info.tasks.overdue} ${t("pm.pf.late")})`}
                     </span>
                   )}
                   {p.info.issues.high > 0 && (
-                    <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                    <span className="rounded bg-red-50 px-1.5 py-0.5 text-red-700">
                       <AlertTriangle size={11} className="mr-0.5 inline" /> {p.info.issues.high}
                     </span>
                   )}
                   {p.info.nextMilestone && (
-                    <span className="rounded bg-slate-100 px-1.5 py-0.5 dark:bg-slate-800">
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5">
                       <Diamond size={11} className="mr-0.5 inline" /> {p.info.nextMilestone.name} · {fmtDay(p.info.nextMilestone.dueDate)}
                     </span>
                   )}

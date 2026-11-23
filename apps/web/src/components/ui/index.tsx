@@ -222,7 +222,8 @@ export function PageHeader({
       data-sticky={sticky ? "" : undefined}
     >
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0 flex-1">
+        {/* nadpis má základní šířku – při mnoha akcích se tlačítka zalomí pod něj, místo aby text zúžila na sloupec (v1.98.2) */}
+        <div className="min-w-0 flex-[1_1_28rem]">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">{title}</h1>
             {badge}
@@ -232,7 +233,7 @@ export function PageHeader({
           {facts && <Facts items={facts} />}
         </div>
         {(actions || more?.length) && (
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex max-w-full flex-wrap items-center gap-2">
             {more && more.length > 0 && (
               <DropdownMenu
                 label={t("ui.moreActions")}

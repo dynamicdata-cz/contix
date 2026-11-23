@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* Varianta dark: se řídí volbou režimu v CONTIXu, ne nastavením systému (v1.98.2). Tmavý režim přemapuje celé škály
+ * barev (slate-50 = tmavá plocha, slate-900 = světlý text), takže stránky dark: nepotřebují – a nesmí ho míchat s přemapováním. */
+@custom-variant dark (&:where([data-mode="dark"], [data-mode="dark"] *));
 
 /*
  * Vzhled CONTIX – barvy jsou proměnné, motivy je přepisují (html[data-theme]).
@@ -508,4 +511,14 @@ html[data-mode="dark"] select.ctx-select:not([multiple]) {
 }
 .ctx-view label.block {
   --tw-space-y-reverse: 0;
+}
+
+/* Tmavý režim: tlačítka s bílým textem při najetí neztmavují do přemapované (světlé) 700 – jen zesvětlí plnou barvu (v1.98.2). */
+:root[data-mode="dark"] .hover\:bg-brand-700:hover {
+  background-color: var(--color-brand-600);
+  filter: brightness(1.15);
+}
+:root[data-mode="dark"] .hover\:bg-red-700:hover {
+  background-color: var(--color-red-600);
+  filter: brightness(1.15);
 }

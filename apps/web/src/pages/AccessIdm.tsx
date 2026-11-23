@@ -41,7 +41,7 @@ export function PersonLink({ id, name, className }: { id: string; name: string; 
   const idm = useIdm();
   if (!idm) return <span className={className}>{name}</span>;
   return (
-    <button type="button" className={cn("text-left font-medium text-brand-700 hover:underline dark:text-brand-300", className)} onClick={() => idm.openPerson(id)}>
+    <button type="button" className={cn("text-left font-medium text-brand-700 hover:underline", className)} onClick={() => idm.openPerson(id)}>
       {name}
     </button>
   );
@@ -51,7 +51,7 @@ export function SodWarning({ conflicts, className }: { conflicts: SodConflict[];
   const t = useT();
   if (!conflicts.length) return null;
   return (
-    <div className={cn("rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200", className)}>
+    <div className={cn("rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800", className)}>
       <div className="flex items-center gap-2 font-semibold">
         <AlertTriangle size={16} /> {t("idm.sod.title")}
       </div>
@@ -71,20 +71,20 @@ export function SodWarning({ conflicts, className }: { conflicts: SodConflict[];
 
 function Tile({ label, value, tone = "slate", hint, onClick }: { label: string; value: number | string; tone?: Tone; hint?: string; onClick?: () => void }) {
   const ring: Record<string, string> = {
-    red: "border-red-200 dark:border-red-900",
-    amber: "border-amber-200 dark:border-amber-900",
-    blue: "border-blue-200 dark:border-blue-900",
-    green: "border-green-200 dark:border-green-900",
-    slate: "border-slate-200 dark:border-slate-800",
+    red: "border-red-200",
+    amber: "border-amber-200",
+    blue: "border-blue-200",
+    green: "border-green-200",
+    slate: "border-slate-200",
   };
-  const txt: Record<string, string> = { red: "text-red-700 dark:text-red-300", amber: "text-amber-700 dark:text-amber-300", blue: "text-blue-700 dark:text-blue-300", green: "text-green-700 dark:text-green-300", slate: "" };
+  const txt: Record<string, string> = { red: "text-red-700", amber: "text-amber-700", blue: "text-blue-700", green: "text-green-700", slate: "" };
   const active = typeof value === "number" ? value > 0 : true;
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      className={cn("group rounded-lg border bg-white px-4 py-3 text-left transition dark:bg-slate-900", active ? ring[tone] : ring.slate, onClick && "hover:shadow-sm hover:ring-1 hover:ring-brand-300")}
+      className={cn("group rounded-lg border bg-white px-4 py-3 text-left transition", active ? ring[tone] : ring.slate, onClick && "hover:shadow-sm hover:ring-1 hover:ring-brand-300")}
     >
       <div className="flex items-center justify-between text-xs text-slate-500">
         {label} {onClick && <ChevronRight size={14} className="opacity-0 transition group-hover:opacity-100" />}
@@ -126,10 +126,10 @@ export function OverviewTab() {
             <CardHeader title={t("idm.flow.title")} subtitle={t("idm.flow.subtitle")} />
             <div className="grid gap-2 px-5 pb-5 sm:grid-cols-4">
               {flow.map((f, i) => (
-                <button key={f.k} type="button" onClick={() => idm.goTab(f.tab)} className="group relative rounded-md border border-slate-200 p-3 text-left hover:border-brand-300 dark:border-slate-800">
+                <button key={f.k} type="button" onClick={() => idm.goTab(f.tab)} className="group relative rounded-md border border-slate-200 p-3 text-left hover:border-brand-300">
                   <div className="text-xs text-slate-500">{f.label}</div>
                   <div className="mt-1 text-xl font-semibold tabular-nums">{f.n}</div>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
+                  <div className="mt-2 h-1.5 overflow-hidden rounded bg-slate-100">
                     <div className={cn("h-full rounded", f.tone === "amber" ? "bg-amber-500" : f.tone === "green" ? "bg-green-500" : "bg-blue-500")} style={{ width: `${(f.n / max) * 100}%` }} />
                   </div>
                   {i < flow.length - 1 && <ArrowRight size={16} className="absolute -right-3 top-1/2 z-10 hidden -translate-y-1/2 text-slate-400 sm:block" />}
@@ -163,7 +163,7 @@ export function OverviewTab() {
               {!d.upcoming.length ? (
                 <EmptyState>{t("idm.upcomingNone")}</EmptyState>
               ) : (
-                <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                <ul className="divide-y divide-slate-100">
                   {d.upcoming.map((u, i) => (
                     <li key={i} className="flex flex-wrap items-center gap-3 px-5 py-2 text-sm">
                       <span className="w-24 tabular-nums text-slate-500">{fmtDay(u.date)}</span>
@@ -185,7 +185,7 @@ export function OverviewTab() {
               <dl className="space-y-2 px-5 pb-5 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-slate-500">{t("idm.people.withoutManager")}</dt>
-                  <dd className={cn("tabular-nums", d.people.withoutManager > 0 && "font-semibold text-amber-700 dark:text-amber-300")}>{d.people.withoutManager}</dd>
+                  <dd className={cn("tabular-nums", d.people.withoutManager > 0 && "font-semibold text-amber-700")}>{d.people.withoutManager}</dd>
                 </div>
                 <div className="flex justify-between">
                   <dt className="text-slate-500">{t("idm.people.withoutAccount")}</dt>
@@ -232,7 +232,7 @@ export function RolesTab({ manage }: { manage: boolean }) {
       {q.data && !q.data.length && <EmptyState>{t("idm.roles.empty")}</EmptyState>}
       <div className="grid gap-3 px-5 pb-5 md:grid-cols-2">
         {q.data?.map((r) => (
-          <div key={r.id} className={cn("rounded-lg border border-slate-200 p-4 dark:border-slate-800", !r.active && "opacity-60")}>
+          <div key={r.id} className={cn("rounded-lg border border-slate-200 p-4", !r.active && "opacity-60")}>
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2 font-semibold">
@@ -259,10 +259,10 @@ export function RolesTab({ manage }: { manage: boolean }) {
                 </>
               )}
             </div>
-            {r.description && <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{r.description}</p>}
+            {r.description && <p className="mt-2 text-sm text-slate-600">{r.description}</p>}
             <div className="mt-3 flex flex-wrap gap-1.5">
               {r.resources.map((x) => (
-                <span key={x.id} className={cn("inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs dark:bg-slate-800", !x.active && "line-through opacity-60")}>
+                <span key={x.id} className={cn("inline-flex items-center gap-1 rounded bg-slate-100 px-2 py-0.5 text-xs", !x.active && "line-through opacity-60")}>
                   {x.privileged && <ShieldAlert size={12} className="text-amber-600" />} {x.name}
                 </span>
               ))}
@@ -274,15 +274,15 @@ export function RolesTab({ manage }: { manage: boolean }) {
               </span>
               {r.gaps > 0 ? (
                 manage ? (
-                  <button type="button" className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline dark:text-blue-300" onClick={() => setGapsOf(r)}>
+                  <button type="button" className="inline-flex items-center gap-1 font-medium text-blue-700 hover:underline" onClick={() => setGapsOf(r)}>
                     <Wand2 size={14} /> {t("idm.roles.gaps", { n: r.gaps })}
                   </button>
                 ) : (
-                  <span className="text-blue-700 dark:text-blue-300">{t("idm.roles.gaps", { n: r.gaps })}</span>
+                  <span className="text-blue-700">{t("idm.roles.gaps", { n: r.gaps })}</span>
                 )
               ) : (
                 r.members > 0 && (
-                  <span className="inline-flex items-center gap-1 text-green-700 dark:text-green-300">
+                  <span className="inline-flex items-center gap-1 text-green-700">
                     <Check size={14} /> {t("idm.roles.complete")}
                   </span>
                 )
@@ -345,7 +345,7 @@ function RoleModal({ edit, onClose }: { edit: { id: string | null; f: BusinessRo
         <Field label={t("acc.description")}>
           <Textarea rows={2} value={f.description ?? ""} onChange={(e) => setF({ ...f, description: e.target.value })} />
         </Field>
-        <div className="rounded-md border border-slate-200 p-3 dark:border-slate-800">
+        <div className="rounded-md border border-slate-200 p-3">
           <div className="mb-2 text-sm font-medium">{t("idm.roles.criteria")}</div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label={t("acc.department")}>
@@ -367,7 +367,7 @@ function RoleModal({ edit, onClose }: { edit: { id: string | null; f: BusinessRo
             <span className="text-sm font-medium">{t("idm.roles.resources", { n: f.resourceIds?.length ?? 0 })}</span>
             <Input className="max-w-56" placeholder={t("idm.search")} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <div className="max-h-64 overflow-y-auto rounded-md border border-slate-200 p-2 dark:border-slate-800">
+          <div className="max-h-64 overflow-y-auto rounded-md border border-slate-200 p-2">
             {list.map((r) => (
               <Checkbox
                 key={r.id}
@@ -422,7 +422,7 @@ function RoleGapsModal({ role, onClose }: { role: BusinessRoleDto; onClose: () =
     >
       <ErrorBox error={q.error ?? fill.error} />
       <p className="mb-3 text-sm text-slate-500">{t("idm.roles.fillHint")}</p>
-      <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+      <ul className="divide-y divide-slate-100">
         {byPerson.map(([id, p]) => (
           <li key={id} className="py-2">
             <Checkbox checked={chosen.includes(id)} onChange={(on) => setSel(toggle(chosen, id, on))} label={<PersonLink id={id} name={p.name} />} hint={p.items.join(", ")} />
@@ -437,10 +437,10 @@ function RoleGapsModal({ role, onClose }: { role: BusinessRoleDto; onClose: () =
 
 const cellStyle: Record<MatrixState, string> = {
   ok: "bg-green-500 text-white",
-  granted: "bg-green-200 text-green-900 dark:bg-green-900 dark:text-green-100",
+  granted: "bg-green-200 text-green-900",
   ad_missing: "bg-amber-300 text-amber-950",
   ad_only: "bg-red-500 text-white",
-  pending: "bg-blue-200 text-blue-900 dark:bg-blue-900 dark:text-blue-100",
+  pending: "bg-blue-200 text-blue-900",
   revoking: "bg-slate-400 text-white line-through",
   expected: "border-2 border-dashed border-blue-400 text-blue-600",
 };
@@ -459,7 +459,7 @@ export function MatrixTab() {
   const d = m.data;
   return (
     <Card>
-      <div className="flex flex-wrap items-end gap-3 border-b border-slate-100 px-5 py-3 dark:border-slate-800">
+      <div className="flex flex-wrap items-end gap-3 border-b border-slate-100 px-5 py-3">
         <Field label={t("acc.department")} className="w-56">
           <Select value={dept} onChange={(e) => setDept(e.target.value)}>
             <option value="">{t("idm.matrix.allDepts")}</option>
@@ -506,11 +506,11 @@ export function MatrixTab() {
           <table className="border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 top-0 z-20 min-w-56 border-b border-slate-200 bg-white px-3 py-2 text-left align-bottom text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+                <th className="sticky left-0 top-0 z-20 min-w-56 border-b border-slate-200 bg-white px-3 py-2 text-left align-bottom text-xs text-slate-500">
                   {t("idm.matrix.counts", { p: d.people.length, r: d.resources.length })}
                 </th>
                 {d.resources.map((r) => (
-                  <th key={r.id} className="sticky top-0 z-10 h-40 w-8 border-b border-slate-200 bg-white px-1 align-bottom dark:border-slate-800 dark:bg-slate-900" title={r.adGroup ?? r.name}>
+                  <th key={r.id} className="sticky top-0 z-10 h-40 w-8 border-b border-slate-200 bg-white px-1 align-bottom" title={r.adGroup ?? r.name}>
                     <div className="mx-auto flex max-h-36 items-center gap-1 overflow-hidden whitespace-nowrap text-xs font-medium [writing-mode:vertical-rl] rotate-180">
                       {r.privileged && <ShieldAlert size={12} className="text-amber-600" />} {r.name}
                     </div>
@@ -520,20 +520,20 @@ export function MatrixTab() {
             </thead>
             <tbody>
               {d.people.map((p) => (
-                <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                  <td className="sticky left-0 z-10 border-b border-slate-100 bg-white px-3 py-1 dark:border-slate-800 dark:bg-slate-900">
+                <tr key={p.id} className="hover:bg-slate-50">
+                  <td className="sticky left-0 z-10 border-b border-slate-100 bg-white px-3 py-1">
                     <PersonLink id={p.id} name={p.name} className="text-sm" />
                     <div className="truncate text-xs text-slate-500">{[p.jobTitle, !dept && p.department].filter(Boolean).join(" · ")}</div>
                   </td>
                   {d.resources.map((r) => {
                     const s = d.cells[`${p.id}:${r.id}`] ?? null;
                     return (
-                      <td key={r.id} className="border-b border-slate-100 p-0.5 text-center dark:border-slate-800">
+                      <td key={r.id} className="border-b border-slate-100 p-0.5 text-center">
                         <button
                           type="button"
                           title={`${p.name} – ${r.name}${s ? `: ${t(`idm.matrix.s.${s}`)}` : ""}`}
                           onClick={() => setCell({ personId: p.id, resourceId: r.id, state: s })}
-                          className={cn("h-6 w-6 rounded text-xs font-semibold transition hover:ring-2 hover:ring-brand-400", s ? cellStyle[s] : "bg-slate-50 text-transparent hover:text-slate-400 dark:bg-slate-800/50")}
+                          className={cn("h-6 w-6 rounded text-xs font-semibold transition hover:ring-2 hover:ring-brand-400", s ? cellStyle[s] : "bg-slate-50 text-transparent hover:text-slate-400")}
                         >
                           {s ? cellMark[s] : "+"}
                         </button>
@@ -618,7 +618,7 @@ export function PersonModal({ id, onClose }: { id: string; onClose: () => void }
   const p = d?.person;
   const section = (title: string, n?: number) => (
     <div className="mb-2 mt-5 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-      {title} {n !== undefined && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] dark:bg-slate-800">{n}</span>}
+      {title} {n !== undefined && <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px]">{n}</span>}
     </div>
   );
   return (
@@ -627,7 +627,7 @@ export function PersonModal({ id, onClose }: { id: string; onClose: () => void }
       {d && p && (
         <div className="text-sm">
           <div className="flex flex-wrap items-start gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-lg font-semibold text-brand-800 dark:bg-brand-900 dark:text-brand-100">
+            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-lg font-semibold text-brand-800">
               {p.name
                 .split(" ")
                 .map((x) => x[0])
@@ -670,7 +670,7 @@ export function PersonModal({ id, onClose }: { id: string; onClose: () => void }
           </div>
 
           {d.sod.length > 0 && (
-            <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+            <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3 text-red-800">
               <div className="flex items-center gap-2 font-semibold">
                 <AlertTriangle size={16} /> {t("idm.person.sod")}
               </div>
@@ -688,8 +688,8 @@ export function PersonModal({ id, onClose }: { id: string; onClose: () => void }
           ) : (
             <div className="flex flex-wrap gap-2">
               {d.roles.map((r) => (
-                <span key={r.id} className={cn("rounded-md border px-2 py-1", r.missing.length ? "border-blue-300 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/40" : "border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/40")}>
-                  <span className="font-medium">{r.name}</span> {r.missing.length ? <span className="text-xs text-blue-700 dark:text-blue-300">· {t("idm.person.missing", { list: r.missing.join(", ") })}</span> : <Check size={13} className="inline text-green-600" />}
+                <span key={r.id} className={cn("rounded-md border px-2 py-1", r.missing.length ? "border-blue-300 bg-blue-50" : "border-green-300 bg-green-50")}>
+                  <span className="font-medium">{r.name}</span> {r.missing.length ? <span className="text-xs text-blue-700">· {t("idm.person.missing", { list: r.missing.join(", ") })}</span> : <Check size={13} className="inline text-green-600" />}
                 </span>
               ))}
             </div>
@@ -713,7 +713,7 @@ export function PersonModal({ id, onClose }: { id: string; onClose: () => void }
                 </thead>
                 <tbody>
                   {d.grants.map((g) => (
-                    <tr key={g.id} className="border-b border-slate-100 dark:border-slate-800">
+                    <tr key={g.id} className="border-b border-slate-100">
                       <td className="py-1.5 pr-3">
                         {g.privileged && <ShieldAlert size={13} className="mr-1 inline text-amber-600" />}
                         {g.name}
@@ -757,7 +757,7 @@ export function PersonModal({ id, onClose }: { id: string; onClose: () => void }
             <div className="text-slate-500">{t("idm.person.noAccount")}</div>
           ) : (
             d.accounts.map((a) => (
-              <div key={a.id} className="mb-2 rounded-md border border-slate-200 p-3 dark:border-slate-800">
+              <div key={a.id} className="mb-2 rounded-md border border-slate-200 p-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <LogIn size={14} className="text-slate-400" />
                   <span className="font-mono text-xs">{a.login}</span>
@@ -772,7 +772,7 @@ export function PersonModal({ id, onClose }: { id: string; onClose: () => void }
                       title={g.resourceId ? (g.approved ? t("idm.person.gApproved") : t("idm.person.gUnapproved")) : t("idm.person.gOutside")}
                       className={cn(
                         "rounded px-1.5 py-0.5 text-xs",
-                        !g.resourceId ? "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300" : g.approved ? "bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-200" : "bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-200",
+                        !g.resourceId ? "bg-slate-100 text-slate-600" : g.approved ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800",
                       )}
                     >
                       {g.name.replace(/^CN=((?:\\,|[^,])+),.*$/i, "$1")}
@@ -790,7 +790,7 @@ export function PersonModal({ id, onClose }: { id: string; onClose: () => void }
               <ul className="space-y-1">
                 {d.requests.slice(0, 15).map((r) => (
                   <li key={r.id}>
-                    <button type="button" className="flex w-full flex-wrap items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-slate-50 dark:hover:bg-slate-800" onClick={() => idm.openRequest(r.id)}>
+                    <button type="button" className="flex w-full flex-wrap items-center gap-2 rounded px-1 py-0.5 text-left hover:bg-slate-50" onClick={() => idm.openRequest(r.id)}>
                       <Badge tone={reqTone[r.status] ?? "slate"}>{t.lbl(ACCESS_LABELS.status[r.status])}</Badge>
                       <span>{t.lbl(ACCESS_LABELS.action[r.action as "grant" | "revoke"])}</span>
                       <span className="font-medium">{r.resourceName}</span>
@@ -813,7 +813,7 @@ export function PersonModal({ id, onClose }: { id: string; onClose: () => void }
                 </>
               )}
               {section(t("idm.person.history"))}
-              <ol className="space-y-1 border-l border-slate-200 pl-3 dark:border-slate-700">
+              <ol className="space-y-1 border-l border-slate-200 pl-3">
                 {d.history.slice(0, 15).map((h, i) => (
                   <li key={i} className="text-xs">
                     <span className="tabular-nums text-slate-500">{fmtDay(h.at)}</span> · {h.text}
@@ -946,7 +946,7 @@ export function JmlWizard({ init, onClose }: { init: { personId?: string; kind?:
                   key={k}
                   type="button"
                   onClick={() => setKind(k)}
-                  className={cn("rounded-lg border p-3 text-left transition", kind === k ? "border-brand-500 bg-brand-50 ring-1 ring-brand-500 dark:bg-brand-950/40" : "border-slate-200 hover:border-brand-300 dark:border-slate-800")}
+                  className={cn("rounded-lg border p-3 text-left transition", kind === k ? "border-brand-500 bg-brand-50 ring-1 ring-brand-500" : "border-slate-200 hover:border-brand-300")}
                 >
                   <div className="flex items-center gap-2 font-semibold">
                     <Icon size={16} /> {t.lbl(IDM_LABELS.jml[k])}
@@ -969,7 +969,7 @@ export function JmlWizard({ init, onClose }: { init: { personId?: string; kind?:
             </Select>
           </Field>
           {person && (
-            <div className="rounded-md bg-slate-50 p-3 text-sm dark:bg-slate-800/50">
+            <div className="rounded-md bg-slate-50 p-3 text-sm">
               {[person.jobTitle, person.department].filter(Boolean).join(" · ") || "—"} · {t("acc.manager")}: {person.managerName ?? "—"} · {t("idm.jml.grants", { n: person.grants })}
             </div>
           )}
@@ -1007,13 +1007,13 @@ export function JmlWizard({ init, onClose }: { init: { personId?: string; kind?:
               )}
             </span>
           </div>
-          {!plan.rolesAfter.length && plan.kind !== "leaver" && <div className="rounded-md bg-amber-50 p-3 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">{t("idm.jml.noRoles")}</div>}
-          {future && <div className="rounded-md bg-blue-50 p-3 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200">{t("idm.jml.futureHint", { d: fmtDay(endDate) })}</div>}
+          {!plan.rolesAfter.length && plan.kind !== "leaver" && <div className="rounded-md bg-amber-50 p-3 text-amber-800">{t("idm.jml.noRoles")}</div>}
+          {future && <div className="rounded-md bg-blue-50 p-3 text-blue-800">{t("idm.jml.futureHint", { d: fmtDay(endDate) })}</div>}
           <SodWarning conflicts={plan.add.filter((x) => add.includes(x.resourceId)).flatMap((x) => x.sod)} />
           <div className="grid gap-4 md:grid-cols-2">
-            {plan.kind !== "leaver" && list(t("idm.jml.add"), plan.add, add, setAdd, "border-green-200 dark:border-green-900")}
-            {plan.kind !== "joiner" && list(t("idm.jml.remove"), plan.remove, remove, setRemove, "border-red-200 dark:border-red-900")}
-            {plan.kind !== "leaver" && list(t("idm.jml.keep"), plan.keep, null, null, "border-slate-200 dark:border-slate-800")}
+            {plan.kind !== "leaver" && list(t("idm.jml.add"), plan.add, add, setAdd, "border-green-200")}
+            {plan.kind !== "joiner" && list(t("idm.jml.remove"), plan.remove, remove, setRemove, "border-red-200")}
+            {plan.kind !== "leaver" && list(t("idm.jml.keep"), plan.keep, null, null, "border-slate-200")}
           </div>
           {plan.cancelRequests > 0 && !future && <p className="text-slate-500">{t("idm.jml.cancelReq", { n: plan.cancelRequests })}</p>}
           <Field label={t("idm.jml.justification")} hint={t("idm.jml.justHint")}>
