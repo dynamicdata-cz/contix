@@ -4002,3 +4002,35 @@ describe("bezpečnostní zóny (v1.97, ADR-191)", () => {
     expect(zoneFlowLevel(z("custom", 2), z("custom", 2))).toBe("ok");
   });
 });
+
+describe("kalendář lhůt (v1.98, ADR-192)", () => {
+  test("právní základ, týden, export iCalendar se zalomením a escapováním", async () => {
+    const { deadlineBasis, weekRange, buildIcs, icsFold } = await import("@contix/shared");
+    expect(deadlineBasis("nukib_notice")).toBe("zkb");
+    expect(deadlineBasis("restore_test")).toBe("measures");
+    expect(deadlineBasis("processing_review")).toBe("gdpr");
+    expect(deadlineBasis("task")).toBe("internal");
+    expect(weekRange(new Date("2026-11-26T10:00:00Z"))).toEqual({ from: "2026-11-23", to: "2026-11-29" });
+    expect(weekRange(new Date("2026-11-23T00:00:00Z")).from).toBe("2026-11-23");
+    const long = "SUMMARY:" + "žluťoučký kůň ".repeat(12);
+    const folded = icsFold(long);
+    for (const l of folded.split("\r\n")) expect(Buffer.byteLength(l, "utf8")).toBeLessThanOrEqual(75);
+    expect(folded.split("\r\n").map((l, i) => (i ? l.slice(1) : l)).join("")).toBe(long);
+    const ics = buildIcs(
+      [
+        { key: "contract:1", kind: "contract", basis: "measures", title: "Smlouva; ACME, s.r.o.", detail: "č. 1", due: "2026-12-31", urgency: "later", link: "/suppliers/1", companyId: null, ownerName: "Správce" },
+        { key: "incident_report:2:early", kind: "incident_report", basis: "zkb", title: "Hlášení", detail: null, due: "2026-11-24T08:00:00.000Z", urgency: "today", link: "/incidents/2", companyId: null, ownerName: null },
+        { key: "task:3", kind: "task", basis: "internal", title: "Úkol", detail: null, due: "2026-12-01", urgency: "later", link: "/actions?task=3", companyId: null, ownerName: null },
+      ],
+      { appUrl: "https://contix.example/", calendarName: "CONTIX", basisLabel: (b) => b, alarmDays: 7, now: new Date("2026-11-23T10:00:00Z") },
+    );
+    expect(ics.startsWith("BEGIN:VCALENDAR\r\n")).toBe(true);
+    expect(ics.endsWith("END:VCALENDAR\r\n")).toBe(true);
+    expect(ics).toContain("DTSTART;VALUE=DATE:20261231\r\nDTEND;VALUE=DATE:20270101");
+    expect(ics).toContain(String.raw`SUMMARY:Smlouva\; ACME\, s.r.o.`);
+    expect(ics).toContain("DTSTART:20261124T080000Z\r\nDTEND:20261124T083000Z");
+    expect(ics).toContain("URL:https://contix.example/suppliers/1");
+    expect(ics.match(/BEGIN:VALARM/g)).toHaveLength(1); // jen celodenní zákonná lhůta, ne interní úkol ani hlášení v hodinách
+    expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(3);
+  });
+});

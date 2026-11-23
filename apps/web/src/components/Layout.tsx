@@ -42,7 +42,7 @@ import { Activity, ShieldCheck,
   UserRound,
   KeyRound,
   Scale,
-  ChevronDown, Star, ListChecks, Fish, Rss, BrainCircuit, BadgeCheck, PackageCheck, Menu, Search, X, Library, MapPinned, UserCheck, FolderKanban, Milestone, Crosshair, Layers } from "lucide-react";
+  ChevronDown, Star, ListChecks, Fish, Rss, BrainCircuit, BadgeCheck, PackageCheck, Menu, Search, X, Library, MapPinned, UserCheck, FolderKanban, Milestone, Crosshair, Layers, CalendarDays } from "lucide-react";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const linkCls = "flex items-center gap-3 rounded-lg px-3 py-[7px] text-[13.5px] text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300";
@@ -120,6 +120,11 @@ export function Layout() {
               <Link to="/my" className={linkCls} activeProps={activeCls}>
                 <ListTodo size={17} /> {t("nav.myObligations")}
                 {pending > 0 && <span className="ml-auto rounded-full bg-red-600 px-1.5 text-[11px] font-semibold text-white">{pending}</span>}
+              </Link>
+            )}
+            {can("obligations:self") && (
+              <Link to="/calendar" className={linkCls} activeProps={activeCls} data-testid="nav-calendar">
+                <CalendarDays size={17} /> {t("cal.title")}
               </Link>
             )}
             {(can("actions:read") || can("risks:read") || can("audits:read")) && (

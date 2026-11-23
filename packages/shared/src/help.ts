@@ -802,6 +802,23 @@ Při přesunu aktiva do jiné společnosti se z map původní společnosti odebe
 `,
   },
   {
+    id: "deadline-calendar",
+    title: "Kalendář lhůt a přehled Tento týden",
+    audience: ["owner", "gestor", "manager", "admin"],
+    routes: ["/calendar"],
+    summary: "Zákonné a interní lhůty z celé evidence v kalendáři s exportem do Outlooku či Google Kalendáře a týdenní přehled na úvodní stránce.",
+    body: `
+## Co v kalendáři je
+Kalendář sbírá termíny z celé evidence: lhůty hlášení incidentů, ohlášení regulované služby a změn údajů NÚKIB, **zavedení bezpečnostních opatření do 1 roku od rozhodnutí o registraci**, přezkoumání ISMS, přezkumy rizik a dokumentů, audity, testy plánů kontinuity a cvičení, přezkumy přístupů, smlouvy a zprávy dodavatelů, přezkumy činností zpracování (GDPR), AI systémů (AI Act), hlášení a podpůrné období produktů (CRA) a **test obnovy zálohy** (nejpozději 92 dní od posledního úspěšného). Každá lhůta má právní základ; volba **Jen zákonné lhůty** skryje interní termíny (úkoly, projekty). Vidíte jen lhůty z oblastí, ke kterým máte oprávnění, v aktuálně vybrané společnosti.
+
+## Export do kalendáře
+Tlačítko **Stáhnout do kalendáře (.ics)** stáhne lhůty zvoleného období jako soubor iCalendar. V Outlooku ho otevřete dvojklikem, v Google Kalendáři přes Nastavení → Import. U zákonných lhůt je připomínka 7 dní předem. Soubor je jednorázový snímek – po změnách termínů ho stáhněte znovu (stejné lhůty se při opakovaném importu přepíšou, nezdvojí).
+
+## Tento týden
+Na úvodním Přehledu je karta **Co mám udělat tento týden**: zákonné lhůty na příštích 7 dní a vše po termínu, kritické nálezy a vysoké nálezy s termínem do týdne a správci navíc nedokončené povinné kroky nastavení. Každá položka vede rovnou na místo, kde se řeší.
+`,
+  },
+  {
     id: "security-zones",
     title: "Bezpečnostní zóny",
     audience: ["manager", "admin"],

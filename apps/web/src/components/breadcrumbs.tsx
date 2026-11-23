@@ -8,6 +8,7 @@ import { ArrowLeft, ChevronRight } from "lucide-react";
 /** Známé stránky (cesta → klíč popisku). Detail záznamu pod nimi se zobrazí jako „Detail“. */
 const PAGES: [string, MsgKey][] = [
   ["/my", "nav.myObligations"],
+  ["/calendar", "cal.title"],
   ["/management", "nav.managementReport"],
   ["/compliance-path", "nav.compliancePath"],
   ["/compliance-path/audit", "gd.audit.title"],

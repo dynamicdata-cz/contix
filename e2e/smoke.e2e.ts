@@ -1895,6 +1895,24 @@ test("bezpečnostní zóny: výchozí sada, rozsah IP, mapa a zóna v detailu ak
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("tento týden a kalendář lhůt s exportem .ics (v1.98)", async () => {
+  await page.goto("/");
+  await expect(page.getByTestId("week-card")).toBeVisible();
+  await expect(page.getByTestId("week-card")).toContainText("Co mám udělat tento týden");
+  await page.getByTestId("nav-calendar").click();
+  await expect(page.getByRole("heading", { name: "Kalendář lhůt", level: 1 })).toBeVisible();
+  // test obnovy zálohy je vždy v kalendáři správce (zákonná lhůta)
+  await expect(page.getByTestId("cal-item").filter({ hasText: "Test obnovy zálohy" })).toBeVisible();
+  await page.getByTestId("cal-legal").uncheck();
+  await expect(page.getByTestId("cal-legal")).not.toBeChecked();
+  const href = await page.getByTestId("cal-ics").getAttribute("href");
+  expect(href).toContain("/api/calendar/contix-lhuty.ics");
+  const r = await page.request.get(href!);
+  expect(r.status()).toBe(200);
+  expect(await r.text()).toContain("BEGIN:VCALENDAR");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("žádosti o přístup: import osob, žádost, vyřízení (v1.26)", async () => {
   await page.goto("/access");
   await expect(page.getByRole("heading", { name: "Žádosti o přístup", level: 1 })).toBeVisible();

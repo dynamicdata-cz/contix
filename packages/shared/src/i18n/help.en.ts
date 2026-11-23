@@ -771,6 +771,20 @@ For an unassessed threat in Threat catalogue coverage, the **Task** button creat
 A new version of the **risk assessment report** (Risks → document versions) contains section **7. Data-driven risk analysis**: the capability profile, threat catalogue coverage per primary asset with the list of unassessed threats, threats excluded as not relevant with their justification, decided scenarios, risk reassessments in the period and open prompts. The state is frozen in the approved version; versions also show catalogue coverage and the number of unassessed threats compared with the previous version.
 `,
   },
+  "deadline-calendar": {
+    title: "Deadline calendar and This week overview",
+    summary: "Statutory and internal deadlines from the whole register in a calendar with export to Outlook or Google Calendar, plus a weekly overview on the home page.",
+    body: `
+## What the calendar contains
+The calendar collects dates from the whole register: incident reporting deadlines, notification of a regulated service and data changes to NÚKIB, **implementing security measures within 1 year of the registration decision**, ISMS reviews, risk and document reviews, audits, continuity plan tests and exercises, access reviews, supplier contracts and reports, processing activity reviews (GDPR), AI systems (AI Act), product reporting and support periods (CRA) and the **backup restore test** (no later than 92 days after the last successful one). Each deadline has a legal basis; **Statutory deadlines only** hides internal dates (tasks, projects). You only see deadlines from areas you have permission for, in the currently selected company.
+
+## Export to calendar
+**Download to calendar (.ics)** downloads the deadlines of the selected period as an iCalendar file. Open it in Outlook with a double-click, in Google Calendar via Settings → Import. Statutory deadlines have a reminder 7 days ahead. The file is a one-off snapshot – download it again after dates change (the same deadlines are overwritten on repeated import, not duplicated).
+
+## This week
+The home Overview has a **What to do this week** card: statutory deadlines for the next 7 days and everything overdue, critical findings and high findings due within the week, and for administrators also unfinished required setup steps. Each item links straight to where it is handled.
+`,
+  },
   "security-zones": {
     title: "Security zones",
     summary: "Network split into zones with trust levels, a layered map of links between zones and segmentation checks as findings.",

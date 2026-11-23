@@ -107,6 +107,7 @@ import { aiRoutes } from "./modules/ai/routes";
 import { assuranceRoutes } from "./modules/assurance/routes";
 import { reportRoutes } from "./modules/reports/routes";
 import { dashboardRoutes } from "./modules/dashboard/routes";
+import { calendarRoutes } from "./modules/calendar/routes";
 import { guideRoutes } from "./modules/guides/routes";
 import { identityRoutes } from "./modules/identity/routes";
 import { legislationRoutes } from "./modules/legislation/routes";
@@ -249,6 +250,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/assurance", assuranceRoutes(db))
     .route("/reports", reportRoutes(db))
     .route("/dashboard", dashboardRoutes(db))
+    .route("/calendar", calendarRoutes(db, deps.config))
     .route("/guides", guideRoutes(db, { dispatch: () => (req) => app.fetch(req) }))
     .route("/gdpr", gdprRoutes(db))
     .route("/aiact", aiActRoutes(db))

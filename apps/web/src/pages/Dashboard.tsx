@@ -61,6 +61,7 @@ import {
 } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { ObligationList } from "./My";
+import { WeekCard } from "./Calendar";
 
 /* ============================================================
  * Úvodní přehled: co hoří (povinnosti po termínu), stav shody a souhrn každé oblasti.
@@ -630,6 +631,7 @@ export function Dashboard() {
       />
       <ErrorBox error={dash.error} />
       <SetupBanner />
+      {!group && can("obligations:self") && <WeekCard className="mb-6" />}
       {can("obligations:self") && mine.data && (
         <Card className="mb-6 overflow-hidden" data-testid="today-card">
           <div className="flex flex-wrap items-center gap-3 border-b border-slate-100 px-5 py-3">

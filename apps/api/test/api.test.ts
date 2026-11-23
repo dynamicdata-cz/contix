@@ -11366,6 +11366,47 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(((await admin.json("/api/findings?source=monitoring&status=open", { headers: H })).body.items as any[]).filter((x) => x.title.startsWith("Vazba přes hranici"))).toHaveLength(0);
   });
 
+  test("kalendář lhůt: zákonné a interní lhůty, test obnovy, export .ics (v1.98)", async () => {
+    const H = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
+    const day = (n: number) => new Date(Date.now() + n * 86400_000).toISOString().slice(0, 10);
+    const sup = (await db.insert(schema.suppliers).values({ companyId: "00000000-0000-4000-8000-000000000001", name: "Kal98 dodavatel", status: "active" }).returning())[0]!;
+    await db.insert(schema.supplierContracts).values({ supplierId: sup.id, title: "Kal98 smlouva", validTo: day(20) });
+    const task = await admin.json("/api/actions/tasks", { method: "POST", headers: H, json: { title: "Kal98 interní úkol", dueDate: day(10) } });
+    expect(task.status).toBe(201);
+    // test obnovy: poslední úspěšný před 100 dny → po termínu
+    await db.delete(schema.backupRuns).where(eq(schema.backupRuns.kind, "restore_test"));
+    await db.insert(schema.backupRuns).values({ status: "ok", kind: "restore_test", file: "x.dump", startedAt: new Date(Date.now() - 100 * 86400_000), finishedAt: new Date(Date.now() - 100 * 86400_000) });
+    const all = (await admin.json("/api/calendar?legal=0", { headers: H })).body;
+    const find = (x: any, title: string) => x.items.find((i: any) => i.title.includes(title));
+    expect(find(all, "Kal98 smlouva")).toMatchObject({ kind: "contract", basis: "measures", due: day(20) });
+    expect(find(all, "Kal98 interní úkol")).toMatchObject({ kind: "task", basis: "internal" });
+    expect(all.items.find((i: any) => i.kind === "restore_test")).toMatchObject({ basis: "measures", urgency: "overdue", link: "/admin/ops" });
+    const legal = (await admin.json("/api/calendar?legal=1", { headers: H })).body;
+    expect(find(legal, "Kal98 smlouva")).toBeTruthy();
+    expect(find(legal, "Kal98 interní úkol")).toBeUndefined();
+    // období: smlouva za 20 dní není v týdnu, po termínu je vždy
+    const week = (await admin.json(`/api/calendar?from=${day(0)}&to=${day(7)}&legal=1`, { headers: H })).body;
+    expect(find(week, "Kal98 smlouva")).toBeUndefined();
+    expect(week.items.some((i: any) => i.kind === "restore_test")).toBe(true);
+    expect((await admin.json("/api/calendar?from=2026-13-01", { headers: H })).status).toBe(400);
+    // export .ics: jen od začátku období (bez dávno prošlých), s připomínkou u zákonných lhůt
+    const r = await admin.req(`/api/calendar/contix-lhuty.ics?from=${day(0)}&legal=1`, { headers: H });
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("text/calendar");
+    expect(r.headers.get("content-disposition")).toContain("contix-lhuty.ics");
+    const ics = await r.text();
+    expect(ics).toContain("SUMMARY:Kal98 dodavatel – Kal98 smlouva");
+    expect(ics).toContain(`DTSTART;VALUE=DATE:${day(20).replace(/-/g, "")}`);
+    expect(ics).not.toContain("Kal98 interní úkol");
+    expect(ics).not.toContain("Test obnovy zálohy");
+    expect(ics).toContain("TRIGGER:-P7D");
+    // bez oprávnění
+    expect((await browser().json("/api/calendar")).status).toBe(401);
+    await db.delete(schema.backupRuns).where(eq(schema.backupRuns.kind, "restore_test"));
+    await db.delete(schema.suppliers).where(eq(schema.suppliers.id, sup.id));
+    await admin.json(`/api/actions/tasks/${task.body.id}`, { method: "DELETE", headers: H });
+  });
+
   /* ============ Audit a odhlášení ============ */
 
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {

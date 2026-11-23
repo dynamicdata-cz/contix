@@ -2,6 +2,14 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.98.0
+
+Tento týden a kalendář zákonných lhůt (ADR-192).
+
+- **Co mám udělat tento týden** – nová karta na Přehledu: zákonné lhůty na příštích 7 dní a vše po termínu, kritické nálezy a vysoké nálezy s termínem do týdne a pro správce nedokončené povinné kroky nastavení. Každá položka vede rovnou na místo, kde se řeší.
+- **Kalendář lhůt** (menu pod Moje práce): termíny z celé evidence po měsících s právním základem – hlášení a ohlášení NÚKIB, zavedení opatření do 1 roku od rozhodnutí o registraci, přezkumy ISMS, rizik a dokumentů, audity, testy kontinuity, přezkumy přístupů, smlouvy a zprávy dodavatelů, GDPR, AI Act, CRA a **test obnovy zálohy** (do 92 dní od posledního úspěšného). Filtr *Jen zákonné lhůty*, právní základ a období 3–24 měsíců.
+- **Export do Outlooku / Google Kalendáře**: tlačítko *Stáhnout do kalendáře (.ics)*; zákonné lhůty mají připomínku 7 dní předem, opakovaný import termíny přepíše, nezdvojí.
+
 ## 1.97.0
 
 Bezpečnostní zóny a vrstvená mapa (ADR-191).

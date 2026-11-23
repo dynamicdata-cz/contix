@@ -552,6 +552,7 @@ import type {
   ThreatProfileInput,
   TmElement,
   TmThreat,
+  CalendarDto,
 } from "@contix/shared";
 import { tt } from "./i18n";
 
@@ -1882,6 +1883,11 @@ export const api = {
   },
 
   dashboard: () => request<DashboardDto>("/dashboard"),
+
+  calendar: {
+    list: (q: { from?: string; to?: string; legal?: "0" | "1" } = {}) => request<CalendarDto>(`/calendar?${qs(q)}`),
+    icsUrl: (q: { from?: string; to?: string; legal?: "0" | "1" } = {}) => withCompany(`/api/calendar/contix-lhuty.ics?${qs(q)}`),
+  },
 
   reports: {
     management: (q: { periodFrom?: string; periodTo?: string } = {}) => request<ManagementReport>(`/reports/management?${qs(q)}`),

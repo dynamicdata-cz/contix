@@ -101,6 +101,7 @@ const SetupWizardPage = lazyRouteComponent(() => import("./pages/SetupWizard"), 
 const AssetDetailPage = lazyRouteComponent(() => import("./pages/AssetDetail"), "AssetDetailPage");
 const AssetsPage = lazyRouteComponent(() => import("./pages/Assets"), "AssetsPage");
 const Dashboard = lazyRouteComponent(() => import("./pages/Dashboard"), "Dashboard");
+const CalendarPage = lazyRouteComponent(() => import("./pages/Calendar"), "CalendarPage");
 const SecurityTestsPage = lazyRouteComponent(() => import("./pages/SecurityTests"), "SecurityTestsPage");
 const SecurityTestRunPage = lazyRouteComponent(() => import("./pages/SecurityTests"), "SecurityTestRunPage");
 const SecurityTestBatchPage = lazyRouteComponent(() => import("./pages/SecurityTests"), "SecurityTestBatchPage");
@@ -343,6 +344,7 @@ const routeTree = root.addChildren([
     r("/risks/$riskId", RiskDetailPage),
     r("/profile", ProfilePage),
     r("/my", MyPage),
+    r("/calendar", CalendarPage),
     r("/policies", PoliciesPage),
     r("/policies/new", PolicyNewPage),
     r("/policies/$policyId", PolicyDetailPage),
