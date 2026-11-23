@@ -1978,6 +1978,7 @@ export const api = {
   integrations: {
     /** Mapa propojení (v1.86): zóny, uzly, spojení, stavy a pokrytí serverů. */
     map: () => request<IntegrationMapDto>("/integrations/map"),
+    patchMonitoringFinding: (id: string, d: { status: "accepted" | "open"; note?: string; until?: string | null }) => patch<{ ok: true }>(`/integrations/monitoring-findings/${id}`, d),
     wazuhAgents: (id: string) => request<WazuhAgentsDto>(`/integrations/wazuh/${id}/agents`),
     wazuhAgentsExportUrl: (id: string, format: "csv" | "xlsx") => withCompany(`/api/integrations/wazuh/${id}/agents.${format}`),
   },

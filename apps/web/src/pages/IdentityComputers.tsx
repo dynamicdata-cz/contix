@@ -6,7 +6,7 @@ import { useT } from "@/lib/i18n";
 import { fmtDate, useDebounced } from "@/lib/utils";
 import { COMPUTER_ROLE_LABELS, COMPUTER_ROLES, type ComputerRole, type IdentitySourceDto } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Download } from "lucide-react";
+import { CheckCircle2, Download, FileText } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { ComputerPreset } from "./IdentityInventory";
 
@@ -102,6 +102,14 @@ export function Computers({ sources, onFindings, preset = {} }: { sources: Ident
             </Button>
           </>
         )}
+        <a href={api.identity.reportUrl("computers", "docx", { sourceId: fq.sourceId })} download>
+          <Button variant="secondary" data-testid="pc-report">
+            <FileText size={15} /> {t("idn.pc.report")}
+          </Button>
+        </a>
+        <a href={api.identity.reportUrl("computers", "html", { sourceId: fq.sourceId })} target="_blank" rel="noreferrer">
+          <Button variant="secondary">{t("idn.rep.pdf")}</Button>
+        </a>
         <a href={api.identity.computersExportUrl("csv", fq)} download>
           <Button variant="secondary">
             <Download size={15} /> CSV

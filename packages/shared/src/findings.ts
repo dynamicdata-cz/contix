@@ -6,7 +6,7 @@ import { z } from "zod";
  * úkolem a výjimkou. Zdroje zůstávají ve svých modulech; přehled je jen čte.
  * ============================================================ */
 
-export const FINDING_SOURCES = ["sectest", "host", "vulnerability", "audit", "identity"] as const;
+export const FINDING_SOURCES = ["sectest", "host", "vulnerability", "audit", "identity", "monitoring"] as const;
 export type FindingSource = (typeof FINDING_SOURCES)[number];
 export const UNIFIED_SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
 export type UnifiedSeverity = (typeof UNIFIED_SEVERITIES)[number];
@@ -77,7 +77,7 @@ export const FindingsQuery = z.object({
 export type FindingsQuery = z.input<typeof FindingsQuery>;
 
 export const FINDING_LABELS = {
-  source: { sectest: "Bezpečnostní test", host: "Konfigurace serveru", vulnerability: "Zranitelnost", audit: "Zjištění auditu", identity: "Identity a přístupy" } as Record<FindingSource, string>,
+  source: { sectest: "Bezpečnostní test", host: "Konfigurace serveru", vulnerability: "Zranitelnost", audit: "Zjištění auditu", identity: "Identity a přístupy", monitoring: "Monitoring (Wazuh)" } as Record<FindingSource, string>,
   severity: { critical: "Kritická", high: "Vysoká", medium: "Střední", low: "Nízká", info: "Info" } as Record<UnifiedSeverity, string>,
   status: { open: "Otevřený", in_progress: "V řešení", accepted: "Přijaté riziko", fixed: "Opraveno", dismissed: "Zamítnuto" } as Record<UnifiedStatus, string>,
 };
@@ -236,3 +236,17 @@ export interface FindingEscalationDto {
   /** Úroveň eskalace: 1 = přímý vedoucí garanta, 2 = o úroveň výš… */
   level: number;
 }
+
+/* ---------- nálezy monitoringu (v1.96, ADR-190) ---------- */
+export const MONITORING_CODES = ["wazuh_agent_stale", "wazuh_agent_outdated"] as const;
+export type MonitoringCode = (typeof MONITORING_CODES)[number];
+export const MONITORING_INFO: Record<MonitoringCode, { title: string; fix: string }> = {
+  wazuh_agent_stale: {
+    title: "Agent Wazuhu bez spojení",
+    fix: "Ověřte, že server běží a agent Wazuhu je spuštěný (systemctl status wazuh-agent) a dosáhne na manager (porty 1514/1515). Vyřazený server odeberte z Wazuhu i z aktiv.",
+  },
+  wazuh_agent_outdated: {
+    title: "Agent Wazuhu má starší verzi než manager",
+    fix: "Aktualizujte agenta na verzi manageru (Wazuh → Agents → Upgrade, nebo balíček wazuh-agent).",
+  },
+};

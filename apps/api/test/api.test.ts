@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { PDFDocument } from "pdf-lib";
 import { config as globalConfig } from "../src/config";
@@ -11264,6 +11264,34 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect((await admin.req(`/api/integrations/wazuh/${conn!.id}/agents.xlsx`)).status).toBe(200);
     expect((await admin.json(`/api/integrations/wazuh/00000000-0000-0000-0000-000000000000/agents`)).status).toBe(404);
     expect((await browser().json(`/api/integrations/wazuh/${conn!.id}/agents`)).status).toBe(401);
+
+    // v1.96: nálezy monitoringu – bez spojení > 7 dní (server = vysoká), starší verze (nízká); registr nálezů, výjimka, úkol, oprava
+    const { syncMonitoringFindings } = await import("../src/modules/integrations/monitoringFindings");
+    const s1 = await syncMonitoringFindings(db);
+    expect(s1.opened).toBeGreaterThanOrEqual(2);
+    const mf = (await admin.json("/api/findings?source=monitoring&status=all")).body;
+    expect(mf.sources).toContain("monitoring");
+    const mi = (mf.items as any[]).filter((x) => x.assetName === "wz-db01");
+    expect(mi.map((x) => [x.title, x.severity]).sort()).toEqual([
+      ["Agent Wazuhu bez spojení: wz-db01", "high"],
+      ["Agent Wazuhu má starší verzi než manager: wz-db01", "low"],
+    ]);
+    expect(mf.open.monitoring.high).toBeGreaterThanOrEqual(1);
+    const stale = mi.find((x) => x.severity === "high");
+    expect((await admin.json(`/api/integrations/monitoring-findings/${stale.id}`, { method: "PATCH", json: { status: "accepted", note: "x" } })).status).toBe(400);
+    expect((await admin.json(`/api/integrations/monitoring-findings/${stale.id}`, { method: "PATCH", json: { status: "accepted", note: "Server v opravě do konce měsíce", until: "2099-01-01" } })).body).toEqual({ ok: true });
+    expect(((await admin.json("/api/findings?source=monitoring&status=accepted")).body.items as any[]).map((x) => x.id)).toContain(stale.id);
+    await admin.json(`/api/integrations/monitoring-findings/${stale.id}`, { method: "PATCH", json: { status: "open" } });
+    const tk = await admin.json("/api/findings/tasks", { method: "POST", json: { keys: [stale.key] } });
+    expect(tk.body.created).toBe(1);
+    // agent se připojil a aktualizoval → nálezy opravené, úkol se uzavře
+    const [db01] = await db.select().from(schema.assetSources).where(and(eq(schema.assetSources.connectionId, conn!.id), eq(schema.assetSources.sourceRef, "002")));
+    await db.update(schema.assetSources).set({ raw: { agent: { ...(db01!.raw as any).agent, status: "active", version: "Wazuh v4.9.2", lastKeepAlive: new Date().toISOString() } } }).where(eq(schema.assetSources.id, db01!.id));
+    const s2 = await syncMonitoringFindings(db);
+    expect(s2.fixed).toBeGreaterThanOrEqual(2);
+    expect(((await admin.json("/api/findings?source=monitoring&status=fixed")).body.items as any[]).filter((x) => x.assetName === "wz-db01")).toHaveLength(2);
+    const { closeResolvedSourceTasks } = await import("../src/modules/findings/sourceTasks");
+    expect(await closeResolvedSourceTasks(db)).toBeGreaterThanOrEqual(1);
 
     await db.delete(schema.connections).where(eq(schema.connections.id, conn!.id));
     await db.delete(schema.assets).where(sql`name like 'wz-%' or name = 'wazuh-manager'`);

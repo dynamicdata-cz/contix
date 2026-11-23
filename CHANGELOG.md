@@ -2,6 +2,14 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.96.0
+
+Nálezy monitoringu a report počítačů z AD (ADR-190).
+
+- **Nálezy z odpojených agentů Wazuhu**: v registru nálezů je nový zdroj **Monitoring (Wazuh)** – agent bez spojení déle než 7 dní (u serveru vysoká závažnost) a agent se starší verzí než manager. Nález má aktivum, garanta, lhůtu podle závažnosti a jde z něj založit úkol nebo zapsat výjimku s termínem. Jakmile se agent znovu připojí nebo aktualizuje, nález se sám uzavře (i s úkolem). Přepočítává se po synchronizaci Wazuhu a pravidelně plánovačem.
+- **Report „Počítače a servery z AD“** (Word / tisk do PDF, v záložce Počítače i v Reportech identit a v měsíčním rozesílání garantovi): stav podle rolí, systémy bez podpory výrobce s kolonkou rozhodnutí, aktivní servery bez sběru dat, neaktivní počítače podle OU, počítače bez LAPS nebo s neomezenou delegací.
+- AI plán oprav dostává u nálezů monitoringu jen pseudonym serveru (bez jména a IP).
+
 ## 1.95.0
 
 Provozní pojistky (ADR-189).

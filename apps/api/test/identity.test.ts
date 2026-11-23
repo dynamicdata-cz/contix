@@ -768,6 +768,14 @@ describe.skipIf(!url)("Identity a přístupy (AD / Entra ID)", () => {
     const map = (await admin.json("/api/integrations/map")).body;
     expect(map.coverage).toMatchObject({ adServers: 3, adNoAsset: 1 });
 
+    // v1.96: report počítačů a serverů (Word / tisk)
+    const rep = String((await admin.json(`/api/identity/reports/computers.html?sourceId=${pid}`)).body);
+    expect(rep).toContain("Počítače a servery z AD");
+    expect(rep).toContain("Systém bez podpory výrobce");
+    expect(rep).toContain("SRV-OLD");
+    expect(rep).toContain("Neaktivní počítače podle OU");
+    expect(rep).toContain("PC-STARY");
+    expect((await admin.json(`/api/identity/reports/computers.docx?sourceId=${pid}`)).status).toBe(200);
     // založení aktiv z počítačů bez aktiva
     const made = await admin.json("/api/identity/computers/assets", { method: "POST", json: { ids: [by("PC-NOVY").id, by("DC01").id, by("SRV-OLD").id] } });
     expect(made.body).toMatchObject({ created: 2, linked: 0, skipped: 1 });

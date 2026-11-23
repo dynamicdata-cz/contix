@@ -527,6 +527,8 @@ export function startNotificationScheduler(db: Db, config: Config, intervalMs = 
       if (!(await acquireLease(db, "scheduler", intervalMs * 2 + 60_000))) return;
       // úkoly z nálezů, jejichž zdroj už není otevřený (v1.88)
       await closeResolvedSourceTasks(db).catch((e) => console.error("Úkoly z nálezů:", (e as Error).message));
+      // nálezy monitoringu – doba bez spojení agentů roste i bez synchronizace Wazuhu (v1.96, ADR-190)
+      await import("../integrations/monitoringFindings").then((m) => m.syncMonitoringFindings(db)).catch((e) => console.error("Nálezy monitoringu:", (e as Error).message));
       // odkazy na smazané záznamy (štítky, výjimky, vazby infoservisu) – úklid
       await sweepDangling(db).catch((e) => console.error("Úklid odkazů:", (e as Error).message));
       // nejdřív Wazuh alerty (nové návrhy událostí), pak upozornění

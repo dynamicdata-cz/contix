@@ -72,6 +72,11 @@ export async function startRun<P>(
         .update(discoveryRuns)
         .set({ status: "succeeded", stats, log, finishedAt: new Date() })
         .where(eq(discoveryRuns.id, runId));
+      // nálezy monitoringu ze stavu agentů (v1.96, ADR-190)
+      if (connectorId === "wazuh") {
+        const { syncMonitoringFindings } = await import("../integrations/monitoringFindings");
+        await syncMonitoringFindings(db).catch((e) => console.error("Nálezy monitoringu:", (e as Error).message));
+      }
     } catch (e) {
       await db
         .update(discoveryRuns)

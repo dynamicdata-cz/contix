@@ -507,6 +507,33 @@ export const hostInventories = pgTable(
  * Nálezy serveru ze sběrače s životním cyklem (v1.65, ADR-158): z `evaluateHost` při každém hlášení – nový = otevřený,
  * chybějící = opravený, přijatý zůstává (po termínu se znovu otevře). Úkoly `host_finding`, výjimky, podněty k riziku.
  */
+/** Nálezy monitoringu (v1.96, ADR-190): agent Wazuhu bez spojení / se starou verzí – zdroj „monitoring“ v registru nálezů. */
+export const monitoringFindings = pgTable(
+  "monitoring_findings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    connectionId: uuid("connection_id").references(() => connections.id, { onDelete: "cascade" }),
+    assetId: uuid("asset_id").references(() => assets.id, { onDelete: "set null" }),
+    /** Stálý klíč předmětu: `<připojení>:<id agenta>`. */
+    key: varchar("key", { length: 120 }).notNull(),
+    code: varchar("code", { length: 60 }).notNull(),
+    severity: varchar("severity", { length: 10 }).notNull(),
+    subject: varchar("subject", { length: 500 }).notNull(),
+    detail: varchar("detail", { length: 2000 }),
+    status: varchar("status", { length: 20 }).notNull().default("open"),
+    note: text("note"),
+    acceptedById: uuid("accepted_by_id").references(() => users.id, { onDelete: "set null" }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedUntil: date("accepted_until"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    fixedAt: timestamp("fixed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [uniqueIndex("monitoring_findings_key_uq").on(t.key, t.code), index("monitoring_findings_company_idx").on(t.companyId, t.status), index("monitoring_findings_asset_idx").on(t.assetId)],
+);
+
 export const hostFindings = pgTable(
   "host_findings",
   {

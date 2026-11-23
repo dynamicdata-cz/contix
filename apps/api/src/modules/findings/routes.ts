@@ -15,6 +15,8 @@ import {
   type UnifiedFindingsDto,
   type UnifiedSeverity,
   IDENTITY_RULE_INFO,
+  MONITORING_INFO,
+  type MonitoringCode,
   type IdentityRule,
   type SecTestFindingTask,
 } from "@contix/shared";
@@ -37,8 +39,8 @@ import { requirePerm } from "../../auth/middleware";
 import { hasPermIn, scopeOf, soleCompany } from "../../auth/scope";
 import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
-import { assets, assetVulnerabilities, auditFindings, audits, hostFindings, hostInventories, identityFindings, identitySources, positions, secTestFindings, sodRules, sodViolations, users, vulnIntel } from "../../db/schema";
-import { createIdentityTasks, createVulnTasks, sourceTasks } from "./sourceTasks";
+import { assets, assetVulnerabilities, auditFindings, audits, hostFindings, hostInventories, identityFindings, identitySources, monitoringFindings, positions, secTestFindings, sodRules, sodViolations, users, vulnIntel } from "../../db/schema";
+import { createIdentityTasks, createMonitoringTasks, createVulnTasks, sourceTasks } from "./sourceTasks";
 import { getVulnSla, vulnDueSql } from "../vulnerabilities/intel";
 import { hostFindingTasks, hostFindingTitle } from "../collector/findings";
 import { findingTasks } from "../sectests/tasks";
@@ -54,6 +56,7 @@ const ACCESS: Record<FindingSource, { perm: Permission; module: string }> = {
   vulnerability: { perm: "assets:read", module: "vulnerabilities" },
   audit: { perm: "audits:read", module: "audits" },
   identity: { perm: "identity:read", module: "identity" },
+  monitoring: { perm: "assets:read", module: "discovery" },
 };
 const LIMIT = 1500;
 
@@ -69,17 +72,18 @@ const SRC_SEV: Record<FindingSource, (s: UnifiedSeverity) => string[]> = {
   vulnerability: (s) => (s === "info" ? ["unknown"] : [s]),
   audit: (s) => ({ critical: [], high: ["major"], medium: ["minor"], low: ["observation"], info: ["recommendation"] })[s],
   identity: (s) => (s === "info" ? [] : [s]),
+  monitoring: (s) => [s],
 };
 /** Jednotný stav → stavy zdroje. */
 function srcStatuses(source: FindingSource, st: string): string[] | null {
   if (st === "all") return null;
   const m: Record<string, Record<FindingSource, string[]>> = {
-    active: { sectest: ["open"], host: ["open"], vulnerability: ["open"], audit: ["open", "in_progress"], identity: ["open"] },
-    open: { sectest: ["open"], host: ["open"], vulnerability: ["open"], audit: ["open"], identity: ["open"] },
-    in_progress: { sectest: [], host: [], vulnerability: [], audit: ["in_progress"], identity: [] },
-    accepted: { sectest: ["accepted"], host: ["accepted"], vulnerability: ["accepted"], audit: ["accepted"], identity: ["accepted"] },
-    fixed: { sectest: ["fixed"], host: ["fixed"], vulnerability: ["resolved"], audit: ["closed"], identity: ["resolved"] },
-    dismissed: { sectest: ["false_positive"], host: ["false_positive"], vulnerability: ["false_positive", "out_of_scope", "duplicate"], audit: [], identity: [] },
+    active: { sectest: ["open"], host: ["open"], vulnerability: ["open"], audit: ["open", "in_progress"], identity: ["open"], monitoring: ["open"] },
+    open: { sectest: ["open"], host: ["open"], vulnerability: ["open"], audit: ["open"], identity: ["open"], monitoring: ["open"] },
+    in_progress: { sectest: [], host: [], vulnerability: [], audit: ["in_progress"], identity: [], monitoring: [] },
+    accepted: { sectest: ["accepted"], host: ["accepted"], vulnerability: ["accepted"], audit: ["accepted"], identity: ["accepted"], monitoring: ["accepted"] },
+    fixed: { sectest: ["fixed"], host: ["fixed"], vulnerability: ["resolved"], audit: ["closed"], identity: ["resolved"], monitoring: ["fixed"] },
+    dismissed: { sectest: ["false_positive"], host: ["false_positive"], vulnerability: ["false_positive", "out_of_scope", "duplicate"], audit: [], identity: [], monitoring: [] },
   };
   return m[st]![source];
 }
@@ -368,6 +372,53 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
         })(),
       );
 
+    if (want("monitoring"))
+      jobs.push(
+        (async () => {
+          const rows = await db
+            .select({ f: monitoringFindings, assetName: assets.name, techName: tech.displayName, crit: assets.criticality, inet: assets.internetFacing })
+            .from(monitoringFindings)
+            .leftJoin(assets, eq(assets.id, monitoringFindings.assetId))
+            .leftJoin(tech, eq(tech.id, sql`coalesce(${assets.technicalOwnerUserId}, ${assets.technicalDeputyUserId}, ${assets.ownerUserId})`))
+            .where(
+              and(
+                inArray(monitoringFindings.companyId, scope.monitoring),
+                q.assetId ? eq(monitoringFindings.assetId, q.assetId) : undefined,
+                resp ? or(assetOf(sql`${monitoringFindings.assetId}`), taskOf("monitoring_finding", sql`${monitoringFindings.id}`)) : undefined,
+                like ? or(ilike(monitoringFindings.subject, like), ilike(monitoringFindings.detail, like)) : undefined,
+                ...filt("monitoring", monitoringFindings.status, monitoringFindings.severity),
+              ),
+            )
+            .orderBy(desc(monitoringFindings.lastSeenAt))
+            .limit(LIMIT);
+          const mt = await sourceTasks(db, "monitoring_finding", rows.map((r) => r.f.id));
+          for (const { f, assetName, techName, crit, inet } of rows) {
+            const t = mt.get(f.id) ?? null;
+            const sevU = unifiedSeverity("monitoring", f.severity);
+            const sla = f.status === "open" ? findingSlaDue(f.firstSeenAt, sevU) : null;
+            items.push({
+              key: `monitoring:${f.id}`,
+              id: f.id,
+              source: "monitoring",
+              companyId: f.companyId,
+              title: `${MONITORING_INFO[f.code as MonitoringCode]?.title ?? f.code}: ${f.subject}`,
+              detail: f.detail ?? "",
+              severity: sevU,
+              status: unifiedStatus(f.status),
+              assetId: f.assetId,
+              assetName,
+              ownerName: t?.assigneeName ?? techName,
+              task: t ? { id: t.id, code: t.code, status: t.status, dueDate: t.dueDate, assigneeName: t.assigneeName ?? t.ownerName } : null,
+              ...dueOf(t, sla),
+              acceptedUntil: f.acceptedUntil,
+              firstSeenAt: f.firstSeenAt.toISOString(),
+              link: f.assetId ? `/assets/${f.assetId}` : "/discovery",
+              priority: findingPriority({ severity: sevU, internetFacing: inet, criticality: crit, overdue: lateOf(f.status, t, sla ?? today, today) }),
+            });
+          }
+        })(),
+      );
+
     // souhrn otevřených – bez filtru stavu a závažnosti
     const open = Object.fromEntries(FINDING_SOURCES.map((s) => [s, Object.fromEntries(UNIFIED_SEVERITIES.map((v) => [v, 0]))])) as UnifiedFindingsDto["open"];
     const cnt = async (s: FindingSource, rows: Promise<{ sev: string; n: number }[]>) => {
@@ -406,6 +457,8 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
       jobs.push(cnt("identity", db.select({ sev: sql<string>`${identityFindings.severity}::text`, n }).from(identityFindings).where(and(inArray(identityFindings.companyId, scope.identity), eq(identityFindings.status, "open"))).groupBy(identityFindings.severity)));
       jobs.push(cnt("identity", db.select({ sev: sql<string>`${sodRules.severity}::text`, n }).from(sodViolations).innerJoin(sodRules, eq(sodRules.id, sodViolations.ruleId)).where(and(inArray(sodViolations.companyId, scope.identity), eq(sodViolations.status, "open"))).groupBy(sodRules.severity)));
     }
+    if (scope.monitoring.length)
+      jobs.push(cnt("monitoring", db.select({ sev: monitoringFindings.severity, n }).from(monitoringFindings).where(and(inArray(monitoringFindings.companyId, scope.monitoring), eq(monitoringFindings.status, "open"), q.assetId ? eq(monitoringFindings.assetId, q.assetId) : undefined)).groupBy(monitoringFindings.severity)));
     await Promise.all(jobs);
 
     const rank: Record<UnifiedSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
@@ -434,7 +487,8 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
       const user = currentUser(c).id;
       const vulnIds = keys.filter((k) => k.startsWith("vulnerability:")).map((k) => k.slice(14));
       const idIds = keys.filter((k) => k.startsWith("identity:")).map((k) => k.slice(9));
-      const total = { created: 0, existing: 0, unassigned: 0, skipped: keys.length - vulnIds.length - idIds.length };
+      const monIds = keys.filter((k) => k.startsWith("monitoring:")).map((k) => k.slice(11));
+      const total = { created: 0, existing: 0, unassigned: 0, skipped: keys.length - vulnIds.length - idIds.length - monIds.length };
       const add = (r: { created: number; existing: number; unassigned: number; skipped: number }) => {
         total.created += r.created;
         total.existing += r.existing;
@@ -446,6 +500,7 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
         const sod = new Set((await db.select({ id: sodViolations.id }).from(sodViolations).where(inArray(sodViolations.id, idIds))).map((x) => x.id));
         add(await createIdentityTasks(db, idIds.map((id) => ({ kind: sod.has(id) ? ("sod_violation" as const) : ("identity_finding" as const), id })), user, (co) => hasPermIn(c, "identity:write", co) && hasPermIn(c, "actions:write", co)));
       }
+      if (monIds.length) add(await createMonitoringTasks(db, monIds, user, (co) => hasPermIn(c, "assets:write", co) && hasPermIn(c, "actions:write", co)));
       if (total.created) await audit(db, { c, user: currentUser(c), action: "findings.tasks_created", entityType: "finding", details: total });
       return c.json(total);
     })

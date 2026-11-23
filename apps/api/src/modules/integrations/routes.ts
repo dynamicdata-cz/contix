@@ -4,10 +4,10 @@ import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
-import { agentEvents, assets, assetSources, connections, hostInventories, identityComputers, identitySources } from "../../db/schema";
-import { hasPerm, requirePerm } from "../../auth/middleware";
+import { agentEvents, assets, assetSources, connections, hostInventories, identityComputers, identitySources, monitoringFindings } from "../../db/schema";
+import { currentUser, hasPerm, requirePerm } from "../../auth/middleware";
 import type { AppEnv } from "../../auth/service";
-import { inScope, scopeOf } from "../../auth/scope";
+import { hasPermIn, inScope, scopeOf } from "../../auth/scope";
 import { agentDtos, concentratorDtos } from "../agents/service";
 import { collectorDtos, hostSummaries } from "../collector/service";
 import { getScanConfig, nmapInfo } from "../connectors/config";
@@ -19,6 +19,20 @@ import { systemStatus } from "../ops/routes";
 import { probeDtos } from "../sectests/service";
 import { writeXlsx } from "../import/table";
 import { summarize, wazuhAgents, wazuhAgentsDto } from "./wazuhAgents";
+import { setMonitoringStatus } from "./monitoringFindings";
+import { zValidator } from "@hono/zod-validator";
+import { z } from "zod";
+import { audit } from "../../auth/service";
+
+const MonitoringFindingPatch = z.object({
+  status: z.enum(["accepted", "open"]),
+  note: z.string().trim().max(2000).optional(),
+  until: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+});
 
 /* ============================================================
  * Mapa propojení (v1.86, ADR-181): data pro Administraci → Konektory, stránku mapy a dlaždici v Přehledu.
@@ -137,6 +151,18 @@ export function integrationRoutes(deps: { db: Db; config: Config }) {
     .get("/wazuh/:id/agents", requirePerm("admin:settings", "discovery:run", "soc:read"), async (c) => {
       const dto = await agentsFor(c);
       return c.json(dto);
+    })
+    /** Výjimka / znovuotevření nálezu monitoringu (v1.96, ADR-190). */
+    .patch("/monitoring-findings/:id", requirePerm("assets:write"), zValidator("json", MonitoringFindingPatch), async (c) => {
+      const id = c.req.param("id");
+      const [f] = await db.select({ companyId: monitoringFindings.companyId, status: monitoringFindings.status }).from(monitoringFindings).where(eq(monitoringFindings.id, id));
+      if (!f || !scopeOf(c).ids.includes(f.companyId) || !hasPermIn(c, "assets:write", f.companyId)) throw new HTTPException(404, { message: "Nález nenalezen" });
+      const i = c.req.valid("json");
+      if (i.status === "accepted" && (i.note ?? "").trim().length < 5) throw new HTTPException(400, { message: "Výjimku zdůvodněte (aspoň 5 znaků)." });
+      const r = await setMonitoringStatus(db, id, { status: i.status, note: i.note, until: i.until ?? null, userId: currentUser(c).id });
+      if (!r) throw new HTTPException(409, { message: "Opravený nález nelze změnit." });
+      await audit(db, { c, user: currentUser(c), action: i.status === "accepted" ? "monitoring_finding.accepted" : "monitoring_finding.reopened", entityType: "asset", entityId: r.assetId ?? undefined, details: { id, note: i.note ?? null, until: i.until ?? null } });
+      return c.json({ ok: true as const });
     })
     .get("/wazuh/:id/agents.csv", requirePerm("admin:settings", "discovery:run", "soc:read"), (c) => exportAgents(c, "csv"))
     .get("/wazuh/:id/agents.xlsx", requirePerm("admin:settings", "discovery:run", "soc:read"), (c) => exportAgents(c, "xlsx"));

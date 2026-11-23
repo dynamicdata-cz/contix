@@ -1,7 +1,7 @@
-import { IDENTITY_RULE_INFO, SECTEST_TASK_DUE_DAYS, SECTEST_TASK_PRIORITY, type IdentityRule, type SecTestFindingTask, type SecTestSeverity, type SecTestTasksResult } from "@contix/shared";
+import { MONITORING_INFO, type MonitoringCode, IDENTITY_RULE_INFO, SECTEST_TASK_DUE_DAYS, SECTEST_TASK_PRIORITY, type IdentityRule, type SecTestFindingTask, type SecTestSeverity, type SecTestTasksResult } from "@contix/shared";
 import { and, desc, eq, inArray, notInArray } from "drizzle-orm";
 import type { Db } from "../../db/client";
-import { assets, assetVulnerabilities, identityFindings, positions, sodRules, sodViolations, tasks, users, vulnIntel } from "../../db/schema";
+import { assets, assetVulnerabilities, identityFindings, monitoringFindings, positions, sodRules, sodViolations, tasks, users, vulnIntel } from "../../db/schema";
 import { orgSnapshot } from "../org/hierarchy";
 import { technicalAssignee } from "../sectests/tasks";
 import { getVulnSla, vulnDueSql } from "../vulnerabilities/intel";
@@ -12,7 +12,7 @@ import { getVulnSla, vulnDueSql } from "../vulnerabilities/intel";
  * Úkol se uzavře sám, když zdroj přestane být otevřený (`closeResolvedSourceTasks`).
  * ============================================================ */
 
-export type SourceTaskKind = "vulnerability" | "identity_finding" | "sod_violation";
+export type SourceTaskKind = "vulnerability" | "identity_finding" | "sod_violation" | "monitoring_finding";
 const OPEN = ["open", "in_progress"];
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000).toISOString().slice(0, 10);
 const sevOf = (s: string): SecTestSeverity => (["critical", "high", "medium", "low"].includes(s) ? (s as SecTestSeverity) : "info");
@@ -129,6 +129,53 @@ export async function createIdentityTasks(db: Db, refs: { kind: "identity_findin
   return res;
 }
 
+/** Úkoly z nálezů monitoringu (v1.96): garant aktiva, termín podle závažnosti. */
+export async function createMonitoringTasks(db: Db, ids: string[], userId: string | null, allowed: (companyId: string) => boolean, now = new Date()): Promise<SecTestTasksResult & { taskIds: string[] }> {
+  const res = { created: 0, existing: 0, unassigned: 0, skipped: 0, taskIds: [] as string[] };
+  const uniq = [...new Set(ids)];
+  if (!uniq.length) return res;
+  const rows = await db
+    .select({ f: monitoringFindings, assetName: assets.name, ownerUserId: assets.ownerUserId, technicalOwnerUserId: assets.technicalOwnerUserId, technicalDeputyUserId: assets.technicalDeputyUserId })
+    .from(monitoringFindings)
+    .leftJoin(assets, eq(assets.id, monitoringFindings.assetId))
+    .where(inArray(monitoringFindings.id, uniq));
+  const has = await openTaskIds(db, "monitoring_finding", uniq);
+  const snap = await orgSnapshot(db);
+  for (const r of rows) {
+    if (!allowed(r.f.companyId) || r.f.status !== "open") {
+      res.skipped++;
+      continue;
+    }
+    if (has.has(r.f.id)) {
+      res.existing++;
+      continue;
+    }
+    const who = technicalAssignee(snap, { ownerUserId: r.ownerUserId ?? null, technicalOwnerUserId: r.technicalOwnerUserId ?? null, technicalDeputyUserId: r.technicalDeputyUserId ?? null }, r.f.companyId);
+    const s = sevOf(r.f.severity);
+    const info = MONITORING_INFO[r.f.code as MonitoringCode];
+    const [t] = await db
+      .insert(tasks)
+      .values({
+        companyId: r.f.companyId,
+        title: `${info?.title ?? r.f.code}: ${r.f.subject}`.slice(0, 500),
+        description: [r.f.detail, info?.fix ? `Náprava: ${info.fix}` : "", "Úkol se uzavře sám, jakmile nález nebude otevřený."].filter(Boolean).join("\n\n"),
+        sourceKind: "monitoring_finding",
+        sourceId: r.f.id,
+        ownerPositionId: who.positionId,
+        assigneeUserId: who.userId,
+        dueDate: addDays(now, SECTEST_TASK_DUE_DAYS[s]),
+        priority: SECTEST_TASK_PRIORITY[s],
+        status: "open",
+        createdById: userId,
+      })
+      .returning({ id: tasks.id });
+    res.created++;
+    res.taskIds.push(t!.id);
+    if (!who.userId) res.unassigned++;
+  }
+  return res;
+}
+
 /** Uzavření otevřených úkolů, jejichž zdroj (zranitelnost, nález identity, SoD) už není otevřený. */
 export async function closeResolvedSourceTasks(db: Db, now = new Date()) {
   const close = async (kind: SourceTaskKind, stillOpen: string[]) => {
@@ -145,6 +192,8 @@ export async function closeResolvedSourceTasks(db: Db, now = new Date()) {
   if (v.length) n += await close("vulnerability", (await db.select({ id: assetVulnerabilities.id }).from(assetVulnerabilities).where(and(inArray(assetVulnerabilities.id, v), eq(assetVulnerabilities.status, "open")))).map((x) => x.id));
   const f = await ids("identity_finding");
   if (f.length) n += await close("identity_finding", (await db.select({ id: identityFindings.id }).from(identityFindings).where(and(inArray(identityFindings.id, f), eq(identityFindings.status, "open")))).map((x) => x.id));
+  const mf = await ids("monitoring_finding");
+  if (mf.length) n += await close("monitoring_finding", (await db.select({ id: monitoringFindings.id }).from(monitoringFindings).where(and(inArray(monitoringFindings.id, mf), eq(monitoringFindings.status, "open")))).map((x) => x.id));
   const s = await ids("sod_violation");
   if (s.length) n += await close("sod_violation", (await db.select({ id: sodViolations.id }).from(sodViolations).where(and(inArray(sodViolations.id, s), eq(sodViolations.status, "open")))).map((x) => x.id));
   return n;

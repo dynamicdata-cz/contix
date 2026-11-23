@@ -934,12 +934,13 @@ export interface IdentityFindingFacets {
 export const BulkAcceptIdentityInput = AcceptIdentityFindingInput.extend({ ids: z.array(z.string().uuid()).min(1).max(500) });
 export type BulkAcceptIdentityInput = z.infer<typeof BulkAcceptIdentityInput>;
 
-export const IDENTITY_REPORT_KINDS = ["inactive", "privileged", "summary"] as const;
+export const IDENTITY_REPORT_KINDS = ["inactive", "privileged", "summary", "computers"] as const;
 export type IdentityReportKind = (typeof IDENTITY_REPORT_KINDS)[number];
 export const IDENTITY_REPORT_LABELS: Record<IdentityReportKind, string> = {
   inactive: "Neaktivní a nikdy nepřihlášené účty",
   privileged: "Privilegované účty",
   summary: "Souhrn pro vedení",
+  computers: "Počítače a servery z AD",
 };
 /** Pravidla reportu neaktivních účtů. */
 export const IDENTITY_INACTIVE_RULES: IdentityRule[] = ["stale", "never_logged_in"];

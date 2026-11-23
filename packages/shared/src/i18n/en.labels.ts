@@ -2,6 +2,10 @@ import { hardeningEnLabels } from "../hardening";
 
 /** Anglické překlady hotových českých textů (t.lbl / lbl) – klíč `lbl:<český text>`. Generováno z *_LABELS, MODULES, SECURITY_ROLES, stupnic rizik, map v komponentách a chybových hlášek API. */
 export const EN_LABELS: Record<string, string> = {
+  "lbl:Monitoring (Wazuh)": "Monitoring (Wazuh)",
+  "lbl:Opravený nález nelze změnit.": "A fixed finding cannot be changed.",
+  "lbl:Výjimku zdůvodněte (aspoň 5 znaků).": "Justify the exception (at least 5 characters).",
+  "lbl:Počítače a servery z AD": "Computers and servers from AD",
   "lbl:Rozhodnutí nahrajte jako PDF": "Upload the decision as a PDF",
   "lbl:Počítače a servery": "Computers and servers",
   "lbl:Privilegovaný přístup": "Privileged access",

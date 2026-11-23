@@ -2,7 +2,7 @@ import { FINDING_LABELS, FINDING_PLAN_DUE_DAYS, FINDING_SOURCES, parseFindingPla
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
-import { appSettings, assets, assetVulnerabilities, auditFindings, hostFindings, positions, secTestFindings, tasks, users } from "../../db/schema";
+import { appSettings, assets, assetVulnerabilities, auditFindings, hostFindings, positions, secTestFindings, tasks, users, monitoringFindings } from "../../db/schema";
 import { orgSnapshot } from "../org/hierarchy";
 import { technicalAssignee } from "../sectests/tasks";
 import { clientFor, getAiSettings } from "../ai/service";
@@ -62,6 +62,11 @@ export async function buildFindingPlan(db: Db, config: Config, companyId: string
     } else if (f.source === "host") {
       title = title.split(" – ")[0]!;
       detail = H(f.detail);
+    } else if (f.source === "monitoring") {
+      // „Agent Wazuhu bez spojení: <server>“ – jméno serveru i IP v detailu pryč (v1.96)
+      const [what, ...who] = f.title.split(": ");
+      title = what!;
+      detail = H(who.join(": ") || f.id);
     }
     const task = f.task ? `úkol ${f.task.status}${f.dueDate ? `, termín ${f.dueDate}` : ""}` : "bez úkolu";
     return `${ref} | ${t.lbl(FINDING_LABELS.source[f.source])} | ${f.severity} | priorita ${f.priority} | aktivum ${A(f.assetId)} | ${task} | ${title.slice(0, 200)} | ${detail.slice(0, 120)}`;
@@ -100,6 +105,7 @@ export async function findingStates(db: Db, keys: string[]): Promise<Map<string,
     ids("vulnerability").length
       ? db.select({ id: assetVulnerabilities.id, status: sql<string>`${assetVulnerabilities.status}::text`, assetId: assetVulnerabilities.assetId }).from(assetVulnerabilities).where(inArray(assetVulnerabilities.id, ids("vulnerability"))).then((r) => put("vulnerability", r))
       : null,
+    ids("monitoring").length ? db.select({ id: monitoringFindings.id, status: monitoringFindings.status, assetId: monitoringFindings.assetId }).from(monitoringFindings).where(inArray(monitoringFindings.id, ids("monitoring"))).then((r) => put("monitoring", r)) : null,
     ids("audit").length ? db.select({ id: auditFindings.id, status: sql<string>`${auditFindings.status}::text`, assetId: auditFindings.assetId }).from(auditFindings).where(inArray(auditFindings.id, ids("audit"))).then((r) => put("audit", r)) : null,
   ]);
   return out;

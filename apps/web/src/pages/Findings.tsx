@@ -13,13 +13,13 @@ import { cn, fmtDay } from "@/lib/utils";
 import { TASK_LABELS, type TaskStatus, FINDING_LABELS, FINDING_SOURCES, UNIFIED_SEVERITIES, UNIFIED_STATUSES, type FindingSource, type UnifiedFindingDto, type UnifiedFindingsDto, type UnifiedSeverity, type UnifiedStatus, type FindingsRemediationDto, type RemediationStat, type FindingPlanEffort } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { ClipboardList, FlaskConical, Server, ShieldAlert, Bug, UserX } from "lucide-react";
+import { ClipboardList, FlaskConical, Server, ShieldAlert, Bug, UserX, Radar } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 const PAGE = 300;
 const sevTone: Record<UnifiedSeverity, Tone> = { critical: "red", high: "red", medium: "amber", low: "slate", info: "slate" };
 const stTone: Record<UnifiedStatus, Tone> = { open: "red", in_progress: "amber", accepted: "blue", fixed: "green", dismissed: "slate" };
-const srcIcon: Record<FindingSource, React.ReactNode> = { sectest: <FlaskConical size={15} />, host: <Server size={15} />, vulnerability: <Bug size={15} />, audit: <ClipboardList size={15} />, identity: <UserX size={15} /> };
+const srcIcon: Record<FindingSource, React.ReactNode> = { sectest: <FlaskConical size={15} />, host: <Server size={15} />, vulnerability: <Bug size={15} />, audit: <ClipboardList size={15} />, identity: <UserX size={15} />, monitoring: <Radar size={15} /> };
 
 function useLabels() {
   const t = useT();
@@ -143,7 +143,7 @@ export function FindingsTable({ items, loading, focus, compact }: { items: Unifi
   const today = new Date().toISOString().slice(0, 10);
   // úkoly z nálezů: konfigurace serverů (v1.65), zranitelnosti a identity (v1.88)
   const canPick = (f: UnifiedFindingDto) =>
-    f.status === "open" && !f.task && ((f.source === "host" && canHost) || (f.source === "vulnerability" && canHost) || (f.source === "identity" && can("identity:write")));
+    f.status === "open" && !f.task && ((f.source === "host" && canHost) || (f.source === "vulnerability" && canHost) || (f.source === "monitoring" && canHost) || (f.source === "identity" && can("identity:write")));
   const hostOpen = useMemo(() => (items ?? []).filter(canPick), [items]); // eslint-disable-line react-hooks/exhaustive-deps
   const tasks = useMutation({
     mutationFn: async (keys: string[]) => {
@@ -249,7 +249,7 @@ export function FindingsTable({ items, loading, focus, compact }: { items: Unifi
                   <td className="px-3 py-2.5 text-xs">
                     <Badge tone={stTone[f.status]}>{L.st(f.status)}</Badge>
                     {f.acceptedUntil && f.status === "accepted" && <div className="mt-0.5 text-slate-600">{t("fnd.until", { date: fmtDay(f.acceptedUntil) })}</div>}
-                    {canHost && f.source === "host" && (
+                    {canHost && (f.source === "host" || (f.source === "monitoring" && f.status !== "fixed")) && (
                       <button type="button" className="mt-1 block text-brand-700 hover:underline" onClick={() => setActing(f)} data-testid="fnd-host-action">
                         {t("fnd.host.change")}
                       </button>
@@ -282,8 +282,16 @@ function HostFindingModal({ f, onClose }: { f: UnifiedFindingDto; onClose: () =>
     qc.invalidateQueries({ queryKey: ["actions"] });
     onClose();
   };
-  const save = useMutation({ mutationFn: () => api.hosts.patchFinding(f.id, { status, note: note.trim() || null, until: status === "accepted" ? until || null : null }), onSuccess: done });
-  const task = useMutation({ mutationFn: () => api.hosts.findingTasks([f.id]), onSuccess: done });
+  // nálezy monitoringu (v1.96): jen výjimka / znovu otevřít, úkol přes registr nálezů
+  const mon = f.source === "monitoring";
+  const save = useMutation({
+    mutationFn: () =>
+      mon
+        ? api.integrations.patchMonitoringFinding(f.id, { status: status === "accepted" ? "accepted" : "open", note: note.trim() || undefined, until: status === "accepted" ? until || null : null })
+        : api.hosts.patchFinding(f.id, { status, note: note.trim() || null, until: status === "accepted" ? until || null : null }),
+    onSuccess: done,
+  });
+  const task = useMutation({ mutationFn: () => (mon ? api.findings.tasks([f.key]) : api.hosts.findingTasks([f.id])), onSuccess: done });
   return (
     <Modal
       open
@@ -313,7 +321,7 @@ function HostFindingModal({ f, onClose }: { f: UnifiedFindingDto; onClose: () =>
       )}
       <Field label={t("fnd.host.newStatus")}>
         <Select value={status} onChange={(e) => setStatus(e.target.value as typeof status)} aria-label={t("fnd.host.newStatus")}>
-          {(["open", "accepted", "false_positive", "fixed"] as const)
+          {(mon ? (["open", "accepted"] as const) : (["open", "accepted", "false_positive", "fixed"] as const))
             .filter((s) => s !== (f.status === "dismissed" ? "false_positive" : f.status))
             .map((s) => (
               <option key={s} value={s}>

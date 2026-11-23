@@ -7,6 +7,10 @@ import {
   IDENTITY_SEVERITIES,
   IdentityReportScheduleInput,
   ouOfDn,
+  osSupport,
+  COMPUTER_ROLE_LABELS,
+  IdentityPolicySchema,
+  type ComputerRole,
   type IdentityReportGroup,
   type IdentityReportKind,
   type IdentityReportScheduleDto,
@@ -26,12 +30,13 @@ import { inScope, settingsFor, soleCompany } from "../../auth/scope";
 import { audit, type AppEnv } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
-import { guideOwners, identityAccounts, identityFindings, identityReportSchedules, identitySnapshots, identitySources, positionHolders, positions, sodViolations, users } from "../../db/schema";
+import { guideOwners, identityAccounts, identityComputers, identityFindings, identityReportSchedules, identitySnapshots, identitySources, positionHolders, positions, sodViolations, users } from "../../db/schema";
 import { docxResponse, htmlToDocx } from "../documents/docx";
 import { printPage } from "../documents/render";
 import { tFor, translatorFor } from "../i18n/service";
 import { convertToPdf } from "../policies/convert";
 import { FindingQuery as IdentityFindingQuerySchema, findingWhere, type IdentityFindingQuery } from "./query";
+import { monitoringOf } from "./computers";
 
 /* ============================================================
  * Reporty identit z filtru (v1.89, ADR-184): neaktivní a nikdy nepřihlášené účty, privilegované účty, souhrn pro
@@ -112,6 +117,42 @@ export async function privilegedData(x: ReportCtx) {
     .map((r) => ({ ...r, findings: byAcc.get(r.a.id) ?? [], pwdAge: daysSince(r.a.pwdLastSetAt, x.now) }))
     .sort((p, q) => q.findings.length - p.findings.length || (q.pwdAge ?? 99_999) - (p.pwdAge ?? 99_999));
   return { rows, enabled: rows.filter((r) => r.a.enabled).length, withSpn: rows.filter((r) => r.a.flags.hasSpn).length, delegation: rows.filter((r) => r.a.flags.unconstrainedDelegation).length };
+}
+
+/** Počítače a servery z AD (v1.96): podpora systému, aktivita, aktivum a sběr dat, LAPS, delegace. */
+export async function computersData(x: ReportCtx) {
+  const rows = await x.db
+    .select({ pc: identityComputers, policy: identitySources.policy, source: identitySources.name })
+    .from(identityComputers)
+    .innerJoin(identitySources, eq(identitySources.id, identityComputers.sourceId))
+    .where(and(x.scope(identityComputers.companyId), isNull(identityComputers.removedAt), x.q.sourceId ? eq(identityComputers.sourceId, x.q.sourceId) : undefined))
+    .orderBy(asc(identityComputers.name))
+    .limit(50_000);
+  const mon = await monitoringOf(x.db, [...new Set(rows.map((r) => r.pc.assetId).filter((v): v is string => !!v))]);
+  const all = rows.map((r) => {
+    const staleDays = IdentityPolicySchema.parse(r.policy ?? {}).computerStaleDays;
+    const sup = osSupport(r.pc.os, r.pc.osVersion, x.now);
+    const last = r.pc.lastLogonAt ?? r.pc.dirCreatedAt;
+    const age = daysSince(last, x.now);
+    const active = r.pc.enabled && age !== null && age <= staleDays;
+    const server = r.pc.role === "server" || r.pc.role === "dc";
+    const monitoring = [...(r.pc.assetId ? (mon.get(r.pc.assetId) ?? []) : [])].sort();
+    return { ...r.pc, source: r.source, sup, age, active, server, monitoring, staleDays };
+  });
+  const enabled = all.filter((p) => p.enabled);
+  return {
+    all,
+    total: all.length,
+    enabled: enabled.length,
+    active: enabled.filter((p) => p.active).length,
+    byRole: { dc: enabled.filter((p) => p.role === "dc").length, server: enabled.filter((p) => p.role === "server").length, workstation: enabled.filter((p) => p.role === "workstation").length, other: enabled.filter((p) => p.role === "other").length },
+    eol: enabled.filter((p) => p.sup.status === "eol").sort((a, b) => Number(b.server) - Number(a.server) || a.name.localeCompare(b.name)),
+    unmonitored: enabled.filter((p) => p.server && p.active && !p.monitoring.length),
+    inactive: enabled.filter((p) => p.role !== "dc" && !p.active),
+    noAsset: enabled.filter((p) => !p.assetId).length,
+    laps: enabled.filter((p) => p.laps).length,
+    risky: enabled.filter((p) => (p.unconstrainedDelegation && p.role !== "dc") || (!p.laps && p.role !== "dc" && p.active)),
+  };
 }
 
 export async function summaryData(x: ReportCtx) {
@@ -243,6 +284,62 @@ export async function renderIdentityReport(kind: IdentityReportKind, x: ReportCt
           ]),
         )
       : `<p>${esc(t("srv.idr.none"))}</p>`;
+  } else if (kind === "computers") {
+    const d = await computersData(x);
+    const role = (r: string) => esc(t.lbl(COMPUTER_ROLE_LABELS[r as ComputerRole]) ?? r);
+    const os = (p: (typeof d.all)[number]) => esc([p.os, p.osVersion].filter(Boolean).join(" ") || "–");
+    const asset = (p: (typeof d.all)[number]) => esc(p.assetId ? yes : t("srv.idr.pc.noAsset"));
+    const monitoring = (p: (typeof d.all)[number]) => esc(p.monitoring.map((m) => t.dyn(`srv.idr.pc.mon.${m}`, m)).join(", ") || "–");
+    body += `<p>${esc(t("srv.idr.pc.intro", { n: d.enabled, active: d.active, dc: d.byRole.dc, server: d.byRole.server, ws: d.byRole.workstation }))}</p>`;
+    body += `<h2>${esc(t("srv.idr.state"))}</h2>`;
+    body += table(
+      [t("srv.idr.metric"), t("srv.idr.value")],
+      [
+        [esc(t("srv.idr.pc.mEnabled")), `${d.enabled} (${esc(t("srv.idr.pc.mActive", { n: d.active }))})`],
+        [esc(t("srv.idr.pc.mRoles")), esc(t("srv.idr.pc.roles", { dc: d.byRole.dc, server: d.byRole.server, ws: d.byRole.workstation, other: d.byRole.other }))],
+        [esc(t("srv.idr.pc.mEol")), String(d.eol.length)],
+        [esc(t("srv.idr.pc.mUnmonitored")), String(d.unmonitored.length)],
+        [esc(t("srv.idr.pc.mInactive")), String(d.inactive.length)],
+        [esc(t("srv.idr.pc.mNoAsset")), String(d.noAsset)],
+        [esc(t("srv.idr.pc.mLaps")), d.enabled ? `${d.laps} (${Math.round((d.laps / d.enabled) * 100)} %)` : "–"],
+      ],
+    );
+    body += `<h2>${esc(t("srv.idr.pc.hEol"))}</h2>`;
+    body += d.eol.length
+      ? table(
+          [t("srv.idr.pc.colName"), t("srv.idr.pc.colRole"), t("srv.idr.pc.colOs"), t("srv.idr.pc.colEol"), t("srv.idr.colLastLogon"), t("srv.idr.pc.colAsset"), t("srv.idr.colDecision")],
+          d.eol.map((p) => [`<b>${esc(p.name)}</b>${p.dnsName ? `<br><span class="small">${esc(p.dnsName)}</span>` : ""}`, role(p.role), os(p), esc(p.sup.eolDate ?? ""), esc(day(p.lastLogonAt) ?? t("srv.idr.never")), asset(p), esc(t("srv.idr.pc.decisionEol"))]),
+        )
+      : `<p>${esc(t("srv.idr.none"))}</p>`;
+    body += `<h2>${esc(t("srv.idr.pc.hUnmonitored"))}</h2>`;
+    body += d.unmonitored.length
+      ? table(
+          [t("srv.idr.pc.colName"), t("srv.idr.pc.colRole"), t("srv.idr.pc.colOs"), t("srv.idr.colLastLogon"), t("srv.idr.pc.colAsset"), t("srv.idr.pc.colMonitoring")],
+          d.unmonitored.map((p) => [`<b>${esc(p.name)}</b>`, role(p.role), os(p), esc(day(p.lastLogonAt) ?? ""), asset(p), monitoring(p)]),
+        )
+      : `<p>${esc(t("srv.idr.none"))}</p>`;
+    body += `<h2>${esc(t("srv.idr.pc.hInactive"))}</h2>`;
+    if (!d.inactive.length) body += `<p>${esc(t("srv.idr.none"))}</p>`;
+    const byOu = new Map<string, typeof d.inactive>();
+    for (const p of d.inactive) {
+      const k = ouOfDn(p.dn) ?? t("srv.idr.noUnit");
+      byOu.set(k, [...(byOu.get(k) ?? []), p]);
+    }
+    for (const [ou, list] of [...byOu.entries()].sort((a, b) => a[0].localeCompare(b[0], "cs"))) {
+      body += `<h3>${esc(ou)} (${list.length})</h3>`;
+      body += table(
+        [t("srv.idr.pc.colName"), t("srv.idr.pc.colRole"), t("srv.idr.pc.colOs"), t("srv.idr.colLastLogon"), t("srv.idr.pc.colDays"), t("srv.idr.colDecision")],
+        list.sort((a, b) => (b.age ?? 99_999) - (a.age ?? 99_999)).map((p) => [`<b>${esc(p.name)}</b>`, role(p.role), os(p), esc(day(p.lastLogonAt) ?? t("srv.idr.never")), esc(p.age === null ? "–" : String(p.age)), esc(t("srv.idr.pc.decisionInactive"))]),
+      );
+    }
+    body += `<h2>${esc(t("srv.idr.pc.hRisky"))}</h2>`;
+    body += d.risky.length
+      ? table(
+          [t("srv.idr.pc.colName"), t("srv.idr.pc.colRole"), "LAPS", t("srv.idr.colDelegation")],
+          d.risky.map((p) => [`<b>${esc(p.name)}</b>`, role(p.role), esc(p.laps ? yes : no), esc(p.unconstrainedDelegation ? t("srv.idr.unconstrained") : p.constrainedDelegation ? t("srv.idr.pc.constrained") : no)]),
+        )
+      : `<p>${esc(t("srv.idr.none"))}</p>`;
+    body += `<h2>${esc(t("srv.idr.signoff"))}</h2><p>${esc(t("srv.idr.signoffText"))}</p>`;
   } else {
     const d = await summaryData(x);
     body += `<h2>${esc(t("srv.idr.state"))}</h2>`;
@@ -411,7 +508,7 @@ export function identityReportRoutes(db: Db, config: Config) {
       await audit(db, { c, user: currentUser(c), action: "identity.report_sent", entityType: "identity", details: r });
       return c.json(r);
     })
-    .get("/:kind{(inactive|privileged|summary)\\.(html|docx|pdf)}", requirePerm("identity:read"), zValidator("query", ReportQuery), async (c) => {
+    .get("/:kind{(inactive|privileged|summary|computers)\\.(html|docx|pdf)}", requirePerm("identity:read"), zValidator("query", ReportQuery), async (c) => {
       const [kind, format] = c.req.param("kind").split(".") as [IdentityReportKind, "html" | "docx" | "pdf"];
       KindParam.parse({ kind });
       const x = await ctx(c, c.req.valid("query"));
