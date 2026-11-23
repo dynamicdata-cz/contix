@@ -2,7 +2,7 @@ import { Card, CardHeader, ErrorBox, PageHeader } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { cn, fmtDate } from "@/lib/utils";
+import { cn, fmtDate, fmtDay } from "@/lib/utils";
 import { DEADLINE_BASIS_LABELS, FINDING_LABELS, DEADLINE_BASES, type CalendarItemDto, type DeadlineBasis, type UnifiedFindingDto } from "@contix/shared";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -35,8 +35,7 @@ function BasisTag({ b }: { b: DeadlineBasis }) {
 }
 
 function DueText({ i }: { i: CalendarItemDto }) {
-  const t = useT();
-  const d = i.due.length > 10 ? new Date(i.due).toLocaleString(t.locale) : fmtDate(i.due);
+  const d = i.due.length > 10 ? fmtDate(i.due) : fmtDay(i.due);
   return <span className={cn("whitespace-nowrap text-sm tabular-nums", i.urgency === "overdue" ? "font-semibold text-red-700" : i.urgency === "today" ? "font-semibold text-amber-700" : "text-slate-600")}>{d}</span>;
 }
 
@@ -174,7 +173,7 @@ export function WeekCard({ className }: { className?: string }) {
                   <Link to={f.link} className="min-w-0 flex-1 truncate text-slate-900 hover:text-brand-700 hover:underline" title={f.title}>
                     {f.title}
                   </Link>
-                  {f.dueDate && <span className={cn("whitespace-nowrap text-xs tabular-nums", f.dueDate < from ? "font-semibold text-red-700" : "text-slate-500")}>{fmtDate(f.dueDate)}</span>}
+                  {f.dueDate && <span className={cn("whitespace-nowrap text-xs tabular-nums", f.dueDate < from ? "font-semibold text-red-700" : "text-slate-500")}>{fmtDay(f.dueDate)}</span>}
                 </li>
               ))}
             </ul>

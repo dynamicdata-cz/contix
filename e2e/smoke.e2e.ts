@@ -1913,6 +1913,18 @@ test("tento týden a kalendář lhůt s exportem .ics (v1.98)", async () => {
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("přehled: technická bezpečnost včetně testů, monitoringu a zón, provozu (v1.99)", async () => {
+  await page.goto("/");
+  const tech = page.getByTestId("dash-tech");
+  await expect(tech).toBeVisible();
+  // vyplněné oblasti jsou v sekci, prázdné (bez testů) v „Zatím nevyplněné oblasti“ – karta musí být na přehledu tak či tak
+  await expect(tech.getByRole("link", { name: /^Certifikáty a TLS/ })).toBeVisible();
+  await expect(tech.getByRole("link", { name: /^Provoz a zálohy/ })).toBeVisible();
+  for (const title of [/^Bezpečnostní testy/, /^Monitoring a zóny/]) await expect(page.locator("main").getByRole("link", { name: title }).last()).toBeVisible();
+  await page.screenshot({ path: "/tmp/dash-tech.png", fullPage: true });
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("žádosti o přístup: import osob, žádost, vyřízení (v1.26)", async () => {
   await page.goto("/access");
   await expect(page.getByRole("heading", { name: "Žádosti o přístup", level: 1 })).toBeVisible();

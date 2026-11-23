@@ -2,6 +2,19 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.99.0
+
+Technická bezpečnost na Přehledu (ADR-193).
+
+- **Bezpečnostní testy i v souhrnu skupiny**: karta bezpečnostních testů se dosud v pohledu „Celá skupina“ nezobrazovala; nyní sčítá všechny společnosti v rozsahu.
+- **Nové karty v sekci Technická bezpečnost**:
+  - *Monitoring a zóny* – otevřené nálezy z monitoringu (odpojení či zastaralí agenti Wazuhu) a kontrol zón, rizikové vazby přes hranice zón, zařazení aktiv do zón;
+  - *Certifikáty a TLS* – prošlé, brzy vypršující a nálezy konfigurace TLS;
+  - *SOC – bezpečnostní alerty* – otevřené alerty podle závažnosti, bez analytika, eskalace a doba do převzetí;
+  - *Konfigurace serverů (CIS)* – podíl splněných kontrol konfigurace z Wazuh SCA;
+  - *Provoz a zálohy* (správce) – provozní kontroly, problémy a poslední úspěšná záloha.
+- Karta „Co mám udělat tento týden“ a Kalendář lhůt: data bez nesmyslného času (např. „1. 1. 2026“ místo „01.01.26 1:00“).
+
 ## 1.98.2
 
 Opravy rozvržení a tmavého režimu.

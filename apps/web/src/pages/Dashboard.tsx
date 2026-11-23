@@ -58,6 +58,8 @@ import {
   type LucideIcon,
   KeyRound,
   Crosshair,
+  LockKeyhole,
+  ListChecks,
 } from "lucide-react";
 import type { ReactElement, ReactNode } from "react";
 import { ObligationList } from "./My";
@@ -161,9 +163,18 @@ export function Dashboard() {
   });
 
   // bezpečnostní testy a servery ze sběrače (v1.57)
-  const showSecTests = mod("sectests") && can("sectests:read") && !group;
+  // bezpečnostní testy i v souhrnu skupiny – souhrn API sčítá všechny společnosti v rozsahu (v1.99)
+  const showSecTests = mod("sectests") && can("sectests:read");
   const secTests = useQuery({ queryKey: ["sectests", "overview"], queryFn: api.secTests.overview, enabled: showSecTests, staleTime: 60_000 });
   const hosts = useQuery({ queryKey: ["hosts"], queryFn: api.hosts.list, enabled: showAssets, staleTime: 60_000 });
+  // monitoring a zóny, certifikáty TLS, SOC a konfigurace serverů (v1.99)
+  const monitoring = useQuery({ queryKey: ["findings", "dash", "monitoring"], queryFn: () => api.findings.list({ source: "monitoring", limit: 50 }), enabled: showAssets, staleTime: 60_000 });
+  const zoneMap = useQuery({ queryKey: ["zones", "map"], queryFn: api.zones.map, enabled: showAssets && !group, staleTime: 60_000 });
+  const tls = useQuery({ queryKey: ["certificates"], queryFn: api.certificates.list, enabled: showAssets, staleTime: 60_000 });
+  const showSoc = mod("soc") && can("soc:read");
+  const soc = useQuery({ queryKey: ["soc", "summary"], queryFn: api.soc.summary, enabled: showSoc, staleTime: 60_000 });
+  const opsStatus = useQuery({ queryKey: ["ops", "status"], queryFn: api.ops.status, enabled: can("admin:settings"), staleTime: 60_000 });
+  const sca = useQuery({ queryKey: ["sca"], queryFn: api.sca.overview, enabled: showAssets, staleTime: 60_000 });
 
   const d = dash.data;
   const ob = (k: ObligationKind) =>
@@ -591,6 +602,135 @@ export function Dashboard() {
     );
   }
 
+  if (showAssets && monitoring.data) {
+    const o = monitoring.data.open.monitoring ?? { critical: 0, high: 0, medium: 0, low: 0 };
+    const open = o.critical + o.high + o.medium + o.low;
+    const zm = zoneMap.data;
+    const highFlows = zm ? zm.flows.filter((f) => f.level === "high").length : 0;
+    const inZones = zm ? zm.assets.filter((a) => a.zoneId).length : 0;
+    areas.push(
+      <AreaCard
+        key="monitoring"
+        empty={!open && (!zm || !zm.zones.length)}
+        emptyHint={t("dash.mon.empty")}
+        to={zm?.zones.length ? "/assets/zones" : "/findings?source=monitoring"}
+        icon={Radar}
+        title={t("dash.mon.title")}
+        main={open}
+        mainLabel={t("dash.mon.main")}
+        segments={(["critical", "high", "medium", "low"] as const).map((k) => ({ key: k, label: t(`st.sev.${k}`), n: o[k], color: SEVERITY_COLOR[k] }))}
+        metrics={[
+          { label: t("dash.mon.critHigh"), value: o.critical + o.high, tone: "bad" },
+          ...(zm && zm.zones.length
+            ? [
+                { label: t("dash.mon.flows"), value: highFlows, tone: "bad" as Tone },
+                { label: t("dash.mon.zones"), value: t("dash.mon.zonesVal", { zones: zm.zones.length, assets: inZones }) },
+                { label: t("dash.mon.unassigned"), value: zm.unassigned, tone: "warn" as Tone },
+              ]
+            : []),
+        ]}
+      />,
+    );
+  }
+  if (showAssets && tls.data && tls.data.summary.total > 0) {
+    const sm = tls.data.summary;
+    const ok = Math.max(0, sm.total - sm.expired - sm.expiring - sm.withFindings);
+    areas.push(
+      <AreaCard
+        key="tls"
+        to="/assets/certificates"
+        icon={LockKeyhole}
+        title={t("dash.tls.title")}
+        main={sm.total}
+        mainLabel={t("dash.tls.main")}
+        segments={[
+          { key: "expired", label: t("dash.tls.expired"), n: sm.expired, color: STATUS_COLORS.critical },
+          { key: "expiring", label: t("dash.tls.expiring"), n: sm.expiring, color: STATUS_COLORS.serious },
+          { key: "findings", label: t("dash.tls.findings"), n: sm.withFindings, color: SEVERITY_COLOR.medium },
+          { key: "ok", label: t("dash.tls.ok"), n: ok, color: STATUS_COLORS.good },
+        ]}
+        metrics={[
+          { label: t("dash.tls.expired"), value: sm.expired, tone: "bad" },
+          { label: t("dash.tls.expiring"), value: sm.expiring, tone: "warn" },
+          { label: t("dash.tls.findings"), value: sm.withFindings, tone: "warn" },
+          { label: t("dash.tls.unscanned"), value: sm.unscanned },
+        ]}
+      />,
+    );
+  }
+  if (showSoc && soc.data) {
+    const sc = soc.data;
+    areas.push(
+      <AreaCard
+        key="soc"
+        empty={!sc.open && !sc.lastSyncAt}
+        emptyHint={t("dash.soc.empty")}
+        to="/soc"
+        icon={Siren}
+        title={t("dash.soc.title")}
+        main={sc.open}
+        mainLabel={t("dash.soc.main")}
+        segments={(["critical", "high", "medium", "low"] as const).map((k) => ({ key: k, label: t(`st.sev.${k}`), n: sc.bySeverity[k] ?? 0, color: SEVERITY_COLOR[k] }))}
+        metrics={[
+          { label: t("dash.soc.critHigh"), value: (sc.bySeverity.critical ?? 0) + (sc.bySeverity.high ?? 0), tone: "bad" },
+          { label: t("dash.soc.unassigned"), value: sc.unassigned, tone: "warn" },
+          { label: t("dash.soc.escalated"), value: sc.escalated30 },
+          { label: t("dash.soc.mtta"), value: sc.mttaHours === null ? "–" : t("dash.soc.hours", { n: Math.round(sc.mttaHours * 10) / 10 }) },
+        ]}
+        foot={sc.lastSyncAt ? t("dash.soc.sync", { date: fmtDate(sc.lastSyncAt) }) : undefined}
+      />,
+    );
+  }
+  if (showAssets && sca.data && sca.data.totals.assets > 0) {
+    const tt = sca.data.totals;
+    const score = tt.score === null ? null : Math.round(tt.score);
+    areas.push(
+      <AreaCard
+        key="sca"
+        to="/controls/sca"
+        icon={ListChecks}
+        title={t("dash.sca.title")}
+        main={score === null ? "–" : `${score} %`}
+        mainLabel={t("dash.sca.main")}
+        segments={[
+          { key: "pass", label: t("dash.sca.pass"), n: tt.pass, color: STATUS_COLORS.good },
+          { key: "fail", label: t("dash.sca.fail"), n: tt.fail, color: STATUS_COLORS.critical },
+        ]}
+        metrics={[
+          { label: t("dash.sca.fail"), value: tt.fail, tone: score !== null && score < 50 ? "bad" : tt.fail ? "warn" : undefined },
+          { label: t("dash.sca.assets"), value: tt.assets },
+          { label: t("dash.sca.policies"), value: sca.data.policies.length },
+        ]}
+        foot={sca.data.lastSync ? t("dash.sca.sync", { date: fmtDate(sca.data.lastSync.at) }) : undefined}
+      />,
+    );
+  }
+
+  if (opsStatus.data) {
+    const ch = opsStatus.data.checks.filter((c) => c.level !== "off");
+    const n = (l: string) => ch.filter((c) => c.level === l).length;
+    const bad = ch.filter((c) => c.level === "error" || c.level === "warning");
+    areas.push(
+      <AreaCard
+        key="ops"
+        to="/admin/ops"
+        icon={Server}
+        title={t("dash.ops.title")}
+        main={`${n("ok")} / ${ch.length}`}
+        mainLabel={t("dash.ops.main")}
+        segments={[
+          { key: "error", label: t("dash.ops.error"), n: n("error"), color: STATUS_COLORS.critical },
+          { key: "warning", label: t("dash.ops.warning"), n: n("warning"), color: STATUS_COLORS.serious },
+          { key: "ok", label: t("dash.ops.ok"), n: n("ok"), color: STATUS_COLORS.good },
+        ]}
+        metrics={[
+          ...bad.slice(0, 3).map((c) => ({ label: c.label, value: c.level === "error" ? t("dash.ops.error") : t("dash.ops.warning"), tone: (c.level === "error" ? "bad" : "warn") as Tone })),
+          { label: t("dash.ops.lastBackup"), value: opsStatus.data.lastSuccessfulBackupAt ? fmtDate(opsStatus.data.lastSuccessfulBackupAt) : "–", tone: opsStatus.data.lastSuccessfulBackupAt ? undefined : "warn" },
+        ]}
+      />,
+    );
+  }
+
   if (d?.ai && d.ai.proposed > 0)
     areas.push(
       <AreaCard
@@ -907,7 +1047,7 @@ function AreaCard({
 }
 
 /** Oblasti rozdělené do sekcí; nevyplněné oblasti v jedné kompaktní kartě (v1.57). */
-const TECH_AREAS = new Set(["assets", "vulns", "incidents", "identity", "sectests", "hosts"]);
+const TECH_AREAS = new Set(["assets", "vulns", "incidents", "identity", "sectests", "hosts", "monitoring", "tls", "soc", "sca", "ops"]);
 function AreaSections({ areas }: { areas: ReactNode[] }) {
   const t = useT();
   type P = Parameters<typeof AreaCard>[0];
