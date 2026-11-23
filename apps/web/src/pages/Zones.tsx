@@ -245,8 +245,8 @@ function LayeredMap({ d }: { d: ZoneMapDto }) {
                 onKeyDown={(e) => e.key === "Enter" && nav({ to: "/assets/$assetId", params: { assetId: a.id } })}
                 data-testid="zn-chip"
               >
-                <rect width={CHIP_W} height={CHIP_H} rx={6} fill="white" stroke={HEALTH_COLOR[a.health] ?? HEALTH_COLOR.unknown} strokeWidth={1.5} />
-                <circle cx={11} cy={CHIP_H / 2} r={4} fill={a.monitored ? "#16a34a" : "#e2e8f0"} stroke={a.monitored ? "none" : "#94a3b8"}>
+                <rect width={CHIP_W} height={CHIP_H} rx={6} fill="var(--color-white)" stroke={HEALTH_COLOR[a.health] ?? HEALTH_COLOR.unknown} strokeWidth={1.5} />
+                <circle cx={11} cy={CHIP_H / 2} r={4} fill={a.monitored ? "#16a34a" : "var(--color-slate-200)"} stroke={a.monitored ? "none" : "var(--color-slate-400)"}>
                   <title>{a.monitored ? t("zn.monitored") : t("zn.notMonitored")}</title>
                 </circle>
                 <text x={21} y={CHIP_H / 2 + 4} className="fill-slate-800 text-[11px]">

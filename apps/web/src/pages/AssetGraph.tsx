@@ -26,14 +26,17 @@ import {
 } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useSearch } from "@tanstack/react-router";
-import { Maximize2, Minus, Plus, Trash2, X } from "lucide-react";
+import { Maximize, Maximize2, Minimize, Minus, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent, type WheelEvent as RWheelEvent } from "react";
 
 type Overlay = "none" | "health" | "criticality" | "vulns" | "alerts" | "risks" | "resilience";
 const RES_COLOR: Record<string, string> = { critical: SEVERITY_COLOR.critical, high: SEVERITY_COLOR.high, medium: SEVERITY_COLOR.medium };
 const NODE_W = 170;
 const NODE_H = 46;
-const LAYER_TINT: Record<AssetLayer, string> = { process: "#ede9fe", primary: "#dbeafe", application: "#e0f2fe", infrastructure: "#f1f5f9", network: "#fef3c7", people: "#ecfccb" };
+/** Barva vrstvy – pás grafu ji kreslí s nízkým krytím, takže sedí ve světlém i tmavém režimu (v1.98.1). */
+const LAYER_TINT: Record<AssetLayer, string> = { process: "#7c3aed", primary: "#2563eb", application: "#0284c7", infrastructure: "#64748b", network: "#d97706", people: "#65a30d" };
+/** Výplň uzlu: plocha karty (var. barva) / zasažené výpadkem / závislosti – přes color-mix, aby se přizpůsobila režimu. */
+const NODE_FILL = { base: "var(--color-white)", impact: "color-mix(in srgb, #ef4444 18%, var(--color-white))", deps: "color-mix(in srgb, #0ea5e9 18%, var(--color-white))" };
 const EDGE_STYLE: Record<GraphEdgeKind, { color: string; dash?: string }> = { supports: { color: "#64748b" }, depends: { color: "#2563eb", dash: "6 4" }, process: { color: "#7c3aed", dash: "2 4" } };
 const SEV = (l: string | null | undefined) => (l === "critical" || l === "high" || l === "medium" || l === "low" ? SEVERITY_COLOR[l] : STATUS_COLORS.neutral);
 
@@ -121,6 +124,18 @@ export function AssetGraphPage() {
 
   // posun a přiblížení
   const svgRef = useRef<SVGSVGElement>(null);
+  // zobrazení na celou obrazovku (v1.98.1) – Fullscreen API nad kartou grafu
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const on = () => setFull(document.fullscreenElement === boxRef.current && !!boxRef.current);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
+  const toggleFull = () => {
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void boxRef.current?.requestFullscreen?.().catch(() => undefined);
+  };
   const [vb, setVb] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const fit = () => {
     if (!view) return;
@@ -198,7 +213,7 @@ export function AssetGraphPage() {
           {ASSET_LAYERS.filter((l) => l !== "process" || data?.overlays.processes).map((l) => (
             <label key={l} className="inline-flex items-center gap-1.5">
               <input type="checkbox" checked={layers.has(l)} onChange={() => setLayers(toggle(layers, l))} />
-              <span className="inline-block h-3 w-3 rounded-sm border border-slate-300" style={{ background: LAYER_TINT[l] }} />
+              <span className="inline-block h-3 w-3 rounded-sm border border-slate-300" style={{ background: LAYER_TINT[l], opacity: 0.55 }} />
               {t.lbl(ASSET_GRAPH_LABELS.layer[l])}
             </label>
           ))}
@@ -218,16 +233,20 @@ export function AssetGraphPage() {
       </Card>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
-        <Card className="relative overflow-hidden" data-testid="asset-graph">
+        <Card className="overflow-hidden" data-testid="asset-graph">
+          <div ref={boxRef} className={cn("relative", full && "flex h-full flex-col bg-white")}>
           <div className="absolute right-2 top-2 z-10 flex gap-1">
-            <Button variant="secondary" className="px-2 py-1" onClick={() => zoom(1 / 1.25)} aria-label={t("ag.zoomIn")}>
+            <Button variant="secondary" className="px-2 py-1" onClick={() => zoom(1 / 1.25)} aria-label={t("ag.zoomIn")} title={t("ag.zoomIn")}>
               <Plus size={14} />
             </Button>
-            <Button variant="secondary" className="px-2 py-1" onClick={() => zoom(1.25)} aria-label={t("ag.zoomOut")}>
+            <Button variant="secondary" className="px-2 py-1" onClick={() => zoom(1.25)} aria-label={t("ag.zoomOut")} title={t("ag.zoomOut")}>
               <Minus size={14} />
             </Button>
-            <Button variant="secondary" className="px-2 py-1" onClick={fit} aria-label={t("ag.fit")}>
+            <Button variant="secondary" className="px-2 py-1" onClick={fit} aria-label={t("ag.fit")} title={t("ag.fit")}>
               <Maximize2 size={14} />
+            </Button>
+            <Button variant="secondary" className="px-2 py-1" onClick={toggleFull} aria-label={full ? t("ag.fullExit") : t("ag.full")} title={full ? t("ag.fullExit") : t("ag.full")} data-testid="ag-full">
+              {full ? <Minimize size={14} /> : <Maximize size={14} />}
             </Button>
           </div>
           {view && view.nodes.length === 0 ? (
@@ -237,8 +256,8 @@ export function AssetGraphPage() {
             vb && (
               <svg
                 ref={svgRef}
-                className="w-full cursor-grab touch-none select-none bg-white active:cursor-grabbing"
-                style={{ height: Math.min(680, Math.max(320, view.layout.height + 10)) }}
+                className={cn("w-full cursor-grab touch-none select-none bg-white active:cursor-grabbing", full && "min-h-0 flex-1")}
+                style={{ height: full ? "100%" : Math.min(680, Math.max(320, view.layout.height + 10)) }}
                 viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
                 onWheel={onWheel}
                 onPointerDown={onDown}
@@ -257,8 +276,8 @@ export function AssetGraphPage() {
                 </defs>
                 {view.layout.bands.map((b) => (
                   <g key={b.layer}>
-                    <rect x={vb.x - 2000} y={b.y} width={view.layout.width + 4000 + vb.w} height={b.h} fill={LAYER_TINT[b.layer]} opacity={0.5} />
-                    <text x={vb.x + 8} y={b.y + 15} className="fill-slate-500" fontSize="12" fontWeight="600" stroke="var(--color-white)" strokeWidth="4" paintOrder="stroke">
+                    <rect x={vb.x - 2000} y={b.y} width={view.layout.width + 4000 + vb.w} height={b.h} fill={LAYER_TINT[b.layer]} opacity={0.09} />
+                    <text x={vb.x + 8} y={b.y + 15} className="fill-slate-600" fontSize="12" fontWeight="600">
                       {t.lbl(ASSET_GRAPH_LABELS.layer[b.layer])}
                     </text>
                   </g>
@@ -312,7 +331,7 @@ export function AssetGraphPage() {
                       onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), pick(n.id))}
                     >
                       <title>{n.name}</title>
-                      <rect width={NODE_W} height={NODE_H} rx={n.kind === "process" ? 22 : 8} fill={inImpact ? "#fee2e2" : inDeps ? "#e0f2fe" : "#fff"} stroke={isSel ? "#0f172a" : col} strokeWidth={isSel ? 3 : 2.2} />
+                      <rect width={NODE_W} height={NODE_H} rx={n.kind === "process" ? 22 : 8} style={{ fill: inImpact ? NODE_FILL.impact : inDeps ? NODE_FILL.deps : NODE_FILL.base }} stroke={isSel ? "var(--color-slate-900)" : col} strokeWidth={isSel ? 3 : 2.2} />
                       <rect width="6" height={NODE_H} rx="3" fill={col} />
                       <text x="14" y="19" fontSize="12.5" fontWeight="600" className="fill-slate-900">
                         {short(n.name)}
@@ -335,6 +354,7 @@ export function AssetGraphPage() {
             )
           )}
           <Legend overlay={overlay} impact={impact && !!selected} />
+          </div>
         </Card>
         <div>
           {sel ? (

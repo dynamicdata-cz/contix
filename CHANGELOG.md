@@ -2,6 +2,13 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.98.1
+
+Opravy zobrazení grafu vazeb aktiv.
+
+- **Tmavý režim grafu vazeb aktiv**: uzly měly bílou výplň s bílým textem a vrstvy světlé pásy s rozmazanými popisky. Výplň uzlů, pásy vrstev a zvýraznění dopadu výpadku se teď řídí barvami režimu (světlý i tmavý). Totéž pro štítky aktiv na mapě bezpečnostních zón.
+- **Graf na celou obrazovku**: nové tlačítko vpravo nahoře zobrazí graf přes celou obrazovku (zpět tlačítkem nebo klávesou Esc). Dosavadní tlačítko se šipkami jen vrací pohled na celý graf – nově má popisek „Celý graf“.
+
 ## 1.98.0
 
 Tento týden a kalendář zákonných lhůt (ADR-192).

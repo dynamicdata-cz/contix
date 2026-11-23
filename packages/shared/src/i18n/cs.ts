@@ -5804,6 +5804,8 @@ export const CS = {
   "ag.zoomIn": "Přiblížit",
   "ag.zoomOut": "Oddálit",
   "ag.fit": "Celý graf",
+  "ag.full": "Na celou obrazovku",
+  "ag.fullExit": "Zavřít celou obrazovku",
   "ag.empty": "Žádná aktiva s vazbami pro zvolené vrstvy – zapněte „Zobrazit i aktiva bez vazeb“ nebo přidejte vazby.",
   "ag.hint": "Vyberte uzel v grafu: zobrazí se detail, vazby, dopad výpadku a lze přidat technickou závislost. Kolečkem myši přibližujete, tažením posouváte.",
   "ag.process": "Proces",

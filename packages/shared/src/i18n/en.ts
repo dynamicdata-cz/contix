@@ -5805,6 +5805,8 @@ export const EN: Record<keyof typeof CS, string> = {
   "ag.zoomIn": "Zoom in",
   "ag.zoomOut": "Zoom out",
   "ag.fit": "Fit",
+  "ag.full": "Full screen",
+  "ag.fullExit": "Exit full screen",
   "ag.empty": "No linked assets for the selected layers – enable “Show unlinked assets” or add links.",
   "ag.hint": "Select a node: details, links and outage impact are shown and you can add a technical dependency. Use the mouse wheel to zoom and drag to pan.",
   "ag.process": "Process",
