@@ -104,6 +104,7 @@ import type {
   IdentityComputerSummary,
   AccountActivity,
   IdentityInventory,
+  WazuhAgentsDto,
   IdentityAccountDetail,
   IdentitySourceDto,
   IdentitySourceInput,
@@ -1964,6 +1965,8 @@ export const api = {
   integrations: {
     /** Mapa propojení (v1.86): zóny, uzly, spojení, stavy a pokrytí serverů. */
     map: () => request<IntegrationMapDto>("/integrations/map"),
+    wazuhAgents: (id: string) => request<WazuhAgentsDto>(`/integrations/wazuh/${id}/agents`),
+    wazuhAgentsExportUrl: (id: string, format: "csv" | "xlsx") => withCompany(`/api/integrations/wazuh/${id}/agents.${format}`),
   },
   hosts: {
     list: () => request<HostSummaryDto[]>("/hosts"),

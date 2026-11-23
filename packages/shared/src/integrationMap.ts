@@ -124,6 +124,8 @@ export interface IntegrationMapInput {
   services: OpsCheck[];
   /** Zpráv agenta za 24 h podle ID agenta. */
   agentMsgs24h: Record<string, number>;
+  /** Souhrn stavu agentů podle připojení Wazuhu (v1.93). */
+  wazuhAgents?: Record<string, WazuhAgentSummary>;
   coverage: MapCoverage | null;
 }
 
@@ -353,7 +355,12 @@ export function buildIntegrationMap(i: IntegrationMapInput): IntegrationMapDto {
       else if (!w.lastSyncAt) reasons.push({ code: "never_synced", level: "warn" });
       else if (w.autoSyncHours > 0 && minutes(w.lastSyncAt, now) > w.autoSyncHours * 2 * 60) reasons.push({ code: "stale", level: "warn", params: { since: w.lastSyncAt } });
       if (w.alertsEnabled && w.lastAlertResult && /chyb|error|fail/i.test(w.lastAlertResult)) reasons.push({ code: "last_error", level: "warn", params: { msg: w.lastAlertResult } });
+      const ag = i.wazuhAgents?.[w.id];
+      if (ag?.stale) reasons.push({ code: "wazuh_agents_stale", level: "warn", params: { n: ag.stale, days: WAZUH_STALE_DAYS } });
+      else if (ag?.disconnected) reasons.push({ code: "wazuh_agents_disconnected", level: "info", params: { n: ag.disconnected } });
+      if (ag?.outdated) reasons.push({ code: "wazuh_agents_outdated", level: "info", params: { n: ag.outdated } });
     }
+    const ags = i.wazuhAgents?.[w.id];
     const wn = node({
       id: `wazuh-${w.id}`,
       kind: "wazuh",
@@ -367,6 +374,7 @@ export function buildIntegrationMap(i: IntegrationMapInput): IntegrationMapDto {
         { key: "url", value: hostOf(w.url) },
         ...(w.indexerUrl ? [{ key: "indexer", value: hostOf(w.indexerUrl) }] : []),
         { key: "assets", value: String(w.agents) },
+        ...(ags ? [{ key: "agentsActive", value: String(ags.active) }, { key: "agentsDisconnected", value: String(ags.disconnected + ags.pending) }] : []),
         { key: "sync", value: w.lastSyncAt ?? "" },
         { key: "alerts", value: w.alertsEnabled ? (w.lastAlertSyncAt ?? "—") : "—" },
       ],
@@ -514,4 +522,63 @@ export function buildIntegrationMap(i: IntegrationMapInput): IntegrationMapDto {
 /** Uzly s problémem seřazené podle závažnosti (pro „jen problémy“ a dlaždici v Přehledu). */
 export function mapProblems(m: IntegrationMapDto): MapNodeDto[] {
   return m.nodes.filter((n) => n.status === "error" || n.status === "warn").sort((a, b) => RANK[b.status] - RANK[a.status] || a.title.localeCompare(b.title));
+}
+
+/* ============================================================
+ * Agenti Wazuhu v mapě propojení (v1.93, ADR-187): stav, poslední spojení, verze proti manageru.
+ * ============================================================ */
+
+/** active / disconnected / pending = stav z Wazuh API při poslední synchronizaci; removed = při poslední úspěšné
+ *  synchronizaci už ve Wazuhu nebyl. */
+export const WAZUH_AGENT_STATES = ["active", "disconnected", "pending", "removed"] as const;
+export type WazuhAgentState = (typeof WAZUH_AGENT_STATES)[number];
+/** Odpojený agent je „problém“ po tolika dnech bez spojení (kratší výpadek = restart, dovolená notebooku). */
+export const WAZUH_STALE_DAYS = 7;
+
+export interface WazuhAgentDto {
+  agentId: string;
+  name: string;
+  ip: string | null;
+  state: WazuhAgentState;
+  version: string | null;
+  /** Starší verze než manager (agent 000). */
+  outdated: boolean;
+  groups: string[];
+  os: string | null;
+  lastKeepAlive: string | null;
+  /** Dní bez spojení (u aktivních 0). */
+  offlineDays: number | null;
+  lastSyncedAt: string;
+  asset: { id: string; name: string; criticality: string } | null;
+  openVulns: number;
+  criticalVulns: number;
+}
+export interface WazuhAgentSummary {
+  total: number;
+  active: number;
+  disconnected: number;
+  pending: number;
+  removed: number;
+  outdated: number;
+  /** Odpojení déle než WAZUH_STALE_DAYS. */
+  stale: number;
+}
+export interface WazuhAgentsDto {
+  connection: { id: string; name: string };
+  managerVersion: string | null;
+  lastSyncAt: string | null;
+  summary: WazuhAgentSummary;
+  items: WazuhAgentDto[];
+}
+
+/** „Wazuh v4.7.2“ → [4, 7, 2]; porovnání verzí agentů. */
+export function wazuhVersionCmp(a: string | null | undefined, b: string | null | undefined): number {
+  const p = (v: string | null | undefined) => (v ?? "").replace(/^[^\d]*/, "").split(/[.\-]/).map((x) => Number.parseInt(x, 10) || 0);
+  const x = p(a);
+  const y = p(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
 }

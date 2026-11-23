@@ -7,6 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { BellRing, Bot, Boxes, Crosshair, DatabaseBackup, FileType, Landmark, Maximize2, Minimize2, Network, Radar, Scale, Server, ShieldAlert, ShieldCheck, Ticket, Users, Waypoints, type LucideIcon } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { WazuhAgentsSection } from "./wazuhAgents";
 
 /* ============================================================
  * Mapa propojení (v1.86, ADR-181): zóny sítě jako pruhy, uzly se stavem a odznakem, spojení s protokolem
@@ -417,6 +418,7 @@ function Panel({ n, m, onClose }: { n: MapNodeDto | null; m: IntegrationMapDto; 
           <p className="text-emerald-700">{t("imap.panel.allOk")}</p>
         )}
       </Section>
+      {n.kind === "wazuh" && <WazuhAgentsSection connectionId={n.id.slice("wazuh-".length)} />}
       {n.facts.length > 0 && (
         <Section title={t("imap.panel.facts")}>
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">

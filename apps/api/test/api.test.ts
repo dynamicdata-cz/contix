@@ -14,7 +14,7 @@ import { totpAt, TOTP_PERIOD } from "../src/auth/crypto";
 import { createAdmin, ensureSystemRoles } from "../src/auth/service";
 import type { Config } from "../src/config";
 import * as schema from "../src/db/schema";
-import { COMPANY_HEADER, CONTIX_VERSION } from "@contix/shared";
+import { COMPANY_HEADER, CONTIX_VERSION, defaultAssetClass } from "@contix/shared";
 import { seedDemo, type DemoCall } from "../src/scripts/demoData";
 import { seedRiskCatalog } from "../src/modules/risks/routes";
 import { processScenarioRefresh } from "../src/modules/risks/scenarios";
@@ -11174,6 +11174,55 @@ describe.skipIf(!url)("API (integrace)", () => {
     await viewer.json("/api/auth/password", { method: "POST", json: { currentPassword: PW, newPassword: "Ctenar-Heslo-2026!" } });
     expect((await viewer.json("/api/integrations/map")).status).toBe(403);
     expect((await browser().json("/api/integrations/map")).status).toBe(401);
+  });
+
+  test("mapa propojení: agenti Wazuhu – stav, odpojení, verze proti manageru, odebraní, export, rozsah (v1.93)", async () => {
+    const [conn] = await db.insert(schema.connections).values({ kind: "wazuh", name: "Wazuh test agentů", config: { url: "https://wazuh.test:55000", user: "api", autoSyncHours: 0 } }).returning();
+    const runStart = new Date(Date.now() - 10 * 60_000);
+    await db.insert(schema.discoveryRuns).values({ connector: "wazuh", connectionId: conn!.id, status: "succeeded", createdAt: runStart, finishedAt: new Date() });
+    const ago = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString();
+    const mk = async (ref: string, name: string, agent: Record<string, unknown>, syncedAt = new Date()) => {
+      const [a] = await db.insert(schema.assets).values({ name, assetType: "server", assetClass: defaultAssetClass("server"), hostname: name }).returning();
+      await db.insert(schema.assetSources).values({ assetId: a!.id, sourceType: "wazuh", sourceRef: ref, connectionId: conn!.id, raw: { agent: { id: ref, name, ...agent } }, lastSyncedAt: syncedAt });
+      return a!;
+    };
+    await mk("000", "wazuh-manager", { status: "active", version: "Wazuh v4.9.2", lastKeepAlive: "9999-12-31T23:59:59+00:00" });
+    const web = await mk("001", "wz-web01", { status: "active", version: "Wazuh v4.9.2", ip: "10.0.0.11", group: ["default", "linux"], lastKeepAlive: ago(0), os: { name: "Ubuntu", version: "22.04" } });
+    await mk("002", "wz-db01", { status: "disconnected", version: "Wazuh v4.7.5", ip: "10.0.0.12", lastKeepAlive: ago(12) });
+    await mk("003", "wz-nb07", { status: "disconnected", version: "Wazuh v4.9.2", lastKeepAlive: ago(2) });
+    await mk("004", "wz-novy", { status: "pending", version: null });
+    await mk("005", "wz-stary", { status: "active", version: "Wazuh v4.9.2", lastKeepAlive: ago(40) }, new Date(runStart.getTime() - 86_400_000));
+    await db.insert(schema.assetVulnerabilities).values([
+      { assetId: web.id, cveId: "CVE-2026-0001", severity: "critical" },
+      { assetId: web.id, cveId: "CVE-2026-0002", severity: "medium" },
+    ]);
+
+    const r = await admin.json(`/api/integrations/wazuh/${conn!.id}/agents`);
+    expect(r.status).toBe(200);
+    expect(r.body.managerVersion).toBe("Wazuh v4.9.2");
+    expect(r.body.summary).toEqual({ total: 5, active: 1, disconnected: 2, pending: 1, removed: 1, outdated: 1, stale: 1 });
+    const by = (n: string) => r.body.items.find((a: any) => a.name === n);
+    expect(r.body.items.map((a: any) => a.name)).toEqual(["wz-db01", "wz-nb07", "wz-novy", "wz-web01", "wz-stary"]);
+    expect(by("wz-db01")).toMatchObject({ state: "disconnected", outdated: true, offlineDays: 12, ip: "10.0.0.12" });
+    expect(by("wz-web01")).toMatchObject({ state: "active", offlineDays: 0, groups: ["default", "linux"], os: "Ubuntu 22.04", openVulns: 2, criticalVulns: 1, asset: { id: web.id } });
+    expect(by("wz-stary").state).toBe("removed");
+    expect(r.body.items.some((a: any) => a.agentId === "000")).toBe(false);
+
+    // uzel mapy: důvody a údaje
+    const node = (await admin.json("/api/integrations/map")).body.nodes.find((n: any) => n.id === `wazuh-${conn!.id}`);
+    expect(node.reasons.map((x: any) => x.code)).toEqual(expect.arrayContaining(["wazuh_agents_stale", "wazuh_agents_outdated"]));
+    expect(node.facts).toEqual(expect.arrayContaining([{ key: "agentsActive", value: "1" }, { key: "agentsDisconnected", value: "3" }]));
+    // export
+    const csv = await admin.req(`/api/integrations/wazuh/${conn!.id}/agents.csv`);
+    const text = await csv.text();
+    expect(text).toContain("wz-db01");
+    expect(text).toContain("odpojený");
+    expect((await admin.req(`/api/integrations/wazuh/${conn!.id}/agents.xlsx`)).status).toBe(200);
+    expect((await admin.json(`/api/integrations/wazuh/00000000-0000-0000-0000-000000000000/agents`)).status).toBe(404);
+    expect((await browser().json(`/api/integrations/wazuh/${conn!.id}/agents`)).status).toBe(401);
+
+    await db.delete(schema.connections).where(eq(schema.connections.id, conn!.id));
+    await db.delete(schema.assets).where(sql`name like 'wz-%' or name = 'wazuh-manager'`);
   });
 
   /* ============ Audit a odhlášení ============ */

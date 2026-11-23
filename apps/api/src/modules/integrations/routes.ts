@@ -1,6 +1,7 @@
 import { buildIntegrationMap, type IntegrationMapDto, type MapCoverage, type MapNodeDto, type Translate } from "@contix/shared";
 import { and, count, eq, gte, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
 import { agentEvents, assets, assetSources, connections, hostInventories, identityComputers, identitySources } from "../../db/schema";
@@ -16,6 +17,8 @@ import { wazuhDtos } from "../connections/wazuh";
 import { tFor } from "../i18n/service";
 import { systemStatus } from "../ops/routes";
 import { probeDtos } from "../sectests/service";
+import { writeXlsx } from "../import/table";
+import { summarize, wazuhAgents, wazuhAgentsDto } from "./wazuhAgents";
 
 /* ============================================================
  * Mapa propojení (v1.86, ADR-181): data pro Administraci → Konektory, stránku mapy a dlaždici v Přehledu.
@@ -92,6 +95,9 @@ export async function loadIntegrationMap(db: Db, config: Config, o: { admin: boo
     serverCoverage(db, admin ? null : scope),
   ]);
   const nmap = scanCfg.enabled ? await nmapInfo(scanCfg.nmapPath) : { found: null };
+  // stav agentů Wazuhu (v1.93) – jen aktiva v rozsahu uživatele
+  const wz = wazuh.filter((k) => inCo(k.companyId));
+  const wzAgents = await wazuhAgents(db, wz.map((k) => k.id), admin || !scope ? undefined : inArray(assets.companyId, scope.length ? scope : ["00000000-0000-0000-0000-000000000000"]));
   // služby a jejich stav jen pro správu systému (podrobnosti obsahují adresy a nastavení)
   const services = admin && o.t ? (await systemStatus(db, config, o.t)).checks : [];
   return buildIntegrationMap({
@@ -100,7 +106,8 @@ export async function loadIntegrationMap(db: Db, config: Config, o: { admin: boo
     agents: agents.filter((a) => inCo(a.companyId)),
     collectors: collectors.filter((k) => inCo(k.companyId)),
     hosts,
-    wazuh: wazuh.filter((k) => inCo(k.companyId)),
+    wazuh: wz,
+    wazuhAgents: Object.fromEntries([...wzAgents].map(([id, r]) => [id, summarize(r.items)])),
     netbox: netbox.filter((k) => inCo(k.companyId)),
     jira: jira.filter((k) => inCo(k.companyId)),
     probes: probes.filter((k) => inCo(k.companyId)),
@@ -125,6 +132,67 @@ export function integrationRoutes(deps: { db: Db; config: Config }) {
         n.links = n.links.filter((l) => !l.link.to.startsWith("/admin/"));
       }
     return c.json(map);
-  });
+  })
+    /** Agenti jednoho připojení Wazuhu (v1.93, ADR-187) – panel mapy propojení. */
+    .get("/wazuh/:id/agents", requirePerm("admin:settings", "discovery:run", "soc:read"), async (c) => {
+      const dto = await agentsFor(c);
+      return c.json(dto);
+    })
+    .get("/wazuh/:id/agents.csv", requirePerm("admin:settings", "discovery:run", "soc:read"), (c) => exportAgents(c, "csv"))
+    .get("/wazuh/:id/agents.xlsx", requirePerm("admin:settings", "discovery:run", "soc:read"), (c) => exportAgents(c, "xlsx"));
+
+  async function exportAgents(c: Context<AppEnv>, format: "csv" | "xlsx") {
+      const dto = await agentsFor(c);
+      const t = await tFor(db, c);
+      const head = [
+        t("imap.wz.col.agentId"),
+        t("imap.wz.col.name"),
+        t("imap.wz.col.ip"),
+        t("imap.wz.col.state"),
+        t("imap.wz.col.lastKeepAlive"),
+        t("imap.wz.col.offlineDays"),
+        t("imap.wz.col.version"),
+        t("imap.wz.col.outdated"),
+        t("imap.wz.col.os"),
+        t("imap.wz.col.groups"),
+        t("imap.wz.col.asset"),
+        t("imap.wz.col.openVulns"),
+        t("imap.wz.col.criticalVulns"),
+      ];
+      const rows = dto.items.map((a) => [
+        a.agentId,
+        a.name,
+        a.ip ?? "",
+        t(`imap.wz.st.${a.state}`),
+        a.lastKeepAlive?.slice(0, 16).replace("T", " ") ?? "",
+        a.offlineDays === null ? "" : String(a.offlineDays),
+        a.version ?? "",
+        a.outdated ? t("imap.wz.yes") : "",
+        a.os ?? "",
+        a.groups.join(", "),
+        a.asset?.name ?? "",
+        String(a.openVulns),
+        String(a.criticalVulns),
+      ]);
+      const name = `wazuh-agenti-${new Date().toISOString().slice(0, 10)}`;
+      if (format === "xlsx")
+        return new Response(new Uint8Array(writeXlsx([{ name: t("imap.wz.sheet"), rows: [head, ...rows], widths: [8, 26, 16, 14, 18, 8, 14, 8, 28, 20, 26, 10, 10] }])), {
+          headers: { "content-type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "content-disposition": `attachment; filename="${name}.xlsx"`, "cache-control": "private, no-store" },
+        });
+      const cell = (v: string) => `"${v.replace(/"/g, '""')}"`;
+      return c.body(`\uFEFF${[head, ...rows].map((r) => r.map(cell).join(";")).join("\r\n")}\r\n`, 200, { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${name}.csv"` });
+  }
+
+  async function agentsFor(c: Context<AppEnv>) {
+    const admin = hasPerm(c, "admin:settings");
+    const id = c.req.param("id") ?? "";
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new HTTPException(404, { message: "Připojení nenalezeno" });
+    const [conn] = await db.select({ companyId: connections.companyId }).from(connections).where(eq(connections.id, id));
+    const scope = scopeOf(c).ids;
+    if (!conn || (!admin && scope && conn.companyId && !scope.includes(conn.companyId))) throw new HTTPException(404, { message: "Připojení nenalezeno" });
+    const dto = await wazuhAgentsDto(db, id, admin ? undefined : inScope(c, assets.companyId));
+    if (!dto) throw new HTTPException(404, { message: "Připojení nenalezeno" });
+    return dto;
+  }
 }
 

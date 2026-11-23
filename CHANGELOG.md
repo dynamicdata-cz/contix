@@ -2,6 +2,19 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.93.1
+
+- Oprava: `infra/scripts/update.sh` v 1.92.1 ztratil příznak spustitelnosti, takže `sudo ./infra/scripts/update.sh` hlásil „command not found“. Příznak je zpět; pro jistotu lze vždy spustit i `sudo bash ./infra/scripts/update.sh`.
+
+## 1.93.0
+
+Mapa propojení – připojená zařízení Wazuhu (ADR-187).
+
+- Kliknutím na uzel Wazuhu v mapě propojení se v panelu ukážou **připojená zařízení a jejich stav**: aktivní, bez spojení déle než 7 dní, odpojená, čekající na připojení, se starší verzí než manager a odebraná z Wazuhu; pod tím problémoví agenti s IP, dobou bez spojení, verzí a kritickými zranitelnostmi.
+- **Všechna zařízení** v okně: filtry podle stavu, hledání (jméno, IP, skupina, systém), poslední spojení, verze, systém, skupiny Wazuhu, odkaz na aktivum a počet zranitelností; export CSV / XLSX.
+- Uzel Wazuhu nově varuje, když jsou agenti bez spojení déle než 7 dní, a informuje o odpojených a zastaralých agentech; v údajích je počet aktivních a odpojených agentů.
+- Stav je z poslední synchronizace Wazuhu (bez dalšího zatížení Wazuh API).
+
 ## 1.92.1
 
 - Oprava: `update.sh` spuštěný přímo ze složky `infra/scripts` (`./update.sh`) po úspěšné aktualizaci nenašel kontrolu `verify.sh` („No such file or directory“). Kontrola se teď volá z kořene instalace bez ohledu na to, odkud se skript spustil.
