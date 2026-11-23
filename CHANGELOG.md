@@ -2,6 +2,14 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.95.0
+
+Provozní pojistky (ADR-189).
+
+- **Zálohovat a otestovat obnovu** jedním tlačítkem v Administrace → Provoz: služba záloh požadavek převezme do minuty, vytvoří zálohu a obnoví ji do dočasné databáze; výsledek se objeví v seznamu záloh a kontrola „Test obnovy“ zezelená. Bez příkazů na serveru.
+- **Instalátor sondy kontroluje síť**: ověří DNS server, překlad jména CONTIXu, spojení na jeho port a internet. Když sonda nemá DNS nebo nezná jméno CONTIXu, zeptá se na ně (nebo `--dns IP`, `--contix-ip IP`) a zapíše je; chybějící nástroje vypíše i s příkazem k instalaci.
+- **Pojistka**: automatický test hlídá, že skripty v `infra/scripts` mají příznak spustitelnosti (chyba „command not found“ z 1.92.1 se nemůže opakovat).
+
 ## 1.94.0
 
 Podněty z pilotního provozu (ADR-188).

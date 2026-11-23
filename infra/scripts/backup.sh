@@ -3,7 +3,8 @@
 # kopie mimo server, retence a zápis výsledku do tabulky backup_runs (zobrazí se v Administrace → Provoz).
 #
 #   backup.sh            jednorázová záloha
-#   backup.sh --loop     denně v BACKUP_TIME (služba backup v docker compose)
+#   backup.sh --loop     denně v BACKUP_TIME (služba backup v docker compose); každou minutu se podívá, jestli
+#                        správce v Administrace → Provoz nepožádal o zálohu s testem obnovy (v1.95)
 #
 # Proměnné: PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE (standard libpq)
 #           BACKUP_DIR (/backups) BACKUP_KEEP_DAYS (14) BACKUP_TIME (02:30)
@@ -92,11 +93,21 @@ if [[ "${1:-}" == "--loop" ]]; then
   at="${BACKUP_TIME:-02:30}"
   echo "Služba záloh: denně v $at (TZ=${TZ:-UTC}), retence $KEEP_DAYS dní, adresář $BACKUP_DIR"
   until pg_isready -q; do sleep 5; done
+  next=$(( $(date +%s) + $(seconds_until "$at") ))
+  echo "Další záloha za $(( (next - $(date +%s)) / 60 )) min"
   while true; do
-    s=$(seconds_until "$at")
-    echo "Další záloha za $((s / 60)) min"
-    sleep "$s"
-    run_backup || true
+    # požadavek z Administrace → Provoz: záloha hned + test obnovy (v1.95, ADR-189); převzetí smazáním = jen jednou
+    req=$(psql -Atq -c "delete from app_settings where key = 'backup.request' returning value->>'kind'" 2>/dev/null | head -1 || true)
+    if [[ "$req" == "backup_test" ]]; then
+      echo "Požadavek z CONTIXu: záloha a test obnovy"
+      FORCE_RESTORE_TEST=1 run_backup || true
+    fi
+    if (( $(date +%s) >= next )); then
+      run_backup || true
+      next=$(( $(date +%s) + $(seconds_until "$at") ))
+      echo "Další záloha za $(( (next - $(date +%s)) / 60 )) min"
+    fi
+    sleep 60
   done
 else
   run_backup

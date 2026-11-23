@@ -8,7 +8,7 @@ import { currentUser, requirePerm } from "../../auth/middleware";
 import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
-import { aiSuggestions, assets, backupRuns, companies, incidents, policyFiles, docIndexState, identitySources, risks, users } from "../../db/schema";
+import { aiSuggestions, appSettings, assets, backupRuns, companies, incidents, policyFiles, docIndexState, identitySources, risks, users } from "../../db/schema";
 import { getAiSettings } from "../ai/service";
 import { listWazuh } from "../connections/wazuh";
 import { getNotificationSettings } from "../notifications/service";
@@ -269,6 +269,16 @@ export async function systemStatus(db: Db, config: Config, t: Translate = CS_T):
   };
 }
 
+const BACKUP_REQUEST_KEY = "backup.request";
+/** Čekající požadavek na zálohu s testem; `stale` = služba záloh ho nepřevzala do 5 minut (neběží nebo je stará verze). */
+async function backupRequest(db: Db) {
+  const [r] = await db.select().from(appSettings).where(eq(appSettings.key, BACKUP_REQUEST_KEY));
+  if (!r) return { pending: null };
+  const v = r.value as { requestedAt?: string; by?: string };
+  const at = v.requestedAt ?? r.updatedAt.toISOString();
+  return { pending: { requestedAt: at, by: v.by ?? null, stale: Date.now() - Date.parse(at) > 5 * 60_000 } };
+}
+
 export function opsRoutes(deps: { db: Db; config: Config }) {
   const { db, config } = deps;
   return new Hono<AppEnv>()
@@ -284,6 +294,19 @@ export function opsRoutes(deps: { db: Db; config: Config }) {
     .get("/backups", requirePerm("admin:settings"), async (c) => {
       const rows = await db.select().from(backupRuns).orderBy(desc(backupRuns.startedAt)).limit(60);
       return c.json(rows.map(backupDto));
+    })
+    /** Požadavek na zálohu s testem obnovy (v1.95, ADR-189) – převezme ho služba záloh do minuty. */
+    .get("/backup-test", requirePerm("admin:settings"), async (c) => c.json(await backupRequest(db)))
+    .post("/backup-test", requirePerm("admin:settings"), async (c) => {
+      const me = currentUser(c);
+      const value = { kind: "backup_test", requestedAt: new Date().toISOString(), by: me.displayName ?? me.email };
+      await db.insert(appSettings).values({ key: BACKUP_REQUEST_KEY, value, updatedAt: new Date() }).onConflictDoUpdate({ target: appSettings.key, set: { value, updatedAt: new Date() } });
+      await audit(db, { c, user: me, action: "ops.backup_test_requested", entityType: "system" });
+      return c.json(await backupRequest(db));
+    })
+    .delete("/backup-test", requirePerm("admin:settings"), async (c) => {
+      await db.delete(appSettings).where(eq(appSettings.key, BACKUP_REQUEST_KEY));
+      return c.json(await backupRequest(db));
     });
 }
 

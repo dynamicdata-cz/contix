@@ -701,6 +701,7 @@ const qs = (q: Record<string, unknown>) =>
   new URLSearchParams(Object.entries(q).filter(([, v]) => v !== undefined && v !== "") as [string, string][]).toString();
 
 /** Filtr nálezů identit (v1.89) – seznam, počty, exporty, reporty. */
+export type BackupTestRequestDto = { pending: { requestedAt: string; by: string | null; stale: boolean } | null };
 export type IdentityComputerFilter = { sourceId?: string; role?: string; q?: string; view?: "active" | "stale" | "eol" | "noAsset" | "unmonitored" | "findings" | "disabled"; removed?: "1" };
 export type IdentityFindingFilter = { status?: string; severity?: string; rule?: string; sourceId?: string; accountId?: string; computerId?: string; q?: string };
 
@@ -1888,6 +1889,9 @@ export const api = {
   ops: {
     status: () => request<SystemStatusDto>("/ops/status"),
     backups: () => request<BackupRunDto[]>("/ops/backups"),
+    backupTest: () => request<BackupTestRequestDto>("/ops/backup-test"),
+    requestBackupTest: () => post<BackupTestRequestDto>("/ops/backup-test", {}),
+    cancelBackupTest: () => del<BackupTestRequestDto>("/ops/backup-test"),
     sbomUrl: "/api/ops/sbom",
   },
 

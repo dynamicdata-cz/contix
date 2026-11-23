@@ -21,6 +21,10 @@ Nástroje (Kali je má, jinak `apt install`): `nmap`, `testssl.sh`, `ssh-audit`,
 - Stav: `systemctl status contix-probe`, log: `journalctl -u contix-probe -f`.
 - Ruční dotaz: `sudo -u contix-probe python3 /usr/local/sbin/contix-probe.py --once`.
 - Odebrání: `sudo sh install-contix-probe.sh --uninstall`.
+- **Kontrola sítě** (od 1.95): instalátor ověří DNS server, překlad jména CONTIXu, spojení na port CONTIXu
+  a internet. Když sonda nemá DNS nebo nezná jméno CONTIXu, zeptá se (nebo použije parametry):
+  `sudo sh install-contix-probe.sh --dns 10.0.0.1 --contix-ip 10.0.0.5` – DNS se zapíše do `/etc/resolv.conf`
+  (u dhcpcd i do `/etc/resolv.conf.head`), CONTIX do `/etc/hosts`. Chybějící nástroje vypíše s příkazem `apt install`.
 
 ## 2. Rozsah
 

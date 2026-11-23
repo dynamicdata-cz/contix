@@ -1,9 +1,9 @@
 import { useT, tt } from "@/lib/i18n";
 import { STATUS_COLORS } from "@/components/health";
-import { Card, CardHeader, EmptyState, ErrorBox } from "@/components/ui";
+import { Button, Card, CardHeader, EmptyState, ErrorBox } from "@/components/ui";
 import { api } from "@/lib/api";
 import { BACKUP_MAX_AGE_HOURS, fmtBytes, type OpsLevel } from "@contix/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, CircleMinus, Download, OctagonX } from "lucide-react";
 
 const LEVEL: Record<OpsLevel, { color: string; Icon: typeof CheckCircle2; label: string }> = {
@@ -29,7 +29,16 @@ const COUNT_LABELS: Record<string, string> = {
 export function AdminOpsPage() {
   const t = useT();
   const st = useQuery({ queryKey: ["ops", "status"], queryFn: api.ops.status, refetchInterval: 60_000 });
-  const backups = useQuery({ queryKey: ["ops", "backups"], queryFn: api.ops.backups });
+  const qc = useQueryClient();
+  const req = useQuery({ queryKey: ["ops", "backup-test"], queryFn: api.ops.backupTest, refetchInterval: (q) => (q.state.data?.pending ? 15_000 : false) });
+  const pending = req.data?.pending ?? null;
+  const backups = useQuery({ queryKey: ["ops", "backups"], queryFn: api.ops.backups, refetchInterval: pending ? 15_000 : false });
+  const after = (x: { pending: unknown }) => {
+    qc.setQueryData(["ops", "backup-test"], x);
+    qc.invalidateQueries({ queryKey: ["ops"] });
+  };
+  const ask = useMutation({ mutationFn: api.ops.requestBackupTest, onSuccess: after });
+  const cancel = useMutation({ mutationFn: api.ops.cancelBackupTest, onSuccess: after });
   const s = st.data;
   return (
     <div className="space-y-6">
@@ -93,7 +102,23 @@ export function AdminOpsPage() {
         <CardHeader
           title={t("adt.zalohyDatabaze")}
           subtitle={t("adt.zapisujeSluzbaBackupInfraScripts", { BACKUP_MAX_AGE_HOURS: BACKUP_MAX_AGE_HOURS })}
+          action={
+            !pending && (
+              <Button variant="secondary" onClick={() => ask.mutate()} disabled={ask.isPending} data-testid="ops-backup-test">
+                {t("ops.bt.run")}
+              </Button>
+            )
+          }
         />
+        {pending && (
+          <div className={`flex flex-wrap items-center gap-2 border-b px-5 py-2.5 text-sm ${pending.stale ? "border-amber-200 bg-amber-50 text-amber-900" : "border-sky-100 bg-sky-50 text-sky-900"}`} data-testid="ops-backup-pending">
+            <span className="flex-1">{pending.stale ? t("ops.bt.stale") : t("ops.bt.pending", { at: dt(pending.requestedAt) })}</span>
+            <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+              {t("common.cancelAction")}
+            </Button>
+          </div>
+        )}
+        <ErrorBox error={ask.error ?? cancel.error} />
         {(backups.data ?? []).length === 0 ? (
           <EmptyState>{t("adt.zadnaEvidovanaZalohaSpustteSluzbu")}</EmptyState>
         ) : (

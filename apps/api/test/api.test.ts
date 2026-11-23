@@ -4530,6 +4530,15 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(st.checks.find((c: any) => c.key === "restore_test").level).toBe("ok");
     expect(st.lastBackup.kind).toBe("backup");
     expect((await admin.json("/api/ops/backups")).body[0].kind).toBe("restore_test");
+    // v1.95: záloha s testem obnovy z Provozu – požadavek pro službu záloh, zrušení, zastaralý požadavek
+    expect((await admin.json("/api/ops/backup-test")).body).toEqual({ pending: null });
+    const rq = await admin.json("/api/ops/backup-test", { method: "POST" });
+    expect(rq.body.pending).toMatchObject({ by: expect.any(String), stale: false });
+    const [stored] = await db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "backup.request"));
+    expect(stored!.value).toMatchObject({ kind: "backup_test" });
+    await db.update(schema.appSettings).set({ value: { kind: "backup_test", requestedAt: new Date(Date.now() - 10 * 60_000).toISOString() } }).where(eq(schema.appSettings.key, "backup.request"));
+    expect((await admin.json("/api/ops/backup-test")).body.pending.stale).toBe(true);
+    expect((await admin.json("/api/ops/backup-test", { method: "DELETE" })).body).toEqual({ pending: null });
     // SBOM CONTIXu a security.txt (v1.48, CRA)
     const sb = await admin.req("/api/ops/sbom");
     expect(sb.headers.get("content-type")).toContain("cyclonedx");
@@ -4543,6 +4552,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     const auditor = browser();
     await auditor.login("audit@test.cz", "Auditor-Heslo-2026!");
     expect((await auditor.json("/api/ops/status")).status).toBe(403);
+    expect((await auditor.json("/api/ops/backup-test", { method: "POST" })).status).toBe(403);
     expect((await auditor.req("/api/ops/sbom")).status).toBe(403);
 
     expect((await admin.req("/api/metrics")).status).toBe(404);
@@ -10099,7 +10109,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     fd.append("file", new File(["%PDF-1.4\n%test rozhodnutí\n"], "Rozhodnutí o registraci.pdf", { type: "application/pdf" }));
     const up = await admin.req(`/api/regulation/registration/${co.id}/decision/file`, { method: "POST", body: fd });
     expect(up.status).toBe(200);
-    expect((await up.json()).decision.file).toMatchObject({ name: "Rozhodnutí o registraci.pdf" });
+    expect(((await up.json()) as any).decision.file).toMatchObject({ name: "Rozhodnutí o registraci.pdf" });
     const dl = await admin.req(`/api/regulation/registration/${co.id}/decision/file`);
     expect(dl.headers.get("content-type")).toBe("application/pdf");
     expect((await dl.text()).startsWith("%PDF-1.4")).toBe(true);

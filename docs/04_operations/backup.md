@@ -24,7 +24,10 @@ age-keygen -o contix-backup.key                                # klíč pro šif
 
 ## Test obnovy (§ 26 vyhl. 409, SOC 2 A1.3) – automaticky týdně, ručně kdykoli
 
-Na serveru (ze složky instalace, výchozí `/opt/contix`) – bez názvu souboru se otestuje **nejnovější záloha** (od 1.94):
+Nejjednodušší je tlačítko **Zálohovat a otestovat obnovu** v **Administrace → Provoz** (od 1.95): služba záloh
+požadavek převezme do minuty, vytvoří zálohu a obnoví ji do dočasné databáze; výsledek se objeví v seznamu záloh.
+
+Ručně na serveru (ze složky instalace, výchozí `/opt/contix`) – bez názvu souboru se otestuje **nejnovější záloha** (od 1.94):
 
 ```bash
 cd /opt/contix && sudo docker compose --profile full run --rm backup restore.sh --test

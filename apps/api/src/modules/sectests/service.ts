@@ -552,6 +552,8 @@ export function buildProbeInstaller(o: { name: string; url: string; token: strin
 # Sonda: ${o.name.replace(/[\r\n]/g, " ")} · vygenerováno ${(o.generatedAt ?? new Date()).toISOString()}
 # Použití:   sudo sh install-contix-probe.sh             instalace / aktualizace
 #            sudo sh install-contix-probe.sh --keep      soubor se po instalaci nesmaže
+#            sudo sh install-contix-probe.sh --contix-ip 10.0.0.5   IP serveru CONTIX, když ho DNS nezná (zápis do /etc/hosts)
+#            sudo sh install-contix-probe.sh --dns 10.0.0.1         DNS server, když sonda žádný nemá
 #            sudo sh install-contix-probe.sh --uninstall odebrání sondy
 # Soubor obsahuje token sondy – po instalaci se sám smaže.
 set -eu
@@ -561,18 +563,27 @@ ENVF=/etc/contix-probe.env
 CAF=/etc/contix-probe-ca.pem
 UNIT=/etc/systemd/system/contix-probe.service
 KEEP=0
-case "\${1:-}" in
-  --keep) KEEP=1 ;;
-  --uninstall)
-    [ "$(id -u)" = 0 ] || { echo "Spusťte jako root: sudo sh $0 --uninstall" >&2; exit 1; }
-    systemctl disable --now contix-probe.service 2>/dev/null || true
-    rm -f "$BIN" "$ENVF" "$CAF" "$UNIT"
-    systemctl daemon-reload 2>/dev/null || true
-    echo "Sonda CONTIX odebrána (uživatel contix-probe zůstává: userdel contix-probe)."
-    exit 0 ;;
-  "") ;;
-  *) echo "Neznámý parametr: $1 (povoleno --keep, --uninstall)" >&2; exit 2 ;;
-esac
+CONTIX_IP=""
+DNS_IP=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --keep) KEEP=1 ;;
+    --contix-ip | --dns)
+      [ $# -ge 2 ] || { echo "Chybí IP adresa za $1" >&2; exit 2; }
+      if [ "$1" = --dns ]; then DNS_IP="$2"; else CONTIX_IP="$2"; fi
+      shift ;;
+    --uninstall)
+      [ "$(id -u)" = 0 ] || { echo "Spusťte jako root: sudo sh $0 --uninstall" >&2; exit 1; }
+      systemctl disable --now contix-probe.service 2>/dev/null || true
+      rm -f "$BIN" "$ENVF" "$CAF" "$UNIT"
+      systemctl daemon-reload 2>/dev/null || true
+      echo "Sonda CONTIX odebrána (uživatel contix-probe zůstává: userdel contix-probe)."
+      exit 0 ;;
+    *) echo "Neznámý parametr: $1 (povoleno --keep, --contix-ip IP, --dns IP, --uninstall)" >&2; exit 2 ;;
+  esac
+  shift
+done
+is_ip() { echo "$1" | grep -Eq '^[0-9]{1,3}(\\.[0-9]{1,3}){3}$'; }
 [ "$(id -u)" = 0 ] || { echo "Spusťte jako root: sudo sh $0" >&2; exit 1; }
 command -v python3 >/dev/null 2>&1 || { echo "Chybí python3." >&2; exit 1; }
 command -v systemctl >/dev/null 2>&1 || { echo "Chybí systemd (systemctl)." >&2; exit 1; }
@@ -635,8 +646,62 @@ CONTIX_UNIT_END
 systemctl daemon-reload
 echo "• služba: contix-probe.service"
 
+# ---- kontrola sítě (v1.95, ADR-189): DNS, jméno CONTIXu, port, internet ----
+HOST=$(echo "$CONTIX_URL" | sed -E 's#^[a-zA-Z]+://([^/:]+).*#\\1#')
+PORT=$(echo "$CONTIX_URL" | sed -nE 's#^[a-zA-Z]+://[^/:]+:([0-9]+).*#\\1#p')
+[ -n "$PORT" ] || { case "$CONTIX_URL" in http:*) PORT=80 ;; *) PORT=443 ;; esac; }
+ask() { # otázka → odpověď z terminálu (prázdná bez terminálu)
+  a=""
+  if [ -t 0 ]; then printf '%s' "$1" >&2; read -r a || a=""; fi
+  echo "$a"
+}
+echo "• kontrola sítě:"
+if ! grep -Eq '^[[:space:]]*nameserver[[:space:]]' /etc/resolv.conf 2>/dev/null; then
+  echo "  ! sonda nemá nastavený žádný DNS server (/etc/resolv.conf)"
+  [ -n "$DNS_IP" ] || DNS_IP=$(ask "  Zadejte DNS server (interní DNS, nebo 8.8.8.8; Enter = přeskočit): ")
+  if [ -n "$DNS_IP" ] && is_ip "$DNS_IP"; then
+    echo "nameserver $DNS_IP" >> /etc/resolv.conf
+    # dhcpcd soubor při obnově adresy přepíše – .head zůstane
+    if [ -f /etc/dhcpcd.conf ] || command -v dhcpcd >/dev/null 2>&1; then echo "nameserver $DNS_IP" >> /etc/resolv.conf.head; fi
+    echo "  ✔ DNS server $DNS_IP nastaven"
+  elif [ -n "$DNS_IP" ]; then
+    echo "  ! „$DNS_IP“ není IP adresa – DNS nenastaveno"
+  fi
+fi
+if is_ip "$HOST"; then
+  echo "  CONTIX: $HOST (IP adresa)"
+elif getent hosts "$HOST" >/dev/null 2>&1; then
+  echo "  ✔ DNS: $HOST → $(getent hosts "$HOST" | awk '{print $1; exit}')"
+else
+  echo "  ! jméno $HOST nejde přeložit na IP adresu"
+  [ -n "$CONTIX_IP" ] || CONTIX_IP=$(ask "  Zadejte IP adresu serveru CONTIX (zapíše se do /etc/hosts; Enter = přeskočit): ")
+  if [ -n "$CONTIX_IP" ] && is_ip "$CONTIX_IP"; then
+    sed -i "/[[:space:]]$HOST\$/d" /etc/hosts
+    echo "$CONTIX_IP $HOST" >> /etc/hosts
+    echo "  ✔ /etc/hosts: $CONTIX_IP $HOST"
+  else
+    echo "  → Založte DNS záznam pro $HOST, nebo spusťte znovu s --contix-ip <IP serveru CONTIX>."
+  fi
+fi
+if python3 -c "import socket,sys; socket.create_connection((sys.argv[1], int(sys.argv[2])), 5).close()" "$HOST" "$PORT" 2>/dev/null; then
+  echo "  ✔ spojení na $HOST:$PORT"
+else
+  echo "  ! na $HOST:$PORT se nejde připojit – zkontrolujte firewall mezi sondou a CONTIXem"
+fi
+if getent hosts deb.debian.org >/dev/null 2>&1; then
+  echo "  ✔ internet / DNS pro instalaci balíčků"
+else
+  echo "  – veřejná jména nejdou přeložit (instalace balíčků z internetu nepůjde; pro testy to nevadí)"
+fi
+
 echo "• dostupné nástroje:"
 sudo -u contix-probe /usr/bin/python3 "$BIN" --tools || true
+MISSING=""
+command -v nmap >/dev/null 2>&1 || MISSING="$MISSING nmap"
+{ command -v testssl >/dev/null 2>&1 || command -v testssl.sh >/dev/null 2>&1; } || MISSING="$MISSING testssl.sh"
+command -v ssh-audit >/dev/null 2>&1 || MISSING="$MISSING ssh-audit"
+command -v nikto >/dev/null 2>&1 || MISSING="$MISSING nikto"
+[ -z "$MISSING" ] || echo "  → chybějící nástroje doinstalujete: sudo apt update && sudo apt install -y$MISSING"
 echo "• spojení s CONTIXem…"
 if sudo -u contix-probe /usr/bin/python3 "$BIN" --once; then
   systemctl enable --now contix-probe.service >/dev/null 2>&1

@@ -3958,3 +3958,20 @@ describe("mapa propojení: zóny, stavy a vazby (v1.86, ADR-181)", () => {
     expect(m.groups.map((g) => g.kind)).toEqual(["monitoring", "records", "services"]);
   });
 });
+
+describe("provozní skripty (v1.95, ADR-189)", () => {
+  // příznak spustitelnosti: návod i služby volají ./infra/scripts/*.sh – bez +x „command not found“ (1.92.1)
+  test("skripty v infra/scripts mají v gitu i na disku příznak spustitelnosti", async () => {
+    const { readdirSync, statSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const dir = join(import.meta.dir, "../../../infra/scripts");
+    const scripts = readdirSync(dir).filter((f) => f.endsWith(".sh"));
+    expect(scripts).toEqual(expect.arrayContaining(["update.sh", "install.sh", "backup.sh", "restore.sh", "verify.sh", "lib.sh"]));
+    for (const f of scripts) expect((statSync(join(dir, f)).mode & 0o111) !== 0, `${f} na disku`).toBe(true);
+    const git = Bun.spawnSync(["git", "ls-files", "-s", "infra/scripts"], { cwd: join(import.meta.dir, "../../..") });
+    if (git.exitCode === 0) {
+      const rows = git.stdout.toString().trim().split("\n").filter((l) => l.endsWith(".sh"));
+      for (const l of rows) expect(l.split(/\s+/)[0], l).toBe("100755");
+    }
+  });
+});
