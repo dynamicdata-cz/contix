@@ -4,7 +4,7 @@ import { Hono } from "hono";
 import { currentUser, requirePerm } from "../../auth/middleware";
 import { providersFor } from "../../auth/oidc";
 import { adLoginSources } from "../../auth/adLogin";
-import { inScope, scopeOf, targetCompany } from "../../auth/scope";
+import { companySettings, getCompanies, inScope, scopeOf, targetCompany } from "../../auth/scope";
 import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
@@ -27,6 +27,7 @@ import {
   userRoles,
   users,
   identitySources,
+  regulationAssessments,
 } from "../../db/schema";
 import { getAiSettings } from "../ai/service";
 import { listWazuh, wazuhApiReady } from "../connections/wazuh";
@@ -51,7 +52,13 @@ export function setupRoutes(deps: { db: Db; config: Config }) {
     const s = await getSettings(db);
     const mod = (k: string) => s.enabledModules.includes(k);
     // identita organizace = kořenová společnost (Administrace → Nastavení zapisuje název, IČO a sídlo do ní)
-    const [co] = await db.select({ id: companies.id, name: companies.name, ico: companies.ico, address: companies.address }).from(companies).where(eq(companies.id, ROOT_COMPANY_ID));
+    let wid: string = ROOT_COMPANY_ID;
+    try {
+      wid = targetCompany(c);
+    } catch {
+      /* souhrnný pohled → kořenová */
+    }
+    const [co] = await db.select({ id: companies.id, name: companies.name, ico: companies.ico, address: companies.address }).from(companies).where(eq(companies.id, wid));
     const [usersN, unitsN, rangesN, assetsN, state, oidc, ad] = await Promise.all([
       n(db.select({ n: count() }).from(users).where(eq(users.isActive, true))),
       n(db.select({ n: count() }).from(orgUnits)),
@@ -159,11 +166,24 @@ export function setupRoutes(deps: { db: Db; config: Config }) {
     const add = (st: Omit<SetupStepDto, "status"> & { status: SetupStepDto["status"] }) => steps.push(st);
     const skip = (key: string) => !mod(key);
 
-    // 1. organizace
+    // 1. organizace – identita je v profilu společnosti (Nastavení zapisuje do kořenové, Společnosti do ostatních),
+    // ne v globálním nastavení; bere se aktivní společnost (v1.94). Regulované služby jen v režimu zákona.
+    let orgId: string = ROOT_COMPANY_ID;
+    try {
+      orgId = targetCompany(c);
+    } catch {
+      /* souhrnný pohled bez společnosti → kořenová */
+    }
+    const os = companySettings(s, await getCompanies(db), orgId);
+    const [assessed] = await db
+      .select({ n: count() })
+      .from(regulationAssessments)
+      .where(and(eq(regulationAssessments.subjectKind, "company"), eq(regulationAssessments.subjectId, orgId), eq(regulationAssessments.applied, true)));
+    const needsServices = os.pack === "cz" && os.regime !== "none";
     const orgMissing = [
-      s.organizationName && s.organizationName !== "Moje organizace" ? null : t("srv.setup.org.missingName"),
-      s.organizationIco ? null : t("srv.setup.org.missingIco"),
-      s.regulatedServices ? null : t("srv.setup.org.missingServices"),
+      os.organizationName && os.organizationName !== DEFAULT_ORG_NAME ? null : t("srv.setup.org.missingName"),
+      os.organizationIco ? null : t("srv.setup.org.missingIco"),
+      !needsServices || os.regulatedServices || assessed?.n ? null : t("srv.setup.org.missingServices"),
     ].filter(Boolean) as string[];
     add({
       key: "organization",
@@ -171,17 +191,17 @@ export function setupRoutes(deps: { db: Db; config: Config }) {
       why: t("srv.setup.org.why"),
       status: orgMissing.length === 0 ? "done" : orgMissing.length < 3 ? "partial" : "todo",
       detail: [
-        t(s.organizationIco ? "srv.setup.org.detailIco" : "srv.setup.org.detail", {
-          org: s.organizationName,
-          ico: s.organizationIco ?? "",
+        t(os.organizationIco ? "srv.setup.org.detailIco" : "srv.setup.org.detail", {
+          org: os.organizationName,
+          ico: os.organizationIco ?? "",
           regime: (() => {
-            const l = profileLabelKey(profileOf(s));
+            const l = profileLabelKey(profileOf(os));
             return t(l.key, { main: l.main });
           })(),
         }),
         ...(orgMissing.length ? [t("srv.setup.org.fillIn", { fields: orgMissing.join(", ") })] : []),
       ],
-      link: "/admin/settings",
+      link: orgId === ROOT_COMPANY_ID ? "/admin/settings" : "/admin/companies",
       optional: false,
       helpTopic: "admin-setup",
     });

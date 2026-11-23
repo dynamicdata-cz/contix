@@ -2,6 +2,16 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.94.0
+
+Podněty z pilotního provozu (ADR-188).
+
+- **Průvodce nastavením – Organizace**: už nehlásí chybějící údaje, když jsou vyplněné. Kontroluje profil aktivní společnosti (dříve četl staré globální nastavení), regulované služby vyžaduje jen v režimu zákona a uzná je i ze zapsaného posouzení; odkaz vede na Nastavení nebo Společnosti podle toho, kde se údaje vyplňují.
+- **Ohlášení regulované služby – oprava záznamu**: tlačítko *Opravit záznam o ohlášení* změní datum a číslo podání; se zaškrtnutím *Ohlášení obsahovalo aktuální údaje* se současné údaje vezmou jako ohlášené a nevznikne ohlášení změny (např. když jste ohlašovali už dříve a údaje doplnili až teď). *Zrušit záznam o ohlášení* vrátí stav na „k ohlášení“. U prvního záznamu je nápověda, že přibližné datum jde později opravit.
+- **Rozhodnutí NÚKIB o registraci**: v kartě ohlášení zapíšete datum doručení a číslo jednací a přiložíte PDF rozhodnutí. CONTIX ukáže termín **zavedení bezpečnostních opatření (1 rok od doručení)** se zbývajícími dny a odpovědné funkční místo dostane povinnost v Moje práce.
+- **Test obnovy zálohy**: `restore.sh --test` bez názvu souboru otestuje nejnovější zálohu. Hlášení v Administrace → Provoz i dokumentace uvádějí celý příkaz: `cd /opt/contix && sudo docker compose --profile full run --rm backup restore.sh --test`.
+- **Instalace na Debian 13**: návod instalace Dockeru bere repozitář podle distribuce (dříve vždy Ubuntu, na Debianu nefunkční).
+
 ## 1.93.1
 
 - Oprava: `infra/scripts/update.sh` v 1.92.1 ztratil příznak spustitelnosti, takže `sudo ./infra/scripts/update.sh` hlásil „command not found“. Příznak je zpět; pro jistotu lze vždy spustit i `sudo bash ./infra/scripts/update.sh`.

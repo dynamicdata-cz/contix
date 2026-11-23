@@ -665,6 +665,13 @@ export const regulationRegistrations = pgTable("regulation_registrations", {
   changedAt: timestamp("changed_at", { withTimezone: true }),
   /** Funkční místo odpovědné za ohlášení (v1.65 – sloupec kvůli evidenci použití funkčních míst). */
   responsiblePositionId: uuid("responsible_position_id").references(() => positions.id, { onDelete: "set null" }),
+  /** Rozhodnutí NÚKIB o registraci (v1.94): doručení, č. j. a PDF. */
+  decisionDeliveredAt: date("decision_delivered_at"),
+  decisionRef: varchar("decision_ref", { length: 200 }),
+  decisionFileName: varchar("decision_file_name", { length: 255 }),
+  decisionFileSize: integer("decision_file_size"),
+  decisionFileSha256: varchar("decision_file_sha256", { length: 64 }),
+  decisionFile: bytea("decision_file"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

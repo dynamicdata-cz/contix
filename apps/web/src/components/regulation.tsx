@@ -1,7 +1,7 @@
 import { Badge, Button, Card, CardHeader, Checkbox, ErrorBox, Field, FormSection, Input, Select, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useT } from "@/lib/i18n";
-import { fmtDate } from "@/lib/utils";
+import { cn, fmtDate } from "@/lib/utils";
 import {
   REGULATED_SERVICES,
   RS_SECTORS,
@@ -74,16 +74,32 @@ export function RegistrationCard({ companyId }: { companyId: string }) {
   const [f, setF] = useState<RegForm | null>(null);
   const [notifiedAt, setNotifiedAt] = useState(new Date().toISOString().slice(0, 10));
   const [notifiedRef, setNotifiedRef] = useState("");
-  const [mark, setMark] = useState(false);
+  /** Režim formuláře záznamu: nové ohlášení / ohlášení změny / oprava existujícího záznamu (v1.94). */
+  const [mark, setMark] = useState<null | "new" | "change" | "fix">(null);
+  const [rebase, setRebase] = useState(true);
+  const [dec, setDec] = useState<{ deliveredAt: string; ref: string }>({ deliveredAt: "", ref: "" });
   useEffect(() => {
-    if (d) setF({ ...d.data });
+    if (d) {
+      setF({ ...d.data });
+      setDec({ deliveredAt: d.decision.deliveredAt ?? "", ref: d.decision.ref ?? "" });
+    }
   }, [d]);
+  const openMark = (m: "new" | "change" | "fix") => {
+    setMark(m);
+    setRebase(true);
+    setNotifiedAt(m === "fix" && d?.notifiedAt ? d.notifiedAt : new Date().toISOString().slice(0, 10));
+    setNotifiedRef(m === "fix" ? (d?.notifiedRef ?? "") : "");
+  };
   const done = (x: RegistrationDto) => {
     qc.setQueryData(["registration", companyId], x);
     qc.invalidateQueries({ queryKey: ["obligations"] });
   };
   const save = useMutation({ mutationFn: () => api.regulation.saveRegistration(companyId, f!), onSuccess: done });
-  const notified = useMutation({ mutationFn: () => api.regulation.notified(companyId, { notifiedAt, notifiedRef }), onSuccess: (x) => { done(x); setMark(false); } });
+  const notified = useMutation({ mutationFn: () => api.regulation.notified(companyId, { notifiedAt, notifiedRef, rebase: mark !== "fix" || rebase }), onSuccess: (x) => { done(x); setMark(null); } });
+  const clear = useMutation({ mutationFn: () => api.regulation.clearNotified(companyId), onSuccess: (x) => { done(x); setMark(null); } });
+  const saveDec = useMutation({ mutationFn: () => api.regulation.saveDecision(companyId, { deliveredAt: dec.deliveredAt || null, ref: dec.ref }), onSuccess: done });
+  const upload = useMutation({ mutationFn: (file: File) => api.regulation.uploadDecision(companyId, file), onSuccess: done });
+  const removeFile = useMutation({ mutationFn: () => api.regulation.removeDecisionFile(companyId), onSuccess: done });
   if (!d || !f) return null;
   const set = (k: keyof RegForm, v: string | null) => setF({ ...f, [k]: v });
   const field = (k: Exclude<keyof RegForm, "responsiblePositionId">, label: string, opts: { area?: boolean; span?: string; ph?: string } = {}) => (
@@ -175,30 +191,114 @@ export function RegistrationCard({ companyId }: { companyId: string }) {
             </div>
           </FormSection>
         </div>
-        <ErrorBox error={save.error ?? notified.error} />
+        <ErrorBox error={save.error ?? notified.error ?? clear.error} />
         <div className="flex flex-wrap items-end gap-2">
           <Button onClick={() => save.mutate()} disabled={save.isPending} data-testid="rg-reg-save">
             {t("rg.reg.save")}
           </Button>
-          {!mark ? (
-            d.regime !== "none" && (
-              <Button variant="secondary" onClick={() => setMark(true)} data-testid="rg-reg-mark">
-                {d.notifiedAt ? t("rg.reg.markChange") : t("rg.reg.mark")}
-              </Button>
-            )
-          ) : (
+          {!mark && d.regime !== "none" && !d.notifiedAt && (
+            <Button variant="secondary" onClick={() => openMark("new")} data-testid="rg-reg-mark">
+              {t("rg.reg.mark")}
+            </Button>
+          )}
+          {!mark && d.notifiedAt && (
             <>
+              <Button variant="secondary" onClick={() => openMark("change")} data-testid="rg-reg-mark">
+                {t("rg.reg.markChange")}
+              </Button>
+              <Button variant="secondary" onClick={() => openMark("fix")} data-testid="rg-reg-fix">
+                {t("rg.reg.fix")}
+              </Button>
+              <Button
+                variant="secondary"
+                onClick={() => window.confirm(t("rg.reg.clearConfirm")) && clear.mutate()}
+                disabled={clear.isPending}
+                data-testid="rg-reg-clear"
+              >
+                {t("rg.reg.clear")}
+              </Button>
+            </>
+          )}
+        </div>
+        {mark && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid="rg-reg-mark-form">
+            <p className="mb-2 text-sm font-medium text-slate-800">{t(`rg.reg.markTitle.${mark}`)}</p>
+            <div className="flex flex-wrap items-end gap-2">
               <Field label={t("rg.reg.f.notifiedAt")}>
                 <Input type="date" value={notifiedAt} onChange={(e) => setNotifiedAt(e.target.value)} />
               </Field>
               <Field label={t("rg.reg.f.ref")}>
                 <Input value={notifiedRef} onChange={(e) => setNotifiedRef(e.target.value)} />
               </Field>
-              <Button onClick={() => notified.mutate()} disabled={notified.isPending} data-testid="rg-reg-confirm">
+              <Button onClick={() => notified.mutate()} disabled={notified.isPending || !notifiedAt} data-testid="rg-reg-confirm">
                 {t("rg.reg.confirm")}
               </Button>
-            </>
+              <Button variant="secondary" onClick={() => setMark(null)}>
+                {t("common.cancelAction")}
+              </Button>
+            </div>
+            {mark === "fix" && (
+              <label className="mt-2 flex items-start gap-2 text-sm text-slate-700">
+                <input type="checkbox" className="mt-0.5" checked={rebase} onChange={(e) => setRebase(e.target.checked)} data-testid="rg-reg-rebase" />
+                <span>
+                  {t("rg.reg.rebase")}
+                  <span className="block text-xs text-slate-500">{t("rg.reg.rebaseHint")}</span>
+                </span>
+              </label>
+            )}
+            {mark === "new" && <p className="mt-2 text-xs text-slate-500">{t("rg.reg.newHint")}</p>}
+          </div>
+        )}
+        <div className="rounded-lg border border-slate-200 p-4" data-testid="rg-decision">
+          <h3 className="text-sm font-semibold text-slate-800">{t("rg.dec.title")}</h3>
+          <p className="mb-3 text-xs text-slate-500">{t("rg.dec.sub")}</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <Field label={t("rg.dec.deliveredAt")}>
+              <Input type="date" value={dec.deliveredAt} onChange={(e) => setDec({ ...dec, deliveredAt: e.target.value })} data-testid="rg-dec-date" />
+            </Field>
+            <Field label={t("rg.dec.ref")}>
+              <Input value={dec.ref} onChange={(e) => setDec({ ...dec, ref: e.target.value })} />
+            </Field>
+            <Button variant="secondary" onClick={() => saveDec.mutate()} disabled={saveDec.isPending} data-testid="rg-dec-save">
+              {t("rg.dec.save")}
+            </Button>
+          </div>
+          {d.decision.measuresDue && (
+            <p className={cn("mt-3 text-sm", d.decision.measuresDue < new Date().toISOString().slice(0, 10) ? "text-slate-600" : "font-medium text-slate-900")} data-testid="rg-dec-due">
+              {d.decision.measuresDue < new Date().toISOString().slice(0, 10)
+                ? t("rg.dec.duePast", { date: d.decision.measuresDue })
+                : t("rg.dec.due", { date: d.decision.measuresDue, days: Math.ceil((Date.parse(d.decision.measuresDue) - Date.now()) / 86_400_000) })}
+            </p>
           )}
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
+            {d.decision.file ? (
+              <>
+                <a href={api.regulation.decisionFileUrl(companyId)} target="_blank" rel="noreferrer" className="text-brand-700 hover:underline" data-testid="rg-dec-file">
+                  {d.decision.file.name}
+                </a>
+                <span className="text-xs text-slate-500">{Math.max(1, Math.round(d.decision.file.size / 1024))} kB</span>
+                <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => window.confirm(t("rg.dec.removeConfirm")) && removeFile.mutate()} disabled={removeFile.isPending}>
+                  {t("rg.dec.remove")}
+                </Button>
+              </>
+            ) : (
+              <label className="cursor-pointer rounded-lg border border-dashed border-slate-300 px-3 py-2 text-slate-600 hover:border-brand-400 hover:text-brand-700">
+                {upload.isPending ? "…" : t("rg.dec.upload")}
+                <input
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  className="sr-only"
+                  data-testid="rg-dec-upload"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) upload.mutate(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+          </div>
+          <ErrorBox error={saveDec.error ?? upload.error ?? removeFile.error} />
         </div>
         <p className="text-xs text-slate-500">{t("rg.reg.hint")}</p>
       </div>

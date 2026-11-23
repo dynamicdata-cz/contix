@@ -2,6 +2,7 @@ import { hardeningEnLabels } from "../hardening";
 
 /** Anglické překlady hotových českých textů (t.lbl / lbl) – klíč `lbl:<český text>`. Generováno z *_LABELS, MODULES, SECURITY_ROLES, stupnic rizik, map v komponentách a chybových hlášek API. */
 export const EN_LABELS: Record<string, string> = {
+  "lbl:Rozhodnutí nahrajte jako PDF": "Upload the decision as a PDF",
   "lbl:Počítače a servery": "Computers and servers",
   "lbl:Privilegovaný přístup": "Privileged access",
   "lbl:Účty a hesla": "Accounts and passwords",

@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
 # Obnova databáze CONTIX ze zálohy (backup.sh).
 #
-#   restore.sh --test <soubor>       test obnovy do dočasné databáze s ověřením obsahu (§ 26 / SOC 2 A1.3);
+#   restore.sh --test [soubor]       test obnovy do dočasné databáze s ověřením obsahu (§ 26 / SOC 2 A1.3);
+#                                    bez souboru vezme nejnovější zálohu v /backups (v1.94);
 #                                    služba záloh ho spouští sama jednou týdně (BACKUP_RESTORE_TEST)
+#   ze serveru:  cd /opt/contix && sudo docker compose --profile full run --rm backup restore.sh --test
 #   restore.sh <soubor> --yes        obnova do PGDATABASE (PŘEPÍŠE data – nejdřív zastavte API!)
 #
 # Šifrované zálohy (*.age) vyžadují privátní klíč: BACKUP_AGE_IDENTITY=/cesta/k/klici.txt
 set -euo pipefail
 export PGHOST="${PGHOST:-db}" PGUSER="${PGUSER:-contix}" PGDATABASE="${PGDATABASE:-contix}"
 
-usage() { sed -n '2,8p' "$0"; exit 1; }
+usage() { sed -n '2,10p' "$0"; exit 1; }
 MODE=restore
 [[ "${1:-}" == "--test" ]] && { MODE=test; shift; }
 FILE="${1:-}"
+# test bez souboru = nejnovější záloha (v1.94)
+if [[ "$MODE" == test && -z "$FILE" ]]; then
+  FILE="$(ls -1t "${BACKUP_DIR:-/backups}"/contix-*.dump "${BACKUP_DIR:-/backups}"/contix-*.dump.age 2>/dev/null | head -1 || true)"
+  [[ -z "$FILE" ]] && { echo "V ${BACKUP_DIR:-/backups} není žádná záloha – nejdřív spusťte backup.sh." >&2; exit 1; }
+  echo "Test obnovy nejnovější zálohy: $FILE"
+fi
 [[ -z "$FILE" || ! -f "$FILE" ]] && usage
 
 # kontrolní součet

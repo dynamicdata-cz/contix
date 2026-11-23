@@ -9,7 +9,7 @@ import { auditRequestItems } from "../audits/requests";
 import { daysOverdue, mapProblems, ROOT_COMPANY_ID, EXCEPTION_LABELS, EXCEPTION_LEAD_DAYS, OBLIGATION_LABELS, type ExceptionDto, type Translate, POLICY_WORKFLOW_ACTIONS, urgencyOf, type ObligationItem, type ObligationKind, triggerDue, RISK_TRIGGER_LABELS, exerciseCode, requestCode } from "@contix/shared";
 import { vulnRemediationItems } from "../vulnerabilities/remediation";
 import { escalationChain, escalationLevel, orgSnapshot, positionOfUser } from "../org/hierarchy";
-import { nukibNoticeItems } from "../regulation/registration";
+import { nukibMeasuresItems, nukibNoticeItems } from "../regulation/registration";
 import { and, eq, inArray, isNotNull, isNull, ne, notInArray, sql } from "drizzle-orm";
 import { getCompanies, riskPolicies } from "../../auth/scope";
 import { activityNextReview } from "../gdpr/routes";
@@ -831,6 +831,19 @@ export async function collectObligations(db: Db, o: CollectOptions): Promise<Obl
         due: n.due,
         link: "/admin/companies",
         ...owner(n.positionId),
+      });
+  // zavedení bezpečnostních opatření do 1 roku od doručení rozhodnutí o registraci (v1.94)
+  if (want("nukib_notice"))
+    for (const m of await nukibMeasuresItems(db, o.companyIds, o.now))
+      push({
+        key: `nukib_measures:${m.companyId}`,
+        kind: "nukib_notice",
+        title: t("srv.obl.nukibMeasures"),
+        detail: t("srv.obl.nukibMeasuresDetail"),
+        companyId: m.companyId,
+        due: m.due,
+        link: "/admin/companies",
+        ...owner(m.positionId),
       });
 
   const order = { overdue: 0, today: 1, soon: 2, later: 3 } as const;

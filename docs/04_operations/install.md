@@ -12,13 +12,14 @@ Skripty: `infra/scripts/install.sh` (první instalace), `update.sh` (aktualizace
 
 ## 1. Požadavky na server
 
-- Linux x86_64 (Ubuntu 22.04/24.04 LTS, Debian 12, RHEL/Rocky 9), **2 vCPU, 4 GB RAM, 40 GB disk** (+ místo na zálohy); s převodní službou dokumentů (v0.24) doporučeno **6 GB RAM**.
-- **Docker Engine** a plugin **docker compose** (`docker compose version`). Instalace na Ubuntu:
+- Linux x86_64 (Ubuntu 22.04/24.04 LTS, Debian 12/13, RHEL/Rocky 9), **2 vCPU, 4 GB RAM, 40 GB disk** (+ místo na zálohy); s převodní službou dokumentů (v0.24) doporučeno **6 GB RAM**.
+- **Docker Engine** a plugin **docker compose** (`docker compose version`). Instalace na Ubuntu a Debianu:
   ```bash
   sudo apt-get update && sudo apt-get install -y ca-certificates curl
   sudo install -m 0755 -d /etc/apt/keyrings
-  sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list
+  # Debian i Ubuntu: repozitář podle distribuce ($ID = debian / ubuntu) – na Debianu nepoužívejte cestu „ubuntu“ (v1.94)
+  sudo curl -fsSL "https://download.docker.com/linux/$(. /etc/os-release && echo $ID)/gpg" -o /etc/apt/keyrings/docker.asc
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/$(. /etc/os-release && echo $ID) $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list
   sudo apt-get update && sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
   ```
 - Volné porty **80 a 443** (nebo jiné – `--http-port`, `--https-port`). Kontrola: `sudo ss -ltnp | grep -E ':(80|443)\b'`.

@@ -648,6 +648,8 @@ export interface RegulationAssessmentDto {
 /** Lhůta pro ohlášení od okamžiku, kdy se na subjekt zákon začne vztahovat (dny) a lhůta pro ohlášení změny údajů. */
 export const NUKIB_NOTICE_DAYS = 60;
 export const NUKIB_CHANGE_DAYS = 30;
+/** Bezpečnostní opatření zavést nejpozději do 1 roku od doručení rozhodnutí o registraci (v1.94). */
+export const NUKIB_MEASURES_MONTHS = 12;
 
 export const RegistrationData = z.object({
   /** Statutární orgán (jména, funkce). */
@@ -673,7 +675,18 @@ export type RegistrationData = z.infer<typeof RegistrationData>;
 export const RegistrationNotifiedInput = z.object({
   notifiedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   notifiedRef: z.string().trim().max(200).default(""),
+  /** true = ohlášení obsahovalo aktuální údaje (nový základ pro změny); false = jen oprava data / čísla (v1.94). */
+  rebase: z.boolean().default(true),
 });
+/** Rozhodnutí NÚKIB o registraci regulované služby (v1.94): datum doručení a číslo jednací. */
+export const RegistrationDecisionInput = z.object({
+  deliveredAt: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable(),
+  ref: z.string().trim().max(200).default(""),
+});
+export type RegistrationDecisionInput = z.infer<typeof RegistrationDecisionInput>;
 
 export interface RegistrationSnapshot {
   data: Omit<RegistrationData, "note" | "responsiblePositionId">;
@@ -737,6 +750,14 @@ export interface RegistrationDto {
   due: string | null;
   /** Chybějící povinné údaje pro ohlášení. */
   missing: string[];
+  /** Rozhodnutí NÚKIB o registraci (v1.94) – lhůta 1 rok na zavedení bezpečnostních opatření od doručení. */
+  decision: {
+    deliveredAt: string | null;
+    ref: string | null;
+    file: { name: string; size: number } | null;
+    /** Termín zavedení bezpečnostních opatření (doručení + 12 měsíců). */
+    measuresDue: string | null;
+  };
 }
 
 /** Povinné údaje ohlášení (podle § 6 zákona – ověřte aktuální formulář na Portálu NÚKIB). */

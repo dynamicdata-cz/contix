@@ -3,6 +3,7 @@ import {
   RegistrationData,
   NUKIB_CHANGE_DAYS,
   NUKIB_NOTICE_DAYS,
+  NUKIB_MEASURES_MONTHS,
   regulatedService,
   registrationChanges,
   registrationMissing,
@@ -19,6 +20,34 @@ import { companies, regulationAssessments, regulationRegistrations } from "../..
  * Ohlášení regulované služby NÚKIB (v1.63, ADR-157): podklad z posledního posouzení zapsaného do profilu
  * a doplněných údajů, stav ohlášení a změny k ohlášení. Nic se neodesílá – ohlášení podává uživatel na Portálu NÚKIB.
  * ============================================================ */
+
+const addMonths = (d: string, n: number) => {
+  const x = new Date(`${d}T00:00:00Z`);
+  x.setUTCMonth(x.getUTCMonth() + n);
+  return x.toISOString().slice(0, 10);
+};
+
+/** Řádek ohlášení bez obsahu PDF rozhodnutí (ten se čte jen při stažení). */
+async function regRow(db: Db, companyId: string) {
+  const r = regulationRegistrations;
+  const [row] = await db
+    .select({
+      companyId: r.companyId,
+      data: r.data,
+      notifiedAt: r.notifiedAt,
+      notifiedRef: r.notifiedRef,
+      notifiedSnapshot: r.notifiedSnapshot,
+      changedAt: r.changedAt,
+      responsiblePositionId: r.responsiblePositionId,
+      decisionDeliveredAt: r.decisionDeliveredAt,
+      decisionRef: r.decisionRef,
+      decisionFileName: r.decisionFileName,
+      decisionFileSize: r.decisionFileSize,
+    })
+    .from(r)
+    .where(eq(r.companyId, companyId));
+  return row;
+}
 
 const addDays = (d: Date | string, n: number) => {
   const x = new Date(d);
@@ -44,7 +73,7 @@ function snapshotOf(data: RegistrationData, regime: RegimeLevel | "none", servic
 export async function registrationDto(db: Db, companyId: string): Promise<RegistrationDto | null> {
   const [co] = await db.select({ id: companies.id, name: companies.name, ico: companies.ico, address: companies.address, regime: companies.regime, pack: companies.pack }).from(companies).where(eq(companies.id, companyId));
   if (!co) return null;
-  const [row] = await db.select().from(regulationRegistrations).where(eq(regulationRegistrations.companyId, companyId));
+  const row = await regRow(db, companyId);
   const data = RegistrationData.parse({ ...(row?.data ?? {}), responsiblePositionId: row?.responsiblePositionId ?? null });
   const a = await lastApplied(db, companyId);
   const res = (a?.result as unknown as RsResult | undefined) ?? null;
@@ -81,12 +110,18 @@ export async function registrationDto(db: Db, companyId: string): Promise<Regist
     changes,
     due,
     missing: regime === "none" ? [] : registrationMissing(data, co.ico),
+    decision: {
+      deliveredAt: row?.decisionDeliveredAt ?? null,
+      ref: row?.decisionRef ?? null,
+      file: row?.decisionFileName ? { name: row.decisionFileName, size: row.decisionFileSize ?? 0 } : null,
+      measuresDue: row?.decisionDeliveredAt ? addMonths(row.decisionDeliveredAt, NUKIB_MEASURES_MONTHS) : null,
+    },
   };
 }
 
 /** Po změně údajů nebo zápisu posouzení: počátek lhůty pro ohlášení změny (nebo její zrušení, když se údaje vrátily). */
 export async function touchRegistration(db: Db, companyId: string, now = new Date()) {
-  const [row] = await db.select().from(regulationRegistrations).where(eq(regulationRegistrations.companyId, companyId));
+  const row = await regRow(db, companyId);
   if (!row?.notifiedAt) return;
   const d = await registrationDto(db, companyId);
   const changed = !!d?.changes.length;
@@ -105,16 +140,47 @@ export async function saveRegistration(db: Db, companyId: string, input: Registr
   await touchRegistration(db, companyId, now);
 }
 
-/** Zaznamenat podané ohlášení: snímek aktuálních údajů = nový základ pro změny. */
-export async function markNotified(db: Db, companyId: string, notifiedAt: string, notifiedRef: string, now = new Date()) {
+/** Zaznamenat podané ohlášení: snímek aktuálních údajů = nový základ pro změny. `rebase` false = jen oprava data a čísla
+ *  podání u už zaznamenaného ohlášení (základ pro změny zůstává). */
+export async function markNotified(db: Db, companyId: string, notifiedAt: string, notifiedRef: string, now = new Date(), rebase = true) {
   const d = await registrationDto(db, companyId);
   if (!d) return null;
+  if (!rebase && d.notifiedAt) {
+    await db.update(regulationRegistrations).set({ notifiedAt, notifiedRef: notifiedRef || null, updatedAt: now }).where(eq(regulationRegistrations.companyId, companyId));
+    return registrationDto(db, companyId);
+  }
   const snap = snapshotOf(d.data, d.regime, d.services.map((s) => s.code));
   await db
     .insert(regulationRegistrations)
     .values({ companyId, data: d.data as unknown as Record<string, unknown>, responsiblePositionId: d.data.responsiblePositionId, notifiedAt, notifiedRef: notifiedRef || null, notifiedSnapshot: snap as unknown as Record<string, unknown>, changedAt: null, updatedAt: now })
     .onConflictDoUpdate({ target: regulationRegistrations.companyId, set: { notifiedAt, notifiedRef: notifiedRef || null, notifiedSnapshot: snap as unknown as Record<string, unknown>, changedAt: null, updatedAt: now } });
   return registrationDto(db, companyId);
+}
+
+/** Zrušit záznam o ohlášení (zapsán omylem / špatně) – stav se vrátí na „k ohlášení“ (v1.94). */
+export async function clearNotified(db: Db, companyId: string, now = new Date()) {
+  await db.update(regulationRegistrations).set({ notifiedAt: null, notifiedRef: null, notifiedSnapshot: null, changedAt: null, updatedAt: now }).where(eq(regulationRegistrations.companyId, companyId));
+  return registrationDto(db, companyId);
+}
+
+/** Rozhodnutí o registraci: datum doručení a č. j. (v1.94). */
+export async function saveDecision(db: Db, companyId: string, deliveredAt: string | null, ref: string, now = new Date()) {
+  await db
+    .insert(regulationRegistrations)
+    .values({ companyId, decisionDeliveredAt: deliveredAt, decisionRef: ref || null, updatedAt: now })
+    .onConflictDoUpdate({ target: regulationRegistrations.companyId, set: { decisionDeliveredAt: deliveredAt, decisionRef: ref || null, updatedAt: now } });
+  return registrationDto(db, companyId);
+}
+
+/** Termíny zavedení bezpečnostních opatření (1 rok od doručení rozhodnutí) – do Moje práce, dokud neuplynou. */
+export async function nukibMeasuresItems(db: Db, companyIds: string[], now = new Date()) {
+  if (!companyIds.length) return [];
+  const rows = await db
+    .select({ companyId: regulationRegistrations.companyId, at: regulationRegistrations.decisionDeliveredAt, pos: regulationRegistrations.responsiblePositionId })
+    .from(regulationRegistrations)
+    .where(inArray(regulationRegistrations.companyId, companyIds));
+  const today = now.toISOString().slice(0, 10);
+  return rows.filter((r) => r.at).map((r) => ({ companyId: r.companyId, due: addMonths(r.at!, NUKIB_MEASURES_MONTHS), positionId: r.pos })).filter((r) => r.due >= today);
 }
 
 /** Povinnost „Ohlášení regulované služby NÚKIB“ – nové ohlášení nebo změna údajů s termínem. */

@@ -3,6 +3,7 @@ import {
   RegulationAssessmentInput,
   RegistrationData,
   RegistrationNotifiedInput,
+  RegistrationDecisionInput,
   evaluateRegulation,
   regulatedService,
   sizeFromInput,
@@ -20,10 +21,13 @@ import { currentUser, hasPerm, requirePerm } from "../../auth/middleware";
 import { getCompanies, hasPermIn, invalidateCompanies } from "../../auth/scope";
 import { audit, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
-import { companies, orgUnits, positions, regulationAssessments, suppliers, users } from "../../db/schema";
+import { companies, orgUnits, positions, regulationAssessments, regulationRegistrations, suppliers, users } from "../../db/schema";
 import { docxResponse, htmlToDocx } from "../documents/docx";
 import { html, printPage } from "../documents/render";
-import { markNotified, registrationDto, registrationHtml, saveRegistration, touchRegistration } from "./registration";
+import { clearNotified, markNotified, registrationDto, registrationHtml, saveDecision, saveRegistration, touchRegistration } from "./registration";
+import { EVIDENCE_MAX_BYTES } from "@contix/shared";
+import { createHash } from "node:crypto";
+import { safeFilename } from "../assurance/routes";
 
 /* ============================================================
  * Určení regulace (v1.61, ADR-156): sebeidentifikace podle přílohy vyhl. 408/2025 – vlastní společnost
@@ -153,9 +157,60 @@ export function regulationRoutes(db: Db) {
     .post("/registration/:companyId/notified", requirePerm("admin:settings"), zValidator("json", RegistrationNotifiedInput), async (c) => {
       const co = await ownCompany(c, c.req.param("companyId"));
       const i = c.req.valid("json");
-      const d = await markNotified(db, co.id, i.notifiedAt, i.notifiedRef);
-      await audit(db, { c, user: currentUser(c), action: "regulation.notified", entityType: "company", entityId: co.id, details: { name: co.name, notifiedAt: i.notifiedAt, ref: i.notifiedRef } });
+      const d = await markNotified(db, co.id, i.notifiedAt, i.notifiedRef, new Date(), i.rebase);
+      await audit(db, { c, user: currentUser(c), action: "regulation.notified", entityType: "company", entityId: co.id, details: { name: co.name, notifiedAt: i.notifiedAt, ref: i.notifiedRef, rebase: i.rebase } });
       return c.json(d);
+    })
+    /** Zrušení záznamu o ohlášení zapsaného omylem (v1.94). */
+    .delete("/registration/:companyId/notified", requirePerm("admin:settings"), async (c) => {
+      const co = await ownCompany(c, c.req.param("companyId"));
+      const d = await clearNotified(db, co.id);
+      await audit(db, { c, user: currentUser(c), action: "regulation.notified_cleared", entityType: "company", entityId: co.id, details: { name: co.name } });
+      return c.json(d);
+    })
+    /* ---- rozhodnutí NÚKIB o registraci (v1.94) ---- */
+    .put("/registration/:companyId/decision", requirePerm("admin:settings"), zValidator("json", RegistrationDecisionInput), async (c) => {
+      const co = await ownCompany(c, c.req.param("companyId"));
+      const i = c.req.valid("json");
+      const d = await saveDecision(db, co.id, i.deliveredAt, i.ref);
+      await audit(db, { c, user: currentUser(c), action: "regulation.decision_saved", entityType: "company", entityId: co.id, details: { name: co.name, deliveredAt: i.deliveredAt, ref: i.ref } });
+      return c.json(d);
+    })
+    .post("/registration/:companyId/decision/file", requirePerm("admin:settings"), async (c) => {
+      const co = await ownCompany(c, c.req.param("companyId"));
+      if (Number(c.req.header("content-length") ?? 0) > EVIDENCE_MAX_BYTES + 64 * 1024) throw new HTTPException(413, { message: "Soubor je příliš velký (max. 25 MB)" });
+      const body = await c.req.parseBody();
+      const file = body.file;
+      if (!(file instanceof File) || file.size === 0) throw new HTTPException(400, { message: "Chybí soubor (pole „file“)" });
+      if (file.size > EVIDENCE_MAX_BYTES) throw new HTTPException(413, { message: "Soubor je příliš velký (max. 25 MB)" });
+      const buf = Buffer.from(await file.arrayBuffer());
+      if (buf.subarray(0, 5).toString() !== "%PDF-") throw new HTTPException(400, { message: "Rozhodnutí nahrajte jako PDF" });
+      const name = safeFilename(file.name || "rozhodnuti.pdf");
+      const now = new Date();
+      const vals = { decisionFileName: name, decisionFileSize: buf.length, decisionFileSha256: createHash("sha256").update(buf).digest("hex"), decisionFile: buf, updatedAt: now };
+      await db.insert(regulationRegistrations).values({ companyId: co.id, ...vals }).onConflictDoUpdate({ target: regulationRegistrations.companyId, set: vals });
+      await audit(db, { c, user: currentUser(c), action: "regulation.decision_uploaded", entityType: "company", entityId: co.id, details: { name: co.name, file: name, size: buf.length } });
+      return c.json(await registrationDto(db, co.id));
+    })
+    .get("/registration/:companyId/decision/file", requirePerm("admin:settings"), async (c) => {
+      const co = await ownCompany(c, c.req.param("companyId"));
+      const [r] = await db.select({ name: regulationRegistrations.decisionFileName, file: regulationRegistrations.decisionFile }).from(regulationRegistrations).where(eq(regulationRegistrations.companyId, co.id));
+      if (!r?.file || !r.name) throw new HTTPException(404, { message: "Soubor nenalezen" });
+      return new Response(new Uint8Array(r.file), {
+        headers: {
+          "content-type": "application/pdf",
+          "content-disposition": `inline; filename="${r.name.replace(/[^\x20-\x7e]/g, "_")}"; filename*=UTF-8''${encodeURIComponent(r.name)}`,
+          "x-content-type-options": "nosniff",
+          "content-security-policy": "sandbox; default-src 'none'",
+          "cache-control": "private, no-store",
+        },
+      });
+    })
+    .delete("/registration/:companyId/decision/file", requirePerm("admin:settings"), async (c) => {
+      const co = await ownCompany(c, c.req.param("companyId"));
+      await db.update(regulationRegistrations).set({ decisionFileName: null, decisionFileSize: null, decisionFileSha256: null, decisionFile: null, updatedAt: new Date() }).where(eq(regulationRegistrations.companyId, co.id));
+      await audit(db, { c, user: currentUser(c), action: "regulation.decision_file_removed", entityType: "company", entityId: co.id, details: { name: co.name } });
+      return c.json(await registrationDto(db, co.id));
     })
     .get("/registration/:companyId/print.html", requirePerm("admin:settings"), async (c) => {
       const co = await ownCompany(c, c.req.param("companyId"));

@@ -24,10 +24,15 @@ age-keygen -o contix-backup.key                                # klíč pro šif
 
 ## Test obnovy (§ 26 vyhl. 409, SOC 2 A1.3) – automaticky týdně, ručně kdykoli
 
+Na serveru (ze složky instalace, výchozí `/opt/contix`) – bez názvu souboru se otestuje **nejnovější záloha** (od 1.94):
+
 ```bash
-docker compose run --rm -v $PWD/backups:/backups backup restore.sh --test /backups/contix-20261002-023000.dump
+cd /opt/contix && sudo docker compose --profile full run --rm backup restore.sh --test
+# konkrétní záloha: … restore.sh --test /backups/contix-20261002-023000.dump
 # šifrovaná: -e BACKUP_AGE_IDENTITY=/keys/contix-backup.key -v /bezpečné/místo:/keys:ro
 ```
+
+Skripty jsou v `/opt/contix/infra/scripts`, zálohy ve složce `/opt/contix/backups` (v kontejneru `/backups`).
 
 Obnoví do dočasné databáze, ověří obsah a databázi smaže. Ověření (od 1.72): klíčové evidence (společnosti,
 uživatelé, aktiva, rizika, opatření, dokumenty, úkoly, auditní záznam) nesmí být po obnově prázdné, když v provozu

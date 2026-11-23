@@ -5519,6 +5519,11 @@ describe.skipIf(!url)("API (integrace)", () => {
   test("průvodce nastavením, výchozí složky, předávací protokol a příručka", async () => {
     const s = (await admin.json("/api/setup")).body;
     expect(s.steps.map((x: any) => x.key)).toContain("documentation");
+    // v1.94: identita organizace z profilu aktivní společnosti (ne ze starého globálního nastavení)
+    const orgCo = (await admin.json("/api/companies", { method: "POST", json: { name: "Vyplněná organizace a.s.", ico: "27074358", regime: "none" } })).body;
+    const orgStep = ((await admin.json("/api/setup", { headers: { "x-contix-company": orgCo.id } })).body.steps as any[]).find((x) => x.key === "organization");
+    expect(orgStep).toMatchObject({ status: "done", link: "/admin/companies" });
+    expect(orgStep.detail.join(" ")).toContain("Vyplněná organizace a.s.");
     expect(s.total).toBeGreaterThan(5);
     expect(s.steps.find((x: any) => x.key === "users").detail[0]).toMatch(/Aktivních uživatelů/);
     // výchozí složky jen pokud žádné nejsou (zde už existují z testu DMS II) – vytvořit pro jinou společnost
@@ -10071,6 +10076,35 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(n2.body.due).toBe(new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10));
     // vrácení údajů ruší změnu
     expect((await admin.json(`/api/regulation/registration/${co.id}`, { method: "PUT", json: { ...r1.body.data } })).body.status).toBe("notified");
+    // v1.94: oprava záznamu – údaje doplněné po ohlášení se vezmou jako ohlášené (bez ohlášení změny), jen oprava data, zrušení
+    const n3 = await admin.json(`/api/regulation/registration/${co.id}`, { method: "PUT", json: { ...r1.body.data, dataBox: "abc1234" } });
+    expect(n3.body.status).toBe("changes_pending");
+    const fixDate = await admin.json(`/api/regulation/registration/${co.id}/notified`, { method: "POST", json: { notifiedAt: "2025-12-15", notifiedRef: "NÚKIB-2025-9", rebase: false } });
+    expect(fixDate.body).toMatchObject({ status: "changes_pending", notifiedAt: "2025-12-15", notifiedRef: "NÚKIB-2025-9" });
+    const fixAll = await admin.json(`/api/regulation/registration/${co.id}/notified`, { method: "POST", json: { notifiedAt: "2025-12-15", notifiedRef: "NÚKIB-2025-9", rebase: true } });
+    expect(fixAll.body).toMatchObject({ status: "notified", notifiedAt: "2025-12-15", changes: [] });
+    const cleared = await admin.json(`/api/regulation/registration/${co.id}/notified`, { method: "DELETE" });
+    expect(cleared.body).toMatchObject({ status: "to_notify", notifiedAt: null, notifiedRef: null });
+    await admin.json(`/api/regulation/registration/${co.id}/notified`, { method: "POST", json: { notifiedAt: "2025-12-15", notifiedRef: "NÚKIB-2025-9" } });
+    // rozhodnutí o registraci: datum doručení → termín bezpečnostních opatření (+12 měsíců), PDF, povinnost v Moje práce
+    const deliv = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const dec = await admin.json(`/api/regulation/registration/${co.id}/decision`, { method: "PUT", json: { deliveredAt: deliv, ref: "NÚKIB-12345/2026" } });
+    const dueM = new Date(`${deliv}T00:00:00Z`);
+    dueM.setUTCMonth(dueM.getUTCMonth() + 12);
+    expect(dec.body.decision).toMatchObject({ deliveredAt: deliv, ref: "NÚKIB-12345/2026", file: null, measuresDue: dueM.toISOString().slice(0, 10) });
+    const notPdf = new FormData();
+    notPdf.append("file", new File(["ahoj"], "x.txt", { type: "text/plain" }));
+    expect((await admin.req(`/api/regulation/registration/${co.id}/decision/file`, { method: "POST", body: notPdf })).status).toBe(400);
+    const fd = new FormData();
+    fd.append("file", new File(["%PDF-1.4\n%test rozhodnutí\n"], "Rozhodnutí o registraci.pdf", { type: "application/pdf" }));
+    const up = await admin.req(`/api/regulation/registration/${co.id}/decision/file`, { method: "POST", body: fd });
+    expect(up.status).toBe(200);
+    expect((await up.json()).decision.file).toMatchObject({ name: "Rozhodnutí o registraci.pdf" });
+    const dl = await admin.req(`/api/regulation/registration/${co.id}/decision/file`);
+    expect(dl.headers.get("content-type")).toBe("application/pdf");
+    expect((await dl.text()).startsWith("%PDF-1.4")).toBe(true);
+    expect(((await eva.json("/api/notifications/mine")).body as any[]).find((o) => o.key === `nukib_measures:${co.id}`)).toMatchObject({ kind: "nukib_notice", due: dueM.toISOString().slice(0, 10) });
+    expect((await admin.json(`/api/regulation/registration/${co.id}/decision/file`, { method: "DELETE" })).body.decision.file).toBeNull();
     // v1.64: přijatý nález testu je ve Výjimkách a přijatých rizicích; po termínu ho další test znovu otevře
     expect((await admin.json(`/api/security-tests/findings/${redis.id}`, { method: "PATCH", json: { status: "accepted", note: "x" } })).status).toBe(400);
     const acc = await admin.json(`/api/security-tests/findings/${redis.id}`, { method: "PATCH", json: { status: "accepted", note: "Jen interní síť, obnova 2027", until: "2099-12-31" } });

@@ -1569,7 +1569,16 @@ export const api = {
     save: (d: RegulationAssessmentInput) => post<RegulationAssessmentDto>("/regulation/assessments", d),
     registration: (companyId: string) => request<RegistrationDto>(`/regulation/registration/${companyId}`),
     saveRegistration: (companyId: string, d: Partial<RegistrationData>) => put<RegistrationDto>(`/regulation/registration/${companyId}`, d),
-    notified: (companyId: string, d: { notifiedAt: string; notifiedRef: string }) => post<RegistrationDto>(`/regulation/registration/${companyId}/notified`, d),
+    notified: (companyId: string, d: { notifiedAt: string; notifiedRef: string; rebase?: boolean }) => post<RegistrationDto>(`/regulation/registration/${companyId}/notified`, d),
+    clearNotified: (companyId: string) => del<RegistrationDto>(`/regulation/registration/${companyId}/notified`),
+    saveDecision: (companyId: string, d: { deliveredAt: string | null; ref: string }) => put<RegistrationDto>(`/regulation/registration/${companyId}/decision`, d),
+    uploadDecision: (companyId: string, file: File) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      return request<RegistrationDto>(`/regulation/registration/${companyId}/decision/file`, { method: "POST", body: fd });
+    },
+    removeDecisionFile: (companyId: string) => del<RegistrationDto>(`/regulation/registration/${companyId}/decision/file`),
+    decisionFileUrl: (companyId: string) => withCompany(`/api/regulation/registration/${companyId}/decision/file`),
     registrationUrl: (companyId: string, fmt: "html" | "docx") => withCompany(`/api/regulation/registration/${companyId}/print.${fmt}`),
   },
   /** Veřejný dotazník pro dodavatele (bez přihlášení, token v odkazu). */
