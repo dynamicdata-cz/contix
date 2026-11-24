@@ -72,7 +72,7 @@ export async function buildFindingPlan(db: Db, config: Config, companyId: string
     return `${ref} | ${t.lbl(FINDING_LABELS.source[f.source])} | ${f.severity} | priorita ${f.priority} | aktivum ${A(f.assetId)} | ${task} | ${title.slice(0, 200)} | ${detail.slice(0, 120)}`;
   });
   const lang = t.locale === "cs" ? "Texty v JSON piš česky." : `Write the JSON texts in the user's language (${t.locale}).`;
-  const r = await clientFor(s, config, fetchImpl).chat([
+  const r = await clientFor(s, config, fetchImpl, "analysis").chat([
     { role: "system", content: [SYSTEM, lang, s.instructions ? `Pokyny organizace: ${s.instructions}` : ""].filter(Boolean).join("\n") },
     { role: "user", content: [`Nálezy (${lines.length}), řazené podle priority:`, ...lines].join("\n") },
   ]);

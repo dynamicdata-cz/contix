@@ -4792,6 +4792,12 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect((await rpc({ jsonrpc: "2.0", id: 1, method: "initialize" }, "ctx_spatny")).status).toBe(401);
     // MCP je ve výchozím stavu vypnuté
     expect((await rpc({ jsonrpc: "2.0", id: 1, method: "initialize" })).status).toBe(403);
+    // přemýšlení podle druhu úlohy (v1.103.0): výchozí „podle obecného“, ukládá se po částech
+    expect((await admin.json("/api/ai/settings")).body.thinkingByTask).toEqual({ interactive: "inherit", analysis: "inherit" });
+    expect((await admin.json("/api/ai/settings", { method: "PATCH", json: { thinkingByTask: { interactive: "off" } } })).body.thinkingByTask).toEqual({ interactive: "off", analysis: "inherit" });
+    expect((await admin.json("/api/ai/settings", { method: "PATCH", json: { thinkingByTask: { analysis: "on" } } })).body.thinkingByTask).toEqual({ interactive: "off", analysis: "on" });
+    expect((await admin.json("/api/ai/settings", { method: "PATCH", json: { thinkingByTask: { analysis: "max" } } })).status).toBe(400);
+    await admin.json("/api/ai/settings", { method: "PATCH", json: { thinkingByTask: { interactive: "inherit", analysis: "inherit" } } });
     // zapnout jen s omezením na IP adresy klientů (lokální Open WebUI)
     const noIps = await admin.json("/api/ai/settings", { method: "PATCH", json: { mcpEnabled: true } });
     expect(noIps.status).toBe(400);

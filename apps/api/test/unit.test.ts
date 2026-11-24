@@ -3969,12 +3969,39 @@ describe("provozní skripty (v1.95, ADR-189)", () => {
     expect(scripts).toEqual(expect.arrayContaining(["update.sh", "install.sh", "backup.sh", "restore.sh", "verify.sh", "lib.sh"]));
     // rozhoduje režim v gitu – s ním si skripty stáhnou zákazníci; disk jen tam, kde git není (balíček).
     // Runner CI může klonovat bez +x na disku (připojený svazek, jiný souborový systém) – to není chyba vydání (1.102.2).
-    const git = Bun.spawnSync(["git", "ls-files", "-s", "infra/scripts"], { cwd: join(import.meta.dir, "../../..") });
-    const rows = git.exitCode === 0 ? git.stdout.toString().trim().split("\n").filter((l) => l.endsWith(".sh")) : [];
-    if (rows.length) for (const l of rows) expect(l.split(/\s+/)[0], l).toBe("100755");
-    else for (const f of scripts) expect((statSync(join(dir, f)).mode & 0o111) !== 0, `${f} na disku`).toBe(true);
+    // Režim čteme přímo z indexu gitu (.git/index) – obraz CI (oven/bun) program git nemá (1.102.3).
+    const modes = gitIndexModes(join(import.meta.dir, "../../.."), "infra/scripts/");
+    if (modes) {
+      for (const f of scripts) expect(modes.get(`infra/scripts/${f}`)?.toString(8), `${f} v gitu`).toBe("100755");
+    } else for (const f of scripts) expect((statSync(join(dir, f)).mode & 0o111) !== 0, `${f} na disku`).toBe(true);
   });
 });
+
+/** Režimy souborů z indexu gitu (formát v2/v3) bez programu git; null = index chybí nebo má jiný formát. */
+function gitIndexModes(root: string, prefix: string): Map<string, number> | null {
+  const { existsSync, readFileSync } = require("node:fs") as typeof import("node:fs");
+  const path = `${root}/.git/index`;
+  if (!existsSync(path)) return null;
+  const b = readFileSync(path);
+  if (b.toString("latin1", 0, 4) !== "DIRC") return null;
+  const version = b.readUInt32BE(4);
+  if (version !== 2 && version !== 3) return null;
+  const n = b.readUInt32BE(8);
+  const out = new Map<string, number>();
+  let o = 12;
+  for (let i = 0; i < n; i++) {
+    const mode = b.readUInt32BE(o + 24);
+    const flags = b.readUInt16BE(o + 60);
+    const extended = version === 3 && (flags & 0x4000) !== 0;
+    const nameStart = o + 62 + (extended ? 2 : 0);
+    const end = b.indexOf(0, nameStart);
+    const name = b.toString("utf8", nameStart, end);
+    if (name.startsWith(prefix)) out.set(name, mode);
+    // položka je zarovnaná na násobek 8 bajtů (alespoň jeden NUL za jménem)
+    o += Math.ceil((end + 1 - o) / 8) * 8;
+  }
+  return out;
+}
 
 describe("bezpečnostní zóny (v1.97, ADR-191)", () => {
   test("rozsahy IP, nejpřesnější zóna, hodnocení vazeb přes hranice", async () => {
@@ -4099,5 +4126,29 @@ describe("AI: vypnutí přemýšlení modelu (v1.102.2)", () => {
     sent.length = 0;
     expect((await mk("openai", "off").chat(msg)).text).toBe("Ahoj.");
     expect(sent.map((x) => "reasoning_effort" in x.body)).toEqual([true, false]);
+  });
+
+  test("přemýšlení podle druhu úlohy (v1.103.0): rychlé odpovědi / analýzy, jinak obecné nastavení", async () => {
+    const { effectiveThinking } = await import("@contix/shared");
+    const { clientFor } = await import("../src/modules/ai/service");
+    expect(effectiveThinking({ thinking: "on" })).toBe("on");
+    expect(effectiveThinking({ thinking: "on", thinkingByTask: { interactive: "off" } }, "interactive")).toBe("off");
+    expect(effectiveThinking({ thinking: "on", thinkingByTask: { interactive: "off" } }, "analysis")).toBe("on");
+    expect(effectiveThinking({ thinking: "off", thinkingByTask: { analysis: "inherit" } }, "analysis")).toBe("off");
+    expect(effectiveThinking({ thinking: "off", thinkingByTask: { analysis: "default" } }, "analysis")).toBe("default");
+    // uložené nastavení ze starší verze (bez thinkingByTask) platí dál
+    expect(effectiveThinking({ thinking: "off" } as any, "interactive")).toBe("off");
+    const sent: any[] = [];
+    const fake = (async (_u: string, init?: RequestInit) => {
+      sent.push(JSON.parse(String(init?.body ?? "{}")));
+      return Response.json({ model: "q", message: { content: "ok" } });
+    }) as any;
+    const s: any = { provider: "ollama", baseUrl: "http://ai:11434", apiKeyEnc: null, model: "q", timeoutSec: 10, temperature: 0.2, thinking: "on", thinkingByTask: { interactive: "off" }, embeddingModel: "bge-m3" };
+    const cfg: any = { appSecret: "x".repeat(32), jwtSecret: "x".repeat(32) };
+    const msg = [{ role: "user" as const, content: "Ahoj" }];
+    await clientFor(s, cfg, fake, "interactive").chat(msg);
+    expect(sent.at(-1).think).toBe(false);
+    await clientFor(s, cfg, fake, "analysis").chat(msg);
+    expect(sent.at(-1).think).toBe(true);
   });
 });

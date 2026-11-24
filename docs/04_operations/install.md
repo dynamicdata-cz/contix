@@ -198,6 +198,9 @@ sudo ufw allow from <IP CONTIXu> to any port 8080 proto tcp                   # 
 asistent nastavte **Přemýšlení modelu: Vypnout** – CONTIX pošle Ollamě `think: false` (stejné jako
 `ollama run … --think=false`), OpenAI-kompatibilnímu rozhraní `reasoning_effort: "none"`. gpt-oss uvažování vypnout
 neumí (jen zkrátit), u něj nechte výchozí volbu a delší časový limit.
+Od verze 1.103.0 jde přemýšlení nastavit zvlášť pro **rychlé odpovědi** (dotaz, Zeptej se dokumentace, odpovědi nad
+záznamy, otázka SOC poradci) a pro **analýzy a návrhy** (návrhy k záznamům, plán nápravy, rozbor zranitelnosti,
+triáž alertů, shrnutí testů). Osvědčené nastavení: rychlé odpovědi *Vypnout*, analýzy *Zapnout*.
 
 `--gpus all` jen pokud původní kontejner GPU používal (`DeviceRequests` není `null`). Je-li Open WebUI spuštěné
 přes compose, stačí v něm změnit `ports` a `docker compose up -d`. Bez `WEBUI_SECRET_KEY` se uživatelé Open WebUI

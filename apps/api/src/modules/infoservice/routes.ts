@@ -619,7 +619,7 @@ export function infoServiceRoutes(db: Db, config: Config, deps: InfoServiceDeps 
         let reply: string;
         let model: string;
         try {
-          const r = await clientFor(ai, config, deps.aiFetch).chat([
+          const r = await clientFor(ai, config, deps.aiFetch, "analysis").chat([
             { role: "system", content: SUGGEST_SYSTEM },
             { role: "user", content: `Název / soubor: ${hint}\n\nText přehledu:\n${text}` },
           ]);

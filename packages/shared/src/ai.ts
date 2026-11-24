@@ -112,6 +112,20 @@ export const AI_STATUS_LABELS: Record<AiSuggestionStatus, string> = {
 
 export const AI_THINKING = ["default", "off", "on"] as const;
 export type AiThinking = (typeof AI_THINKING)[number];
+/**
+ * Druh úlohy pro přemýšlení modelu (v1.103.0): rychlé odpovědi (uživatel čeká – dotaz, dokumentace, záznamy, otázka SOC poradci)
+ * a analýzy a návrhy (návrhy k záznamům, plán nápravy, rozbor zranitelnosti, triáž alertů, shrnutí testů, vytěžení PDF).
+ */
+export const AI_TASK_KINDS = ["interactive", "analysis"] as const;
+export type AiTaskKind = (typeof AI_TASK_KINDS)[number];
+/** Nastavení pro druh úlohy: „inherit“ = podle obecného nastavení přemýšlení. */
+export const AI_TASK_THINKING = ["inherit", ...AI_THINKING] as const;
+export type AiTaskThinking = (typeof AI_TASK_THINKING)[number];
+/** Výsledné přemýšlení pro druh úlohy (bez druhu = obecné nastavení). */
+export function effectiveThinking(s: { thinking: AiThinking; thinkingByTask?: Partial<Record<AiTaskKind, AiTaskThinking>> }, kind?: AiTaskKind): AiThinking {
+  const v = kind ? s.thinkingByTask?.[kind] : undefined;
+  return !v || v === "inherit" ? s.thinking : v;
+}
 
 export const AiSettingsInput = z.object({
   enabled: z.boolean().optional(),
@@ -125,6 +139,8 @@ export const AiSettingsInput = z.object({
   temperature: z.number().min(0).max(1.5).optional(),
   /** Přemýšlení (uvažování) modelu (v1.102.2): výchozí podle modelu, vypnout (rychlé odpovědi, např. qwen3.5), zapnout. */
   thinking: z.enum(AI_THINKING).optional(),
+  /** Přemýšlení zvlášť pro rychlé odpovědi a pro analýzy (v1.103.0); „inherit“ = podle obecného nastavení. */
+  thinkingByTask: z.object({ interactive: z.enum(AI_TASK_THINKING), analysis: z.enum(AI_TASK_THINKING) }).partial().optional(),
   /** Doplňující pokyny pro všechny dotazy (např. „odpovídej stručně“, terminologie organizace). */
   instructions: z.string().trim().max(2000).nullable().optional(),
   /** MCP server (/api/mcp) pro externí AI klienty s osobním API tokenem. */
@@ -151,6 +167,7 @@ export interface AiSettingsDto {
   timeoutSec: number;
   temperature: number;
   thinking: AiThinking;
+  thinkingByTask: Record<AiTaskKind, AiTaskThinking>;
   instructions: string | null;
   mcpEnabled: boolean;
   mcpAllowedIps: string[];

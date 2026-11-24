@@ -302,7 +302,7 @@ export async function askDocs(
   const s = await getAiSettings(db);
   if (!s.enabled || !s.docQaEnabled) throw new Error("Zeptej se dokumentace není zapnuté (Administrace → AI asistent).");
   if (!input.companyIds.length) return { answer: "V platné dokumentaci jsem odpověď nenašel.", sources: [], mode: "keyword", model: null, durationMs: 0 };
-  const client = clientFor(s, config, fetchImpl);
+  const client = clientFor(s, config, fetchImpl, "interactive");
   const { picked, mode } = await retrieveDocChunks(db, config, input, fetchImpl);
   if (!picked.length) return { answer: "V platné dokumentaci jsem odpověď nenašel.", sources: [], mode, model: null, durationMs: Date.now() - t0 };
 

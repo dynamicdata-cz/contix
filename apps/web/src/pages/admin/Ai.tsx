@@ -3,7 +3,7 @@ import { aiStatusTone, decisionCount } from "@/components/ai";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, Select, SuccessBox, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
-import { AI_PRESETS, AI_PROVIDERS, AI_THINKING, type AiThinking, AI_PROVIDER_LABELS, AI_STATUS_LABELS, AI_USE_CASE_LABELS, type AiLogRow, type AiProvider, type AiSettingsDto, RECORD_KINDS, RECORD_LABELS, type RecordKind } from "@contix/shared";
+import { AI_PRESETS, AI_PROVIDERS, AI_TASK_KINDS, AI_TASK_THINKING, AI_THINKING, type AiTaskThinking, type AiThinking, AI_PROVIDER_LABELS, AI_STATUS_LABELS, AI_USE_CASE_LABELS, type AiLogRow, type AiProvider, type AiSettingsDto, RECORD_KINDS, RECORD_LABELS, type RecordKind } from "@contix/shared";
 import { cn, useDebounced } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -38,6 +38,7 @@ function SettingsForm({ s }: { s: AiSettingsDto }) {
         timeoutSec: f.timeoutSec,
         temperature: f.temperature,
         thinking: f.thinking,
+        thinkingByTask: f.thinkingByTask,
         instructions: f.instructions || null,
         mcpEnabled: f.mcpEnabled,
         mcpAllowedIps: f.ipsText.split(/[\s,;]+/).filter(Boolean),
@@ -128,6 +129,17 @@ function SettingsForm({ s }: { s: AiSettingsDto }) {
               ))}
             </Select>
           </Field>
+          {AI_TASK_KINDS.map((kind) => (
+            <Field key={kind} label={t(`ai.thinkingTask.${kind}`)} hint={t(`ai.thinkingTaskHint.${kind}`)}>
+              <Select value={f.thinkingByTask[kind]} onChange={(e) => set("thinkingByTask", { ...f.thinkingByTask, [kind]: e.target.value as AiTaskThinking })} data-testid={`ai-thinking-${kind}`}>
+                {AI_TASK_THINKING.map((k) => (
+                  <option key={k} value={k}>
+                    {k === "inherit" ? t("ai.thinking.inherit") : t(`ai.thinking.${k}`)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ))}
         </div>
         {s.apiKeySet && <Checkbox checked={f.clearKey} onChange={(v) => set("clearKey", v)} label={t("ai.smazatUlozenyApiKlic")} />}
         <Field label={t("ai.doplnujiciPokynyProModel")} hint={t("ai.naprTerminologieOrganizacePreferovanaOpa")}>

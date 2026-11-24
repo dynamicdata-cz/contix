@@ -106,7 +106,7 @@ export async function runQuery(db: Db, config: Config, id: string, question: str
   const update = (v: Partial<typeof aiQueries.$inferInsert>) => db.update(aiQueries).set({ ...v, updatedAt: new Date() }).where(eq(aiQueries.id, id));
   const pub = (list: RetrievedSource[]): AiQuerySource[] => list.map(({ text: _t, ...x }) => x);
   try {
-    const client = clientFor(s, config, fetchImpl);
+    const client = clientFor(s, config, fetchImpl, "interactive");
     let sources: RetrievedSource[] = [];
     if (retrieve) {
       try {

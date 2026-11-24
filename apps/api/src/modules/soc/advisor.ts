@@ -114,7 +114,7 @@ export async function adviseAlert(db: Db, config: Config, a: Alert, t: Translate
     },
     { role: "user", content: `Údaje o alertu z CONTIXu:\n${await alertContext(db, a)}` },
   ];
-  const r = await clientFor(s, config, fetchImpl).chat(msgs);
+  const r = await clientFor(s, config, fetchImpl, "analysis").chat(msgs);
   return { text: clean(r.text) || "—", model: r.model ?? s.model, at: new Date().toISOString(), durationMs: Date.now() - t0 };
 }
 
@@ -167,7 +167,7 @@ export async function askAdvisor(
     .slice(0, 5)
     .map(([id, n]) => `${ATTACK_TACTICS.find((x) => x.id === id)?.name ?? id}: ${n}`);
   if (top.length) ctx.push(`Nejčastější taktiky alertů za 30 dní: ${top.join(", ")}`);
-  const r = await clientFor(s, config, fetchImpl).chat([
+  const r = await clientFor(s, config, fetchImpl, "interactive").chat([
     { role: "system", content: [...SYSTEM_BASE, lang(t), s.instructions ? `Pokyny organizace: ${s.instructions}` : ""].filter(Boolean).join("\n") },
     { role: "user", content: `${ctx.length ? `Kontext z CONTIXu:\n${ctx.join("\n\n")}\n\n` : ""}Otázka: ${q}` },
   ]);

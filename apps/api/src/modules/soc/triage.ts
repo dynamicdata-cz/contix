@@ -85,7 +85,7 @@ export async function triageAlert(db: Db, config: Config, a: Alert, t: Translate
     const hist = similar.length
       ? similar.map((x, i) => `${i + 1}. ${x.title} – ${x.status === "accepted" ? "eskalováno na incident" : `uzavřeno: ${x.verdict ?? "bez verdiktu"}`} (${x.reasons.join(", ")}, ${x.lastSeen.slice(0, 10)})`).join("\n")
       : "žádné";
-    const r = await clientFor(s, config, fetchImpl).chat([
+    const r = await clientFor(s, config, fetchImpl, "analysis").chat([
       { role: "system", content: s.instructions ? `${SYSTEM(t)}\nPokyny organizace: ${s.instructions}` : SYSTEM(t) },
       { role: "user", content: `Údaje o alertu z CONTIXu:\n${await alertContext(db, a)}\n\nPodobné dřívější rozhodnuté alerty:\n${hist}` },
     ]);

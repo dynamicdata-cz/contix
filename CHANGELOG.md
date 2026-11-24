@@ -2,6 +2,13 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.103.0
+
+Přemýšlení AI modelu podle druhu úlohy (ADR-197).
+
+- **Přemýšlení zvlášť pro rychlé odpovědi a pro analýzy** (Administrace → AI asistent): u modelů s uvažováním (qwen3, qwen3.5, deepseek-r1) lze přemýšlení vypnout tam, kde uživatel na odpověď čeká (dotaz v přirozeném jazyce, Zeptej se dokumentace, odpovědi nad záznamy, otázka SOC poradci), a ponechat zapnuté u analýz a návrhů, kde zlepšuje kvalitu (návrhy k rizikům, aktivům a dokumentům, plán nápravy, rozbor zranitelnosti, triáž a rozbor alertů, shrnutí bezpečnostních testů, vytěžení PDF). Výchozí volba „Podle obecného nastavení“ zachová dosavadní chování.
+- Test příznaku spustitelnosti skriptů čte režim souborů přímo z indexu gitu – obraz CI program `git` nemá.
+
 ## 1.102.2
 
 - **Vypnutí přemýšlení AI modelu** (Administrace → AI asistent → *Přemýšlení modelu*): u modelů s uvažováním (qwen3, qwen3.5, deepseek-r1) lze přemýšlení vypnout a dostat rychlé odpovědi – stejně jako `ollama run … --think=false`. Ollama dostane parametr `think`, OpenAI-kompatibilní servery (Ollama /v1, llama.cpp, vLLM) standardní `reasoning_effort: "none"`. Odmítne-li server parametr, dotaz se zopakuje bez něj. Výchozí volba posílá dotazy jako dosud. Podnět z pilotního provozu.

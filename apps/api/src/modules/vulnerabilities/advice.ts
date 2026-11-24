@@ -180,7 +180,7 @@ export function vulnAdviceRoutes(deps: Deps) {
       let text: string;
       let model: string;
       try {
-        const r = await clientFor(s, config, deps.fetchImpl).chat([
+        const r = await clientFor(s, config, deps.fetchImpl, "analysis").chat([
           { role: "system", content: [SYSTEM, t.locale === "cs" ? "Texty v JSON piš česky." : `Write the JSON texts in the user's language (${t.locale}).`, s.instructions ? `Pokyny organizace: ${s.instructions}` : ""].filter(Boolean).join("\n") },
           { role: "user", content: `Zranitelnost v evidenci organizace:\n${adviceContext(d)}` },
         ]);

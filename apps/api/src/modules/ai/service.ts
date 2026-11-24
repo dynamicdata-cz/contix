@@ -6,6 +6,7 @@ import { recomputeHealth } from "../vulnerabilities/service";
 import type { RecordAccess } from "../search/records";
 import { profileOf, AI_USE_CASES,
   CONTROL_LABELS,
+  effectiveThinking,
   extractJson,
   parseMapping,
   parseTreatment,
@@ -14,6 +15,8 @@ import { profileOf, AI_USE_CASES,
   type AiItem,
   type AiSettingsDto,
   type AiSettingsInput,
+  type AiTaskKind,
+  type AiTaskThinking,
   type AiUseCase,
   type FrameworkId,
 } from "@contix/shared";
@@ -43,6 +46,7 @@ export interface Stored {
   timeoutSec: number;
   temperature: number;
   thinking: "default" | "off" | "on";
+  thinkingByTask: Partial<Record<AiTaskKind, AiTaskThinking>>;
   instructions: string | null;
   mcpEnabled: boolean;
   mcpAllowedIps: string[];
@@ -62,6 +66,7 @@ const DEFAULTS: Stored = {
   timeoutSec: 240,
   temperature: 0.2,
   thinking: "default",
+  thinkingByTask: {},
   instructions: null,
   mcpEnabled: false,
   mcpAllowedIps: [],
@@ -92,6 +97,7 @@ export const aiSettingsDto = (s: Stored): AiSettingsDto => ({
   timeoutSec: s.timeoutSec,
   temperature: s.temperature,
   thinking: s.thinking,
+  thinkingByTask: { interactive: s.thinkingByTask?.interactive ?? "inherit", analysis: s.thinkingByTask?.analysis ?? "inherit" },
   instructions: s.instructions,
   mcpEnabled: s.mcpEnabled,
   mcpAllowedIps: s.mcpAllowedIps,
@@ -106,6 +112,7 @@ export async function saveAiSettings(db: Db, config: Config, input: AiSettingsIn
   const cur = await getAiSettings(db);
   const { apiKey, ...rest } = input;
   const next: Stored = { ...cur, ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)) };
+  if (input.thinkingByTask) next.thinkingByTask = { ...cur.thinkingByTask, ...Object.fromEntries(Object.entries(input.thinkingByTask).filter(([, v]) => v !== undefined)) };
   if (apiKey !== undefined) next.apiKeyEnc = apiKey ? encrypt(apiKey, appSecret(config)) : null;
   const u = new URL(next.baseUrl);
   if (!["http:", "https:"].includes(u.protocol)) throw new Error("Adresa AI serveru musí být http(s).");
@@ -116,14 +123,15 @@ export async function saveAiSettings(db: Db, config: Config, input: AiSettingsIn
   return next;
 }
 
-export function clientFor(s: Stored, config: Config, fetchImpl?: FetchLike) {
+/** Klient modelu; `kind` volí přemýšlení podle druhu úlohy (rychlá odpověď / analýza), bez něj platí obecné nastavení. */
+export function clientFor(s: Stored, config: Config, fetchImpl?: FetchLike, kind?: AiTaskKind) {
   let apiKey: string | null = null;
   try {
     apiKey = s.apiKeyEnc ? decrypt(s.apiKeyEnc, appSecret(config)) : null;
   } catch {
     apiKey = null;
   }
-  return createAiClient({ provider: s.provider, baseUrl: s.baseUrl, apiKey, model: s.model, timeoutSec: s.timeoutSec, temperature: s.temperature, thinking: s.thinking, embeddingModel: s.embeddingModel }, fetchImpl);
+  return createAiClient({ provider: s.provider, baseUrl: s.baseUrl, apiKey, model: s.model, timeoutSec: s.timeoutSec, temperature: s.temperature, thinking: effectiveThinking(s, kind), embeddingModel: s.embeddingModel }, fetchImpl);
 }
 
 /** Test spojení: seznam modelů + krátký dotaz. Výsledek se uloží do nastavení. */
@@ -288,7 +296,7 @@ export async function runSuggestion(db: Db, config: Config, id: string, prep: Pr
   const s = await getAiSettings(db);
   const t0 = Date.now();
   try {
-    const r = await clientFor(s, config, fetchImpl).chat(prep.messages);
+    const r = await clientFor(s, config, fetchImpl, "analysis").chat(prep.messages);
     const parsed = extractJson(r.text);
     if (parsed == null) throw Object.assign(new Error("Model nevrátil platný JSON."), { raw: r.text });
     const v = prep.validate(parsed);

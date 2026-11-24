@@ -39,7 +39,7 @@ async function chat(db: Db, config: Config, t: Translate, system: string, user: 
   const s = await getAiSettings(db);
   if (!s.enabled) throw new AiUnavailable("AI asistent není zapnutý.");
   const lang = t.locale === "cs" ? "Texty v JSON piš česky." : `Write the JSON texts in the user's language (${t.locale}).`;
-  const r = await clientFor(s, config, fetchImpl).chat([
+  const r = await clientFor(s, config, fetchImpl, "analysis").chat([
     { role: "system", content: [system, lang, s.instructions ? `Pokyny organizace: ${s.instructions}` : ""].filter(Boolean).join("\n") },
     { role: "user", content: user },
   ]);

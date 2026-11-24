@@ -67,7 +67,7 @@ export async function askRecords(db: Db, config: Config, question: string, acces
   const sources = hits.map(({ text: _t, ...h }, i) => ({ ...h, n: i + 1 }));
   if (!hits.length) return { answer: t("rec.noneFound"), sources: [], mode, model: null, durationMs: Date.now() - t0 };
   const context = hits.map((h, i) => `[${i + 1}] ${RECORD_LABELS[h.kind]} – ${h.title}\n${h.text}`).join("\n\n");
-  const r = await clientFor(s, config, fetchImpl).chat([
+  const r = await clientFor(s, config, fetchImpl, "interactive").chat([
     { role: "system", content: s.instructions ? `${SYSTEM(t)}\n${s.instructions}` : SYSTEM(t) },
     { role: "user", content: `Záznamy:\n\n${context}\n\nOtázka: ${question}` },
   ]);
