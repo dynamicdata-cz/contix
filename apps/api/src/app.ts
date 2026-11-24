@@ -108,6 +108,7 @@ import { assuranceRoutes } from "./modules/assurance/routes";
 import { reportRoutes } from "./modules/reports/routes";
 import { dashboardRoutes } from "./modules/dashboard/routes";
 import { calendarRoutes, publicCalendarRoutes } from "./modules/calendar/routes";
+import { dashboardTechRoutes, type SelfRequest } from "./modules/dashboard/tech";
 import { guideRoutes } from "./modules/guides/routes";
 import { identityRoutes } from "./modules/identity/routes";
 import { legislationRoutes } from "./modules/legislation/routes";
@@ -145,6 +146,8 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
   const origins = [...new Set([...config.CORS_ORIGINS, new URL(config.APP_URL).origin])];
 
   // Chráněné moduly – vyžadují dokončené přihlášení; jemná oprávnění řeší jednotlivé routy.
+  /** Vnitřní požadavek na vlastní API (souhrn technických karet Přehledu, ADR-196) – nastaví se po sestavení aplikace. */
+  let selfRequest: SelfRequest = () => Promise.reject(new Error("API ještě není sestavené"));
   const protectedApi = new Hono<AppEnv>()
     .use("*", requireAuth(db))
     .use("*", methodologyLoader(db))
@@ -249,6 +252,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/ai", aiRoutes(deps))
     .route("/assurance", assuranceRoutes(db))
     .route("/reports", reportRoutes(db))
+    .route("/dashboard/tech", dashboardTechRoutes(() => selfRequest))
     .route("/dashboard", dashboardRoutes(db))
     .route("/calendar", calendarRoutes(db, deps.config))
     .route("/guides", guideRoutes(db, { dispatch: () => (req) => app.fetch(req) }))
@@ -336,6 +340,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
   app.use("/api/*", (c, next) => (c.req.path === "/api/public/soc/ingest" || c.req.path === "/api/public/vulnerabilities/scans" || c.req.path === "/api/public/monitors/result" || c.req.path === "/api/public/hosts/inventory" || c.req.path.startsWith("/api/public/agent/v1/") ? next() : csrfMw(c, next)));
   app.use("/api/*", sessionMiddleware(db));
   app.route("/api", api);
+  selfRequest = (path, init) => Promise.resolve(app.request(path, init));
   /** RFC 9116 (v1.48, ADR-145): kontakt provozovatele (SECURITY_CONTACT), jinak soukromé hlášení u výrobce. */
   app.get("/.well-known/security.txt", (c) => {
     const src = config.CONTIX_SOURCE_URL ?? CONTIX_DEFAULT_SOURCE_URL;

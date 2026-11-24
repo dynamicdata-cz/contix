@@ -2745,3 +2745,151 @@ test("odhlášení", async () => {
   await page.getByRole("menuitem", { name: "Odhlásit" }).click();
   await expect(page.locator("input[type=email]")).toBeVisible();
 });
+
+/* ============================================================
+ * Čitelnost a rozvržení všech obrazovek (v1.102, ADR-196): světlý i tmavý režim – kontrast textu proti pozadí
+ * (i textů v SVG a tlačítek při najetí myší), vodorovné přetečení a zúžené záhlaví. Běží jako poslední, nad daty
+ * z předchozích testů. Práh kontrastu 2,5 : 1 je pojistka proti „bílé na bílé“, ne audit WCAG.
+ * ============================================================ */
+const READABILITY_ROUTES =
+  "/ /my /calendar /actions /ask /isms /compliance-path /quality /management /group /projects /organization /processes /assets /assets/duplicates /assets/graph /assets/resilience /assets/certificates /assets/maps /assets/zones /suppliers /suppliers/dora /tags /risks /risks/catalog /risks/plan /risks/scenarios /risks/modeling /risks/appetite /findings /exceptions /vulnerabilities /security-tests /controls /controls/sca /controls/monitoring /controls/assurance /controls/library /bia /continuity/plans /continuity/exercises /incidents /soc /phishing /audits /identity /access /policies /legislation /infoservice /awareness /docs /knowledge /gdpr /aiact /cra /soc2 /trust /discovery /profile /admin/setup /admin/users /admin/roles /admin/settings /admin/companies /admin/notifications /admin/audit /admin/connectors /admin/ops".split(" ");
+
+test("čitelnost a rozvržení všech obrazovek ve světlém i tmavém režimu (v1.102)", async () => {
+  test.setTimeout(600_000);
+  // tmavé systémové nastavení nesmí obarvit světlý režim CONTIXu (v1.98.2)
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const problems: string[] = [];
+  // samostatné spuštění (-g): přihlásit se
+  await page.goto("/");
+  await page.locator("input[type=password], nav a[href='/']").first().waitFor({ timeout: 15_000 });
+  if (!(await page.locator("nav a[href='/']").count())) {
+    await page.locator("input[type=email]").fill(ADMIN.email);
+    await page.locator("input[type=password]").fill(ADMIN.password);
+    await page.locator("button[type=submit]").click();
+    await expect(page.locator("nav a[href='/']").first()).toBeVisible({ timeout: 15_000 });
+    const skip = page.getByRole("button", { name: "Přeskočit" });
+    if (await skip.isVisible().catch(() => false)) await skip.click();
+  }
+  for (const mode of ["light", "dark"] as const) {
+    await page.evaluate((m) => localStorage.setItem("contix.mode", m), mode);
+    for (const r of READABILITY_ROUTES) {
+      await page.goto(r);
+      await page.locator("main h1").first().waitFor({ timeout: 8000 }).catch(() => undefined);
+      await page.waitForTimeout(350);
+      const found = await page.evaluate(() => {
+        const out: string[] = [];
+        const cv = document.createElement("canvas");
+        cv.width = cv.height = 1;
+        const ctx = cv.getContext("2d", { willReadFrequently: true })!;
+        const cache = new Map<string, number | null>();
+        const lum = (c: string): number | null => {
+          if (!c || c === "none" || c.startsWith("url(")) return null;
+          if (cache.has(c)) return cache.get(c)!;
+          ctx.clearRect(0, 0, 1, 1);
+          ctx.fillStyle = "#000";
+          ctx.fillStyle = c;
+          ctx.fillRect(0, 0, 1, 1);
+          const [r, g, b, a] = ctx.getImageData(0, 0, 1, 1).data;
+          const f = (x: number) => ((x /= 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
+          const v = a! >= 128 ? 0.2126 * f(r!) + 0.7152 * f(g!) + 0.0722 * f(b!) : null;
+          cache.set(c, v);
+          return v;
+        };
+        const bgOf = (el: Element | null): number | null => {
+          for (let e = el; e; e = e.parentElement) {
+            const cs = getComputedStyle(e);
+            if (cs.backgroundImage && cs.backgroundImage !== "none") return null;
+            const l = lum(cs.backgroundColor);
+            if (l !== null) return l;
+          }
+          return null;
+        };
+        const ratio = (a: number, b: number) => (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+        const h1 = document.querySelector("main h1");
+        const box = h1?.parentElement?.parentElement;
+        if (box && box.getBoundingClientRect().width < 300) out.push(`zúžené záhlaví (${Math.round(box.getBoundingClientRect().width)} px)`);
+        if (document.documentElement.scrollWidth > window.innerWidth + 2) out.push(`vodorovné přetečení stránky (${document.documentElement.scrollWidth} px)`);
+        const seen = new Set<string>();
+        const walker = document.createTreeWalker(document.querySelector("main") ?? document.body, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const txt = (n.textContent ?? "").trim();
+          if (txt.length < 2 || seen.has(txt.slice(0, 40))) continue;
+          const el = n.parentElement!;
+          if (el.closest("svg,option,[disabled],[aria-hidden=true]")) continue;
+          const rc = el.getBoundingClientRect();
+          if (!rc.width || !rc.height) continue;
+          const cs = getComputedStyle(el);
+          if (cs.visibility === "hidden" || Number(cs.opacity) < 0.3) continue;
+          const fg = lum(cs.color);
+          const bg = bgOf(el);
+          if (fg === null || bg === null) continue;
+          const k = ratio(fg, bg);
+          if (k < 2.5) {
+            seen.add(txt.slice(0, 40));
+            out.push(`kontrast ${k.toFixed(1)}: „${txt.slice(0, 40)}“ <${el.tagName.toLowerCase()} class="${String(el.className).slice(0, 70)}">`);
+          }
+        }
+        for (const t of Array.from(document.querySelectorAll("main svg text"))) {
+          const rect = t.parentElement?.querySelector(":scope > rect");
+          const f = lum(getComputedStyle(t).fill);
+          // průhledná výplň (pás vrstvy, krytí < 0,5) – text ve skutečnosti leží na pozadí pod grafem
+          const rcs = rect ? getComputedStyle(rect) : null;
+          const fo = rcs ? Number(rcs.fillOpacity || "1") * Number(rcs.opacity || "1") : 0;
+          const rf = rcs && fo >= 0.5 ? lum(rcs.fill) : bgOf(t.closest("svg"));
+          if (f === null || rf === null) continue;
+          const k = ratio(f, rf);
+          const txt = (t.textContent ?? "").trim().slice(0, 30);
+          if (k < 2.5 && txt && !seen.has("svg:" + txt)) {
+            seen.add("svg:" + txt);
+            out.push(`kontrast v grafu ${k.toFixed(1)}: „${txt}“`);
+          }
+        }
+        return out.slice(0, 10);
+      });
+      // tlačítka při najetí myší; barvy převádí canvas (Tailwind 4 vrací oklch)
+      // vybrat nejvýš 3 viditelná vyplněná tlačítka jedním dotazem (rychlost)
+      const picked = await page.evaluate(() => {
+        let i = 0;
+        for (const el of Array.from(document.querySelectorAll("main button, main a"))) {
+          const cls = String(el.className);
+          const r = el.getBoundingClientRect();
+          if (i >= 3 || !r.width || !r.height || r.top < 0 || r.bottom > window.innerHeight) continue;
+          if (!/(^|\s)hover:bg-(brand|red|emerald|amber)-\d+/.test(cls) || !/(^|\s)bg-(brand|red|emerald|amber)-[5-7]00/.test(cls) || !(el.textContent ?? "").trim()) continue;
+          el.setAttribute("data-rd-hover", String(i++));
+        }
+        return i;
+      });
+      for (let i = 0; i < picked; i++) {
+        const b = page.locator(`[data-rd-hover="${i}"]`);
+        await b.hover({ timeout: 2000 }).catch(() => undefined);
+        await page.waitForTimeout(200);
+        const k = await b.evaluate((el) => {
+          const cv = document.createElement("canvas");
+          cv.width = cv.height = 1;
+          const ctx = cv.getContext("2d", { willReadFrequently: true })!;
+          const lum = (c: string, bright = 1) => {
+            ctx.clearRect(0, 0, 1, 1);
+            ctx.fillStyle = c;
+            ctx.fillRect(0, 0, 1, 1);
+            const d = ctx.getImageData(0, 0, 1, 1).data;
+            const f = (x: number) => ((x = Math.min(255, x * bright) / 255) <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4);
+            return 0.2126 * f(d[0]!) + 0.7152 * f(d[1]!) + 0.0722 * f(d[2]!);
+          };
+          const cs = getComputedStyle(el);
+          const bright = Number(cs.filter.match(/brightness\(([\d.]+)\)/)?.[1] ?? 1);
+          const fg = lum(cs.color);
+          const bg = lum(cs.backgroundColor, bright);
+          return { k: (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05), txt: (el.textContent ?? "").trim().slice(0, 30), bgc: cs.backgroundColor };
+        });
+        if (k.k < 2.5) found.push(`tlačítko při najetí ${k.k.toFixed(1)}: „${k.txt}“`);
+        await page.mouse.move(0, 0);
+      }
+      if (found.length) problems.push(`${mode} ${r}\n  ${found.join("\n  ")}`);
+    }
+  }
+  await page.evaluate(() => localStorage.setItem("contix.mode", "light"));
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.setViewportSize({ width: 1440, height: 900 });
+  expect(problems, problems.join("\n")).toEqual([]);
+});

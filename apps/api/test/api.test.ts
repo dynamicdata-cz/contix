@@ -11422,6 +11422,26 @@ describe.skipIf(!url)("API (integrace)", () => {
     await db.delete(schema.netSegments).where(eq(schema.netSegments.name, "Kancelář 101"));
   });
 
+  test("Přehled: technické karty jedním dotazem, oprávnění a rozsah jako u samostatných obrazovek (v1.102)", async () => {
+    const H = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
+    const r = await admin.json("/api/dashboard/tech", { headers: H });
+    expect(r.status).toBe(200);
+    const d = r.body;
+    expect(Object.keys(d).sort()).toEqual(["monitoring", "ops", "sca", "sectests", "soc", "tls", "zones"]);
+    // shoda se samostatnými routami
+    const tls = (await admin.json("/api/assets/certificates", { headers: H })).body;
+    expect(d.tls).toEqual({ total: tls.summary.total, expired: tls.summary.expired, expiring: tls.summary.expiring, withFindings: tls.summary.withFindings, unscanned: tls.summary.unscanned });
+    expect(d.monitoring.open).toEqual((await admin.json("/api/findings?source=monitoring&limit=50", { headers: H })).body.open.monitoring);
+    expect(d.ops.checks.length).toBeGreaterThan(0);
+    expect(d.ops.checks[0]).toEqual({ key: expect.any(String), label: expect.any(String), level: expect.any(String) });
+    expect(JSON.stringify(d).length).toBeLessThan(JSON.stringify(tls).length + 20_000);
+    // souhrn skupiny: mapa zón je jen pro jednu společnost
+    const g = (await admin.json("/api/dashboard/tech", { headers: { "x-contix-company": "group" } })).body;
+    expect(g.zones).toBeNull();
+    // bez přihlášení
+    expect((await browser().json("/api/dashboard/tech")).status).toBe(401);
+  });
+
   test("odběr kalendáře adresou: vytvoření, stažení bez přihlášení, zrušení (v1.101)", async () => {
     const H = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
     const cr = await admin.json("/api/calendar/feeds", { method: "POST", headers: H, json: { name: "Lhůty test", legalOnly: true } });

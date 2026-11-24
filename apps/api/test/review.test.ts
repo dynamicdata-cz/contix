@@ -58,6 +58,8 @@ const INLINE_GUARDED = new Set([
   "modules/reports/routes.ts GET /management.docx",
   "modules/reports/routes.ts GET /management.html",
   "modules/soc/iocs.ts GET /feed/:token/:file",
+  // souhrn technických karet Přehledu: přihlášení vyžaduje celé API, oprávnění kontroluje každá dílčí routa (v1.102, ADR-196)
+  "modules/dashboard/tech.ts GET /",
   // odběr kalendáře lhůt: token odběru v cestě, oprávnění uživatele při stažení (v1.101, ADR-195)
   "modules/calendar/routes.ts GET /:file",
   "modules/soc/sources.ts POST /ingest",

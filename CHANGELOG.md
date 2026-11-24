@@ -2,6 +2,13 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.102.0
+
+Rychlejší Přehled a trvalá kontrola čitelnosti (ADR-196).
+
+- **Přehled jedním dotazem pro technické karty**: bezpečnostní testy, monitoring a zóny, certifikáty TLS, SOC, konfigurace serverů a provoz se načítají jedním požadavkem místo sedmi a prohlížeč nestahuje celé seznamy (certifikáty, mapa zón, politiky SCA) – jen čísla pro karty. Oprávnění a moduly platí stejně jako u samostatných obrazovek.
+- **Trvalá kontrola čitelnosti** v automatických testech: každé vydání projde všechny hlavní obrazovky ve světlém i tmavém režimu (i se systémem v tmavém režimu) a hlídá kontrast textu, textů v grafech a tlačítek při najetí myší, vodorovné přetečení a zúžené záhlaví. Chyby typu „bílá na bílé“ z verzí 1.98.1–1.98.2 se tak už nevrátí bez povšimnutí.
+
 ## 1.101.0
 
 Odběr kalendáře lhůt a vylepšení bezpečnostních zón (ADR-195).

@@ -553,6 +553,7 @@ import type {
   TmElement,
   TmThreat,
   CalendarDto,
+  DashboardTechDto,
   CalendarFeedDto,
   CalendarFeedInput,
   ZoneSuggestionDto,
@@ -1887,6 +1888,8 @@ export const api = {
   },
 
   dashboard: () => request<DashboardDto>("/dashboard"),
+  /** Technické karty Přehledu jedním dotazem (v1.102). */
+  dashboardTech: () => request<DashboardTechDto>("/dashboard/tech"),
 
   calendar: {
     feeds: () => request<CalendarFeedDto[]>("/calendar/feeds"),

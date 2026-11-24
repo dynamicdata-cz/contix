@@ -167,16 +167,18 @@ export function Dashboard() {
   // bezpečnostní testy a servery ze sběrače (v1.57)
   // bezpečnostní testy i v souhrnu skupiny – souhrn API sčítá všechny společnosti v rozsahu (v1.99)
   const showSecTests = mod("sectests") && can("sectests:read");
-  const secTests = useQuery({ queryKey: ["sectests", "overview"], queryFn: api.secTests.overview, enabled: showSecTests, staleTime: 60_000 });
+  // technické karty (testy, monitoring a zóny, TLS, SOC, SCA, provoz) jedním dotazem (v1.102, ADR-196)
+  const tech = useQuery({ queryKey: ["dashboard", "tech"], queryFn: api.dashboardTech, staleTime: 60_000 });
+  const secTests = { data: tech.data?.sectests ?? undefined };
   const hosts = useQuery({ queryKey: ["hosts"], queryFn: api.hosts.list, enabled: showAssets, staleTime: 60_000 });
   // monitoring a zóny, certifikáty TLS, SOC a konfigurace serverů (v1.99)
-  const monitoring = useQuery({ queryKey: ["findings", "dash", "monitoring"], queryFn: () => api.findings.list({ source: "monitoring", limit: 50 }), enabled: showAssets, staleTime: 60_000 });
-  const zoneMap = useQuery({ queryKey: ["zones", "map"], queryFn: api.zones.map, enabled: showAssets && !group, staleTime: 60_000 });
-  const tls = useQuery({ queryKey: ["certificates"], queryFn: api.certificates.list, enabled: showAssets, staleTime: 60_000 });
+  const monitoring = { data: tech.data?.monitoring ?? undefined };
+  const zoneMap = { data: tech.data?.zones ?? undefined };
+  const tls = { data: tech.data?.tls ?? undefined };
   const showSoc = mod("soc") && can("soc:read");
-  const soc = useQuery({ queryKey: ["soc", "summary"], queryFn: api.soc.summary, enabled: showSoc, staleTime: 60_000 });
-  const opsStatus = useQuery({ queryKey: ["ops", "status"], queryFn: api.ops.status, enabled: can("admin:settings"), staleTime: 60_000 });
-  const sca = useQuery({ queryKey: ["sca"], queryFn: api.sca.overview, enabled: showAssets, staleTime: 60_000 });
+  const soc = { data: tech.data?.soc ?? undefined };
+  const opsStatus = { data: tech.data?.ops ?? undefined };
+  const sca = { data: tech.data?.sca ?? undefined };
 
   const d = dash.data;
   const ob = (k: ObligationKind) =>
@@ -599,17 +601,17 @@ export function Dashboard() {
   }
 
   if (showAssets && monitoring.data) {
-    const o = monitoring.data.open.monitoring ?? { critical: 0, high: 0, medium: 0, low: 0 };
+    const o = monitoring.data.open;
     const open = o.critical + o.high + o.medium + o.low;
     const zm = zoneMap.data;
-    const highFlows = zm ? zm.flows.filter((f) => f.level === "high").length : 0;
-    const inZones = zm ? zm.assets.filter((a) => a.zoneId).length : 0;
+    const highFlows = zm?.highFlows ?? 0;
+    const inZones = zm?.assigned ?? 0;
     areas.push(
       <AreaCard
         key="monitoring"
-        empty={!open && (!zm || !zm.zones.length)}
+        empty={!open && !zm?.zones}
         emptyHint={t("dash.mon.empty")}
-        to={zm?.zones.length ? "/assets/zones" : "/findings?source=monitoring"}
+        to={zm?.zones ? "/assets/zones" : "/findings?source=monitoring"}
         icon={Radar}
         title={t("dash.mon.title")}
         main={open}
@@ -617,10 +619,10 @@ export function Dashboard() {
         segments={(["critical", "high", "medium", "low"] as const).map((k) => ({ key: k, label: t(`st.sev.${k}`), n: o[k], color: SEVERITY_COLOR[k] }))}
         metrics={[
           { label: t("dash.mon.critHigh"), value: o.critical + o.high, tone: "bad" },
-          ...(zm && zm.zones.length
+          ...(zm && zm.zones
             ? [
                 { label: t("dash.mon.flows"), value: highFlows, tone: "bad" as Tone },
-                { label: t("dash.mon.zones"), value: t("dash.mon.zonesVal", { zones: zm.zones.length, assets: inZones }) },
+                { label: t("dash.mon.zones"), value: t("dash.mon.zonesVal", { zones: zm.zones, assets: inZones }) },
                 { label: t("dash.mon.unassigned"), value: zm.unassigned, tone: "warn" as Tone },
               ]
             : []),
@@ -628,8 +630,8 @@ export function Dashboard() {
       />,
     );
   }
-  if (showAssets && tls.data && tls.data.summary.total > 0) {
-    const sm = tls.data.summary;
+  if (showAssets && tls.data && tls.data.total > 0) {
+    const sm = tls.data;
     const ok = Math.max(0, sm.total - sm.expired - sm.expiring - sm.withFindings);
     areas.push(
       <AreaCard
@@ -695,9 +697,9 @@ export function Dashboard() {
         metrics={[
           { label: t("dash.sca.fail"), value: tt.fail, tone: score !== null && score < 50 ? "bad" : tt.fail ? "warn" : undefined },
           { label: t("dash.sca.assets"), value: tt.assets },
-          { label: t("dash.sca.policies"), value: sca.data.policies.length },
+          { label: t("dash.sca.policies"), value: sca.data.policies },
         ]}
-        foot={sca.data.lastSync ? t("dash.sca.sync", { date: fmtDate(sca.data.lastSync.at) }) : undefined}
+        foot={sca.data.lastSyncAt ? t("dash.sca.sync", { date: fmtDate(sca.data.lastSyncAt) }) : undefined}
       />,
     );
   }
