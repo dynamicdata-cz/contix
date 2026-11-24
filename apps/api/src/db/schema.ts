@@ -1051,6 +1051,24 @@ export const assetDependencies = pgTable(
   (t) => [primaryKey({ columns: [t.fromId, t.toId] }), index("asset_dependencies_to_idx").on(t.toId)],
 );
 
+/** Řízený přechod vazby přes hranici bezpečnostních zón (v1.101, ADR-195): firewall / proxy / jump server nebo popis. */
+export const zoneFlowControls = pgTable(
+  "zone_flow_controls",
+  {
+    fromId: uuid("from_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    toId: uuid("to_id")
+      .notNull()
+      .references(() => assets.id, { onDelete: "cascade" }),
+    viaAssetId: uuid("via_asset_id").references(() => assets.id, { onDelete: "set null" }),
+    note: varchar("note", { length: 500 }).notNull().default(""),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [primaryKey({ columns: [t.fromId, t.toId] }), index("zone_flow_controls_via_idx").on(t.viaAssetId)],
+);
+
 /** Síťové segmenty pro plánované skeny (ADR-072). */
 export const netSegments = pgTable("net_segments", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -4035,6 +4053,29 @@ export const aiQueries = pgTable(
     ...timestamps,
   },
   (t) => [index("ai_queries_user_idx").on(t.userId, t.createdAt)],
+);
+
+/**
+ * Odběr kalendáře lhůt (v1.101, ADR-195): token v adrese .ics pro Outlook / Google Kalendář – jen čtení kalendáře,
+ * s oprávněními uživatele v okamžiku stažení. Ukládá se jen SHA-256; zrušením přestane adresa fungovat.
+ */
+export const calendarFeeds = pgTable(
+  "calendar_feeds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 120 }).notNull(),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull().unique(),
+    /** Společnost, za kterou se lhůty berou; null = všechny dostupné. */
+    companyId: uuid("company_id").references(() => companies.id, { onDelete: "cascade" }),
+    legalOnly: boolean("legal_only").notNull().default(true),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (t) => [index("calendar_feeds_user_idx").on(t.userId)],
 );
 
 export const apiTokens = pgTable(

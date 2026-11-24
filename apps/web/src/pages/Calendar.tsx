@@ -1,12 +1,12 @@
-import { Card, CardHeader, ErrorBox, PageHeader } from "@/components/ui";
+import { Button, Card, CardHeader, ErrorBox, Field, Input, Modal, PageHeader, Select } from "@/components/ui";
 import { api } from "@/lib/api";
-import { useCan } from "@/lib/auth";
+import { useCan, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { cn, fmtDate, fmtDay } from "@/lib/utils";
 import { DEADLINE_BASIS_LABELS, FINDING_LABELS, DEADLINE_BASES, type CalendarItemDto, type DeadlineBasis, type UnifiedFindingDto } from "@contix/shared";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { CalendarDays, Download } from "lucide-react";
+import { CalendarDays, Download, Rss } from "lucide-react";
 import { useMemo, useState } from "react";
 
 /* ============================================================
@@ -44,6 +44,7 @@ export function CalendarPage() {
   const [months, setMonths] = useState(12);
   const [legal, setLegal] = useState(true);
   const [basis, setBasis] = useState<DeadlineBasis | "">("");
+  const [feeds, setFeeds] = useState(false);
   const from = today();
   const to = plusDays(from, Math.round(months * 30.5));
   const q = useQuery({ queryKey: ["calendar", from, to, legal], queryFn: () => api.calendar.list({ from, to, legal: legal ? "1" : "0" }) });
@@ -62,12 +63,18 @@ export function CalendarPage() {
         title={t("cal.title")}
         subtitle={t("cal.sub")}
         actions={
+          <>
+          <Button variant="secondary" onClick={() => setFeeds(true)} data-testid="cal-feed-open">
+            <Rss size={16} /> {t("cal.feed.open")}
+          </Button>
           <a href={api.calendar.icsUrl({ from, to, legal: legal ? "1" : "0" })} className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3.5 py-2 text-sm font-medium text-slate-800 shadow-sm hover:bg-slate-50" data-testid="cal-ics">
             <Download size={16} /> {t("cal.ics")}
           </a>
+          </>
         }
       />
       <ErrorBox error={q.error} />
+      {feeds && <FeedsModal onClose={() => setFeeds(false)} />}
       <div className="mb-4 flex flex-wrap items-center gap-3 text-sm">
         <label className="inline-flex items-center gap-2">
           <input type="checkbox" checked={legal} onChange={(e) => setLegal(e.target.checked)} data-testid="cal-legal" /> {t("cal.onlyLegal")}
@@ -217,3 +224,88 @@ function WeekCol({ title, n, empty, children, testid, more }: { title: string; n
 }
 
 
+
+/* ---------- odběr kalendáře adresou (v1.101) ---------- */
+
+function FeedsModal({ onClose }: { onClose: () => void }) {
+  const t = useT();
+  const me = useMe();
+  const qc = useQueryClient();
+  const list = useQuery({ queryKey: ["calendar", "feeds"], queryFn: api.calendar.feeds });
+  const [name, setName] = useState(t("cal.icsName"));
+  const [companyId, setCompanyId] = useState("");
+  const [legal, setLegal] = useState(true);
+  const [url, setUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const create = useMutation({
+    mutationFn: () => api.calendar.createFeed({ name, companyId: companyId || null, legalOnly: legal }),
+    onSuccess: (r) => (setUrl(r.url), setCopied(false), qc.invalidateQueries({ queryKey: ["calendar", "feeds"] })),
+  });
+  const revoke = useMutation({ mutationFn: (id: string) => api.calendar.revokeFeed(id), onSuccess: () => qc.invalidateQueries({ queryKey: ["calendar", "feeds"] }) });
+  const companies = me.companies ?? [];
+  return (
+    <Modal open wide title={t("cal.feed.title")} onClose={onClose}>
+      <p className="mb-4 text-sm text-slate-600">{t("cal.feed.hint")}</p>
+      {url ? (
+        <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3" data-testid="cal-feed-url">
+          <p className="mb-2 text-sm font-medium text-emerald-900">{t("cal.feed.created")}</p>
+          <code className="block break-all rounded bg-white px-2 py-1.5 text-xs text-slate-800">{url}</code>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button variant="secondary" className="text-xs" onClick={() => void navigator.clipboard?.writeText(url).then(() => setCopied(true))}>
+              {copied ? t("cal.feed.copied") : t("cal.feed.copy")}
+            </Button>
+            <a href={url.replace(/^https?:/, "webcal:")} className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-50">
+              {t("cal.feed.webcal")}
+            </a>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-4 grid gap-3 sm:grid-cols-2">
+          <Field label={t("cal.feed.name")}>
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
+          </Field>
+          {companies.length > 1 && (
+            <Field label={t("cal.feed.company")}>
+              <Select value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
+                <option value="">{t("cal.feed.allCompanies")}</option>
+                {companies.map((co) => (
+                  <option key={co.id} value={co.id}>
+                    {co.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          <label className="flex items-center gap-2 text-sm sm:col-span-2">
+            <input type="checkbox" checked={legal} onChange={(e) => setLegal(e.target.checked)} /> {t("cal.feed.legal")}
+          </label>
+          <div className="sm:col-span-2">
+            <Button onClick={() => create.mutate()} disabled={create.isPending || !name.trim()} data-testid="cal-feed-create">
+              {t("cal.feed.create")}
+            </Button>
+          </div>
+        </div>
+      )}
+      <ErrorBox error={list.error ?? create.error ?? revoke.error} />
+      <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">{t("cal.feed.list")}</h3>
+      {list.data && !list.data.length && <p className="text-sm text-slate-500">{t("cal.feed.none")}</p>}
+      <ul className="divide-y divide-slate-100">
+        {(list.data ?? []).map((f) => (
+          <li key={f.id} className="flex flex-wrap items-center gap-2 py-2 text-sm" data-testid="cal-feed-item">
+            <div className="min-w-0 flex-1">
+              <div className="font-medium text-slate-900">{f.name}</div>
+              <div className="text-xs text-slate-500">
+                {[f.companyName ?? t("cal.feed.allCompanies"), f.legalOnly ? t("cal.feed.legal") : null, f.lastUsedAt ? t("cal.feed.used", { date: fmtDate(f.lastUsedAt) }) : t("cal.feed.unused")]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </div>
+            </div>
+            <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => window.confirm(t("cal.feed.revokeConfirm", { name: f.name })) && revoke.mutate(f.id)} disabled={revoke.isPending}>
+              {t("cal.feed.revoke")}
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </Modal>
+  );
+}

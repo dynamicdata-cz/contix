@@ -4034,3 +4034,38 @@ describe("kalendář lhůt (v1.98, ADR-192)", () => {
     expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(3);
   });
 });
+
+describe("zóny: IPv6, návrhy rozsahů (v1.101, ADR-195)", () => {
+  test("parsování IPv6, rozsahy, nejpřesnější zóna přes rodiny, podsítě a druh zóny", async () => {
+    const { parseIp, cidrRangeAny, matchZone, subnetOf, suggestZoneKind, cidrCovered } = await import("@contix/shared");
+    expect(parseIp("2001:db8::1")).toEqual({ fam: 6, v: (0x20010db8n << 96n) + 1n });
+    expect(parseIp("::1")?.v).toBe(1n);
+    expect(parseIp("fe80::1%eth0")?.fam).toBe(6);
+    expect(parseIp("::ffff:10.0.0.1")).toEqual({ fam: 4, v: 167772161n });
+    expect(parseIp("2001:db8::1::2")).toBeNull();
+    expect(parseIp("2001:db8:1:2:3:4:5:6:7")).toBeNull();
+    expect(parseIp("gggg::1")).toBeNull();
+    expect(cidrRangeAny("2001:db8:1::/48")).toMatchObject({ fam: 6, hostBits: 80 });
+    expect(cidrRangeAny("10.0.0.0/33")).toBeNull();
+    expect(cidrRangeAny("2001:db8::/129")).toBeNull();
+    expect(cidrRangeAny("10.0.0.0/24/1")).toBeNull();
+    const zones = [
+      { id: "lan6", cidrs: ["2001:db8::/32"], sortOrder: 10 },
+      { id: "srv6", cidrs: ["2001:db8:5::/48"], sortOrder: 20 },
+      { id: "lan4", cidrs: ["10.0.0.0/8"], sortOrder: 5 },
+    ];
+    expect(matchZone(["2001:db8:5::20"], zones)?.id).toBe("srv6");
+    expect(matchZone(["2001:db8:9::20"], zones)?.id).toBe("lan6");
+    // IPv4 /8 (24 bitů hostitele) vs. IPv6 /48 (80 bitů) – přesnější je IPv4 rozsah
+    expect(matchZone(["2001:db8:5::20", "10.1.2.3"], zones)?.id).toBe("lan4");
+    expect(subnetOf("10.1.2.3")).toBe("10.1.2.0/24");
+    expect(subnetOf("2001:db8:5:7::20")).toBe("2001:db8:5:7::/64");
+    expect(cidrCovered("10.1.2.0/24", ["10.0.0.0/8"])).toBe(true);
+    expect(cidrCovered("10.1.2.0/24", ["10.1.3.0/24", "2001:db8::/32"])).toBe(false);
+    expect(suggestZoneKind({ workstation: 8, server: 1 }, 0)).toBe("user");
+    expect(suggestZoneKind({ server: 3, database: 2 }, 0)).toBe("server");
+    expect(suggestZoneKind({ server: 2 }, 2)).toBe("dmz");
+    expect(suggestZoneKind({ iot_ot: 4, workstation: 1 }, 0)).toBe("ot");
+    expect(suggestZoneKind({}, 0)).toBe("server");
+  });
+});

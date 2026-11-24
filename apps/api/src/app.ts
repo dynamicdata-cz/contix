@@ -107,7 +107,7 @@ import { aiRoutes } from "./modules/ai/routes";
 import { assuranceRoutes } from "./modules/assurance/routes";
 import { reportRoutes } from "./modules/reports/routes";
 import { dashboardRoutes } from "./modules/dashboard/routes";
-import { calendarRoutes } from "./modules/calendar/routes";
+import { calendarRoutes, publicCalendarRoutes } from "./modules/calendar/routes";
 import { guideRoutes } from "./modules/guides/routes";
 import { identityRoutes } from "./modules/identity/routes";
 import { legislationRoutes } from "./modules/legislation/routes";
@@ -303,6 +303,8 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/public/hosts", publicHostRoutes(db))
     .route("/public/agent/v1", publicAgentRoutes(db))
     .route("/public/probe", publicProbeRoutes({ db, config, fetchImpl: deps.fetchImpl, onBackground: deps.onBackground }))
+    /** Odběr kalendáře lhůt – token odběru v cestě (ADR-195). */
+    .route("/public/calendar", publicCalendarRoutes(db, config))
     /** Výsledky externích kontrol opatření ze skriptů – token monitoru (ADR-109). */
     .route("/public/monitors", publicMonitorRoutes(db))
     .route("/", protectedApi);

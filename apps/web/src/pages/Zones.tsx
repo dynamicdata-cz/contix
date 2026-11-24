@@ -3,10 +3,10 @@ import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
-import { ZONE_KIND_LABELS, ZONE_KINDS, ZONE_TRUST_LABELS, ZONE_TRUST_LEVELS, type SecurityZoneDto, type SecurityZoneInput, type ZoneKind, type ZoneMapDto } from "@contix/shared";
+import { ZONE_KIND_LABELS, ZONE_KINDS, ZONE_TRUST_LABELS, ZONE_TRUST_LEVELS, type SecurityZoneDto, type SecurityZoneInput, type ZoneKind, type ZoneMapDto, type ZoneSuggestionDto } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Layers, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 /* ============================================================
@@ -14,7 +14,9 @@ import { useMemo, useState } from "react";
  * s vazbami přes hranice zón, ruční zóna aktiva.
  * ============================================================ */
 
-const FLOW_COLOR = { high: "#dc2626", warn: "#d97706", ok: "#94a3b8" } as const;
+const FLOW_COLOR = { high: "#dc2626", warn: "#d97706", ok: "#94a3b8", controlled: "#16a34a" } as const;
+/** Barva vazby: řízený přechod (firewall …) je zelený bez ohledu na hodnocení hranice (v1.101). */
+const flowKey = (f: ZoneMapDto["flows"][number]) => (f.control && f.level !== "ok" ? "controlled" : f.level);
 const HEALTH_COLOR: Record<string, string> = { green: "#16a34a", orange: "#ea580c", red: "#dc2626", yellow: "#ca8a04", unknown: "#94a3b8" };
 
 export function ZonesPage() {
@@ -23,6 +25,7 @@ export function ZonesPage() {
   const qc = useQueryClient();
   const map = useQuery({ queryKey: ["zones", "map"], queryFn: api.zones.map });
   const [edit, setEdit] = useState<SecurityZoneDto | "new" | null>(null);
+  const [suggest, setSuggest] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const write = can("assets:write");
   const done = (r: { moved: number }) => {
@@ -45,6 +48,9 @@ export function ZonesPage() {
         </div>
         {write && d && d.zones.length > 0 && (
           <>
+            <Button variant="secondary" onClick={() => setSuggest(true)} data-testid="zn-suggest">
+              <Wand2 size={15} /> {t("zn.sg.open")}
+            </Button>
             <Button variant="secondary" onClick={() => assign.mutate()} disabled={assign.isPending} data-testid="zn-assign">
               <RefreshCw size={15} /> {t("zn.assign")}
             </Button>
@@ -75,6 +81,7 @@ export function ZonesPage() {
         <>
           {d.unassigned > 0 && <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{t("zn.unassigned", { n: d.unassigned })}</p>}
           <LayeredMap d={d} />
+          <FlowsCard d={d} write={write} />
           <Card>
             <CardHeader title={t("zn.catalog")} subtitle={t("zn.catalogSub")} />
             <div className="divide-y divide-slate-100" data-testid="zn-list">
@@ -118,6 +125,7 @@ export function ZonesPage() {
           </Card>
         </>
       )}
+      {suggest && d && <SuggestModal zones={d.zones} onClose={() => setSuggest(false)} onDone={(r) => (setSuggest(false), done(r))} />}
       {edit && <ZoneModal zone={edit === "new" ? null : edit} onClose={() => setEdit(null)} onDone={done} />}
     </div>
   );
@@ -173,7 +181,7 @@ function LayeredMap({ d }: { d: ZoneMapDto }) {
       <div className="overflow-x-auto p-3">
         <svg width={W} height={lay.height} viewBox={`0 0 ${W} ${lay.height}`} className="block" role="img" aria-label={t("zn.mapTitle")}>
           <defs>
-            {(["high", "warn", "ok"] as const).map((l) => (
+            {(["high", "warn", "ok", "controlled"] as const).map((l) => (
               <marker key={l} id={`zn-arrow-${l}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M0,0 L10,5 L0,10 z" fill={FLOW_COLOR[l]} />
               </marker>
@@ -217,14 +225,15 @@ function LayeredMap({ d }: { d: ZoneMapDto }) {
                 key={i}
                 d={`M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}`}
                 fill="none"
-                stroke={FLOW_COLOR[f.level]}
+                stroke={FLOW_COLOR[flowKey(f)]}
                 strokeWidth={lit ? 2.5 : f.level === "high" ? 1.8 : 1.2}
                 strokeOpacity={hover && !lit ? 0.15 : 0.85}
                 strokeDasharray={f.level === "ok" ? "4 4" : undefined}
-                markerEnd={`url(#zn-arrow-${f.level})`}
+                markerEnd={`url(#zn-arrow-${flowKey(f)})`}
               >
                 <title>
-                  {name.get(f.fromId)} → {name.get(f.toId)} · {t(`zn.flow.${f.level}`)}
+                  {name.get(f.fromId)} → {name.get(f.toId)} · {t(`zn.flow.${flowKey(f)}`)}
+                  {f.control ? ` (${f.control.viaName ?? f.control.note})` : ""}
                 </title>
               </path>
             );
@@ -273,7 +282,7 @@ function LayeredMap({ d }: { d: ZoneMapDto }) {
             <span className="mr-1 inline-block h-2.5 w-2.5 rounded-full border border-slate-400 bg-slate-200 align-middle" /> {t("zn.notMonitored")}
           </span>
           <span className="text-red-600">⇡ {t("zn.internetFacing")}</span>
-          {(["high", "warn", "ok"] as const).map((l) => (
+          {(["high", "warn", "controlled", "ok"] as const).map((l) => (
             <span key={l}>
               <span className="mr-1 inline-block h-0.5 w-5 align-middle" style={{ background: FLOW_COLOR[l] }} /> {t(`zn.flow.${l}`)}
             </span>
@@ -281,6 +290,161 @@ function LayeredMap({ d }: { d: ZoneMapDto }) {
         </div>
       </div>
     </Card>
+  );
+}
+
+/* ---------- vazby přes hranice zón a řízené přechody (v1.101) ---------- */
+
+function FlowsCard({ d, write }: { d: ZoneMapDto; write: boolean }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const risky = d.flows.filter((f) => f.level !== "ok").sort((a, b) => (a.level === b.level ? 0 : a.level === "high" ? -1 : 1));
+  const [open, setOpen] = useState<ZoneMapDto["flows"][number] | null>(null);
+  const name = new Map(d.assets.map((a) => [a.id, a.name]));
+  const zname = new Map(d.zones.map((z) => [z.id, z.name]));
+  const clear = useMutation({
+    mutationFn: (f: ZoneMapDto["flows"][number]) => api.zones.clearFlow(f.fromId, f.toId),
+    onSuccess: () => (qc.invalidateQueries({ queryKey: ["zones"] }), qc.invalidateQueries({ queryKey: ["findings"] })),
+  });
+  if (!risky.length) return null;
+  return (
+    <Card className="overflow-hidden" data-testid="zn-flows">
+      <CardHeader title={t("zn.fl.title")} subtitle={t("zn.fl.sub")} />
+      <ErrorBox error={clear.error} />
+      <ul className="divide-y divide-slate-100">
+        {risky.map((f) => (
+          <li key={`${f.fromId}:${f.toId}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5 text-sm" data-testid="zn-flow">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: FLOW_COLOR[flowKey(f)] }} aria-hidden />
+            <span className="min-w-0 flex-1">
+              <span className="font-medium text-slate-900">{name.get(f.fromId)}</span> <span className="text-slate-500">({zname.get(f.fromZone)})</span> →{" "}
+              <span className="font-medium text-slate-900">{name.get(f.toId)}</span> <span className="text-slate-500">({zname.get(f.toZone)})</span>
+            </span>
+            {f.control ? (
+              <span className="inline-flex items-center gap-1 text-xs text-emerald-700" data-testid="zn-flow-control">
+                <ShieldCheck size={14} /> {f.control.viaName ? t("zn.fl.via", { name: f.control.viaName }) : t("zn.fl.controlled")}
+                {f.control.note ? ` – ${f.control.note}` : ""}
+              </span>
+            ) : (
+              <Badge tone={f.level === "high" ? "red" : "amber"}>{t(`zn.flow.${f.level}`)}</Badge>
+            )}
+            {write &&
+              (f.control ? (
+                <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => clear.mutate(f)} disabled={clear.isPending}>
+                  {t("zn.fl.clear")}
+                </Button>
+              ) : (
+                <Button variant="secondary" className="px-2 py-1 text-xs" onClick={() => setOpen(f)} data-testid="zn-flow-set">
+                  {t("zn.fl.set")}
+                </Button>
+              ))}
+          </li>
+        ))}
+      </ul>
+      {open && <FlowControlModal d={d} flow={open} onClose={() => setOpen(null)} />}
+    </Card>
+  );
+}
+
+function FlowControlModal({ d, flow, onClose }: { d: ZoneMapDto; flow: ZoneMapDto["flows"][number]; onClose: () => void }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const devices = d.assets.filter((a) => a.assetType === "security_device" || a.assetType === "network_device" || a.assetType === "server" || a.assetType === "virtual_machine");
+  devices.sort((a, b) => (a.assetType === "security_device" ? -1 : 0) - (b.assetType === "security_device" ? -1 : 0) || a.name.localeCompare(b.name));
+  const [via, setVia] = useState(devices.find((a) => a.assetType === "security_device")?.id ?? "");
+  const [note, setNote] = useState("");
+  const save = useMutation({
+    mutationFn: () => api.zones.setFlow({ fromId: flow.fromId, toId: flow.toId, viaAssetId: via || null, note }),
+    onSuccess: () => (qc.invalidateQueries({ queryKey: ["zones"] }), qc.invalidateQueries({ queryKey: ["findings"] }), onClose()),
+  });
+  return (
+    <Modal
+      open
+      title={t("zn.fl.modal")}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t("common.cancelAction")}
+          </Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending || (!via && !note.trim())} data-testid="zn-flow-save">
+            {t("zn.save")}
+          </Button>
+        </>
+      }
+    >
+      <p className="mb-3 text-sm text-slate-600">{t("zn.fl.modalHint")}</p>
+      <Field label={t("zn.fl.device")}>
+        <Select value={via} onChange={(e) => setVia(e.target.value)} data-testid="zn-flow-via">
+          <option value="">{t("zn.fl.noDevice")}</option>
+          {devices.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label={t("zn.fl.note")}>
+        <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("zn.fl.notePh")} data-testid="zn-flow-note" />
+      </Field>
+      <ErrorBox error={save.error} />
+    </Modal>
+  );
+}
+
+/* ---------- návrh rozsahů (v1.101) ---------- */
+
+function SuggestModal({ zones, onClose, onDone }: { zones: SecurityZoneDto[]; onClose: () => void; onDone: (r: { moved: number }) => void }) {
+  const t = useT();
+  const q = useQuery({ queryKey: ["zones", "suggestions"], queryFn: api.zones.suggestions });
+  const [pick, setPick] = useState<Record<string, string>>({});
+  const [on, setOn] = useState<Record<string, boolean>>({});
+  const zoneFor = (s: ZoneSuggestionDto) => pick[s.cidr] ?? s.suggestedZoneId ?? "";
+  const chosen = (q.data ?? []).filter((s) => (on[s.cidr] ?? !!s.suggestedZoneId) && zoneFor(s));
+  const apply = useMutation({ mutationFn: () => api.zones.applySuggestions(chosen.map((s) => ({ cidr: s.cidr, zoneId: zoneFor(s) }))), onSuccess: onDone });
+  return (
+    <Modal
+      open
+      wide
+      title={t("zn.sg.title")}
+      onClose={onClose}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t("common.cancelAction")}
+          </Button>
+          <Button onClick={() => apply.mutate()} disabled={apply.isPending || !chosen.length} data-testid="zn-sg-apply">
+            {t("zn.sg.apply", { n: chosen.length })}
+          </Button>
+        </>
+      }
+    >
+      <p className="mb-3 text-sm text-slate-600">{t("zn.sg.hint")}</p>
+      <ErrorBox error={q.error ?? apply.error} />
+      {q.data && !q.data.length && <p className="text-sm text-slate-600" data-testid="zn-sg-empty">{t("zn.sg.empty")}</p>}
+      <ul className="divide-y divide-slate-100">
+        {(q.data ?? []).map((s) => (
+          <li key={s.cidr} className="flex flex-wrap items-center gap-3 py-2 text-sm" data-testid="zn-sg-item">
+            <input type="checkbox" checked={on[s.cidr] ?? !!s.suggestedZoneId} onChange={(e) => setOn({ ...on, [s.cidr]: e.target.checked })} aria-label={s.cidr} />
+            <div className="min-w-0 flex-1">
+              <div className="font-mono text-slate-900">{s.cidr}</div>
+              <div className="text-xs text-slate-500">
+                {s.source.kind === "segment" ? t("zn.sg.segment", { name: s.source.name }) : t("zn.sg.fromAssets")} · {t("zn.sg.assets", { n: s.assets })}
+                {s.sample.length ? `: ${s.sample.join(", ")}` : ""}
+              </div>
+            </div>
+            <Select className="w-48" value={zoneFor(s)} onChange={(e) => setPick({ ...pick, [s.cidr]: e.target.value })} aria-label={t("zn.sg.zone")} data-testid="zn-sg-zone">
+              <option value="">{t("zn.sg.pickZone")}</option>
+              {zones.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name}
+                  {z.kind === s.suggestedKind ? ` ★` : ""}
+                </option>
+              ))}
+            </Select>
+          </li>
+        ))}
+      </ul>
+    </Modal>
   );
 }
 

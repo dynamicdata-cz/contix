@@ -11377,6 +11377,76 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(((await admin.json("/api/findings?source=monitoring&status=open", { headers: H })).body.items as any[]).filter((x) => x.title.startsWith("Vazba přes hranici"))).toHaveLength(0);
   });
 
+  test("zóny: IPv6, návrh rozsahů ze segmentů a podsítí, řízený přechod uzavře nález (v1.101)", async () => {
+    const CO = "00000000-0000-4000-8000-000000000001";
+    const H = { "x-contix-company": CO };
+    for (const z of (await admin.json("/api/zones", { headers: H })).body as any[]) await admin.json(`/api/zones/${z.id}`, { method: "DELETE", headers: H });
+    const zs = (await admin.json("/api/zones/defaults", { method: "POST", headers: H })).body.zones as any[];
+    const zid = (k: string) => zs.find((z) => z.kind === k).id;
+    const z = (k: string) => zs.find((x) => x.kind === k);
+    const put = (k: string, cidrs: string[]) => admin.json(`/api/zones/${z(k).id}`, { method: "PUT", headers: H, json: { name: z(k).name, kind: z(k).kind, trust: z(k).trust, color: z(k).color, description: z(k).description, cidrs, sortOrder: z(k).sortOrder } });
+    expect((await put("server", ["2001:db8:101::/48"])).status).toBe(200);
+    expect((await put("user", ["2001:db8::/129"])).status).toBe(400);
+    const mk = async (name: string, ip: string[], assetType = "server") => (await admin.json("/api/assets", { method: "POST", headers: H, json: { name, assetType, ipAddresses: ip } })).body;
+    const srv6 = await mk("z101-srv6", ["2001:db8:101::5"]);
+    const pc1 = await mk("z101-pc1", ["10.101.2.11"], "workstation");
+    const pc2 = await mk("z101-pc2", ["10.101.2.12"], "workstation");
+    const fw = await mk("z101-fw", ["10.101.9.1"], "security_device");
+    await db.insert(schema.netSegments).values({ companyId: CO, name: "Kancelář 101", cidrs: ["10.101.2.0/24"] });
+    await admin.json("/api/zones/assign", { method: "POST", headers: H });
+    expect((await admin.json(`/api/assets/${srv6.id}`, { headers: H })).body.zoneId).toBe(zid("server"));
+    // návrhy: segment skenu (uživatelé) a podsíť aktiva firewallu (správa)
+    const sg = (await admin.json("/api/zones/suggestions", { headers: H })).body as any[];
+    const seg = sg.find((x) => x.cidr === "10.101.2.0/24");
+    expect(seg).toMatchObject({ source: { kind: "segment", name: "Kancelář 101" }, assets: 2, suggestedKind: "user", suggestedZoneId: zid("user") });
+    expect(sg.find((x) => x.cidr === "10.101.9.0/24")).toMatchObject({ source: { kind: "assets" }, suggestedKind: "management" });
+    expect(sg.some((x) => x.cidr.startsWith("2001:db8:101"))).toBe(false); // už v zóně
+    const ap = await admin.json("/api/zones/suggestions/apply", { method: "POST", headers: H, json: { items: [{ cidr: "10.101.2.0/24", zoneId: zid("user") }, { cidr: "10.101.9.0/24", zoneId: zid("management") }] } });
+    expect(ap.body).toMatchObject({ added: 2 });
+    expect(ap.body.moved).toBeGreaterThanOrEqual(3);
+    expect((await admin.json("/api/zones/suggestions/apply", { method: "POST", headers: H, json: { items: [{ cidr: "10.101.2.0/24", zoneId: zid("user") }] } })).body.added).toBe(0);
+    // vazba uživatel → správa = vysoké riziko → nález; řízený přechod přes firewall → nález se uzavře
+    await db.insert(schema.assetDependencies).values({ fromId: pc1.id, toId: fw.id });
+    await admin.json("/api/zones/assign", { method: "POST", headers: H });
+    const open = async () => ((await admin.json("/api/findings?source=monitoring&status=open", { headers: H })).body.items as any[]).filter((x) => x.title.includes("z101-pc1 → z101-fw"));
+    expect(await open()).toHaveLength(1);
+    expect((await admin.json("/api/zones/flows", { method: "PUT", headers: H, json: { fromId: pc1.id, toId: fw.id } })).status).toBe(400);
+    expect((await admin.json("/api/zones/flows", { method: "PUT", headers: H, json: { fromId: pc2.id, toId: fw.id, note: "x" } })).status).toBe(400);
+    const m = (await admin.json("/api/zones/flows", { method: "PUT", headers: H, json: { fromId: pc1.id, toId: fw.id, viaAssetId: fw.id, note: "pravidlo 42" } })).body;
+    expect(m.flows.find((f: any) => f.fromId === pc1.id)).toMatchObject({ level: "high", control: { viaAssetId: fw.id, viaName: "z101-fw", note: "pravidlo 42" } });
+    expect(await open()).toHaveLength(0);
+    // zrušení přechodu → nález se znovu otevře
+    await admin.json(`/api/zones/flows/${pc1.id}/${fw.id}`, { method: "DELETE", headers: H });
+    expect(await open()).toHaveLength(1);
+    for (const x of (await admin.json("/api/zones", { headers: H })).body as any[]) await admin.json(`/api/zones/${x.id}`, { method: "DELETE", headers: H });
+    await db.delete(schema.netSegments).where(eq(schema.netSegments.name, "Kancelář 101"));
+  });
+
+  test("odběr kalendáře adresou: vytvoření, stažení bez přihlášení, zrušení (v1.101)", async () => {
+    const H = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
+    const cr = await admin.json("/api/calendar/feeds", { method: "POST", headers: H, json: { name: "Lhůty test", legalOnly: true } });
+    expect(cr.status).toBe(201);
+    expect(cr.body.url).toMatch(/\/api\/public\/calendar\/cal_[A-Za-z0-9_-]+\.ics$/);
+    const path = new URL(cr.body.url).pathname;
+    const anon = browser();
+    const r = await anon.req(path);
+    expect(r.status).toBe(200);
+    expect(r.headers.get("content-type")).toContain("text/calendar");
+    const ics = await r.text();
+    expect(ics).toContain("X-WR-CALNAME:Lhůty test");
+    expect(ics).toContain("BEGIN:VCALENDAR");
+    const list = (await admin.json("/api/calendar/feeds")).body as any[];
+    expect(list.find((f) => f.id === cr.body.feed.id).lastUsedAt).not.toBeNull();
+    expect(JSON.stringify(list)).not.toContain("cal_"); // token se znovu nezobrazí
+    expect((await anon.req(path.replace(/cal_./, "cal_X"))).status).toBe(404);
+    expect((await anon.req("/api/public/calendar/nic.ics")).status).toBe(404);
+    // cizí společnost, ke které nemám přístup
+    expect((await admin.json("/api/calendar/feeds", { method: "POST", json: { companyId: "00000000-0000-4000-8000-0000000000ff" } })).status).toBe(400);
+    expect((await admin.json(`/api/calendar/feeds/${cr.body.feed.id}`, { method: "DELETE" })).status).toBe(200);
+    expect((await anon.req(path)).status).toBe(404);
+    expect((await admin.json(`/api/calendar/feeds/${cr.body.feed.id}`, { method: "DELETE" })).status).toBe(404);
+  });
+
   test("kalendář lhůt: zákonné a interní lhůty, test obnovy, export .ics (v1.98)", async () => {
     const H = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
     const day = (n: number) => new Date(Date.now() + n * 86400_000).toISOString().slice(0, 10);

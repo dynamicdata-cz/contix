@@ -812,7 +812,7 @@ Při přesunu aktiva do jiné společnosti se z map původní společnosti odebe
 Kalendář sbírá termíny z celé evidence: lhůty hlášení incidentů, ohlášení regulované služby a změn údajů NÚKIB, **zavedení bezpečnostních opatření do 1 roku od rozhodnutí o registraci**, přezkoumání ISMS, přezkumy rizik a dokumentů, audity, testy plánů kontinuity a cvičení, přezkumy přístupů, smlouvy a zprávy dodavatelů, přezkumy činností zpracování (GDPR), AI systémů (AI Act), hlášení a podpůrné období produktů (CRA) a **test obnovy zálohy** (nejpozději 92 dní od posledního úspěšného). Každá lhůta má právní základ; volba **Jen zákonné lhůty** skryje interní termíny (úkoly, projekty). Vidíte jen lhůty z oblastí, ke kterým máte oprávnění, v aktuálně vybrané společnosti.
 
 ## Export do kalendáře
-Tlačítko **Stáhnout do kalendáře (.ics)** stáhne lhůty zvoleného období jako soubor iCalendar. V Outlooku ho otevřete dvojklikem, v Google Kalendáři přes Nastavení → Import. U zákonných lhůt je připomínka 7 dní předem. Soubor je jednorázový snímek – po změnách termínů ho stáhněte znovu (stejné lhůty se při opakovaném importu přepíšou, nezdvojí).
+Tlačítko **Stáhnout do kalendáře (.ics)** stáhne lhůty zvoleného období jako soubor iCalendar. V Outlooku ho otevřete dvojklikem, v Google Kalendáři přes Nastavení → Import. U zákonných lhůt je připomínka 7 dní předem. Soubor je jednorázový snímek – po změnách termínů ho stáhněte znovu (stejné lhůty se při opakovaném importu přepíšou, nezdvojí). Pohodlnější je **Odebírat v kalendáři**: vytvoří osobní adresu odběru, kterou vložíte do Outlooku (Přidat kalendář → Z internetu) nebo Google Kalendáře (Přidat podle URL), a kalendář se pak aktualizuje sám. Adresa funguje bez přihlášení, ale jen pro čtení lhůt a vždy s vašimi aktuálními oprávněními; nesdílejte ji a nepoužívanou zrušte.
 
 ## Tento týden
 Na úvodním Přehledu je karta **Co mám udělat tento týden**: zákonné lhůty na příštích 7 dní a vše po termínu, kritické nálezy a vysoké nálezy s termínem do týdne a správci navíc nedokončené povinné kroky nastavení. Každá položka vede rovnou na místo, kde se řeší.
@@ -830,13 +830,16 @@ Na úvodním Přehledu je karta **Co mám udělat tento týden**: zákonné lhů
 Tlačítkem **Vytvořit výchozí zóny** založíte základní sadu: Internet, DMZ, Hosté, Uživatelé, Servery, Správa a OT. Každá zóna má **úroveň důvěry** od 0 (nedůvěryhodná) po 4 (kritická). Zóny můžete přejmenovat, změnit jim barvu a popis, smazat je nebo přidat **vlastní zónu** (např. Kamery, Interní DMS, Laboratoř) s vlastní úrovní důvěry. Chybějící výchozí zóny jde kdykoli doplnit.
 
 ## Rozsahy IP a zařazení aktiv
-Do zóny zapište rozsahy IP (jeden na řádek, např. 10.10.0.0/24 nebo jednu adresu). Aktiva se do zón řadí automaticky podle IP adres – vyhrává nejpřesnější rozsah, takže vlastní zóna s užším rozsahem uvnitř serverové sítě má přednost. Zařazení se přepočítá po uložení zóny, tlačítkem **Přeřadit podle IP** a pravidelně plánovačem. V detailu aktiva (Technické údaje) jde zónu nastavit **ručně**; volbou *Vrátit na zařazení podle IP* se aktivum vrátí do automatiky.
+Do zóny zapište rozsahy IP (jeden na řádek, např. 10.10.0.0/24 nebo jednu adresu). Aktiva se do zón řadí automaticky podle IP adres – vyhrává nejpřesnější rozsah, takže vlastní zóna s užším rozsahem uvnitř serverové sítě má přednost. Zařazení se přepočítá po uložení zóny, tlačítkem **Přeřadit podle IP** a pravidelně plánovačem. V detailu aktiva (Technické údaje) jde zónu nastavit **ručně**; volbou *Vrátit na zařazení podle IP* se aktivum vrátí do automatiky. Rozsahy mohou být IPv4 i IPv6 (např. 2001:db8:10::/48). Tlačítko **Navrhnout rozsahy** nabídne síťové segmenty skenů a podsítě (IPv4 /24, IPv6 /64) z IP adres aktiv, které zatím nejsou v žádné zóně, s předvybranou zónou podle typů aktiv – stačí zkontrolovat a potvrdit.
 
 ## Mapa zón
 Mapa ukazuje zóny jako vrstvy od nedůvěryhodné po kritickou. U každého aktiva je vidět, zda z něj CONTIX sbírá data (zelená tečka) a zda je dostupné z internetu. Šipky jsou **vazby mezi aktivy přes hranice zón** (aktivum používá aktivum):
 - **červená** – skok o více než jednu úroveň důvěry, nebo vazba do zóny Správa či OT z jiné než serverové zóny,
 - **oranžová** – vazba o jednu úroveň výš (typicky přes firewall),
-- **šedá** – vazba do méně citlivé zóny.
+- **šedá** – vazba do méně citlivé zóny,
+- **zelená** – vazba přes řízený přechod.
+
+Pod mapou je seznam **vazeb přes hranice zón**. Vede-li riziková vazba přes firewall, proxy nebo jump server, zapište u ní **řízený přechod** (zařízení z evidence nebo popis, např. číslo pravidla) – nález se uzavře; zrušením přechodu se znovu otevře.
 
 ## Kontroly zón jako nálezy
 CONTIX zakládá v registru nálezů (zdroj **Monitoring a zóny**) nálezy: aktivum v DMZ nebo dostupné z internetu bez sběru dat, pracovní stanice v zóně serverů či správy, riziková vazba přes hranici zón a zóna bez jediného sledovaného aktiva. Nález má aktivum, termín a jde z něj založit úkol nebo zapsat výjimku; po nápravě (přesun aktiva, zapnutí sběru, odstranění vazby) se sám uzavře.

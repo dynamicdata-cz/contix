@@ -1950,6 +1950,45 @@ test("přehled: technická bezpečnost včetně testů, monitoringu a zón, prov
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("zóny: návrh rozsahů, řízený přechod; odběr kalendáře adresou (v1.101)", async () => {
+  const headers = { origin: new URL(page.url()).origin };
+  const mk = async (name: string, ip: string, assetType: string) => (await (await page.request.post("/api/assets", { data: { name, assetType, ipAddresses: [ip] }, headers })).json()) as { id: string };
+  const pc = await mk("E2E-Z101-PC", "10.201.2.15", "workstation");
+  const fw = await mk("E2E-Z101-FW", "10.201.9.1", "security_device");
+  expect((await page.request.post("/api/assets/dependencies", { data: { fromId: pc.id, toId: fw.id }, headers })).status()).toBeLessThan(300);
+  await page.goto("/assets/zones");
+  await page.getByTestId("zn-suggest").click();
+  const sg = page.getByRole("dialog");
+  await expect(sg.getByTestId("zn-sg-item").filter({ hasText: "10.201.2.0/24" })).toBeVisible();
+  await sg.getByTestId("zn-sg-item").filter({ hasText: "10.201.2.0/24" }).getByTestId("zn-sg-zone").selectOption({ label: "Uživatelé ★" });
+  await sg.getByTestId("zn-sg-item").filter({ hasText: "10.201.9.0/24" }).getByTestId("zn-sg-zone").selectOption({ label: "Správa ★" });
+  await sg.getByTestId("zn-sg-apply").click();
+  await expect(sg).toBeHidden();
+  const flow = page.getByTestId("zn-flow").filter({ hasText: "E2E-Z101-PC" });
+  await expect(flow).toBeVisible();
+  await flow.getByTestId("zn-flow-set").click();
+  await page.getByTestId("zn-flow-via").selectOption({ label: "E2E-Z101-FW" });
+  await page.getByTestId("zn-flow-note").fill("pravidlo 42");
+  await page.getByTestId("zn-flow-save").click();
+  await expect(flow.getByTestId("zn-flow-control")).toContainText("přes E2E-Z101-FW");
+  // odběr kalendáře
+  await page.goto("/calendar");
+  await page.getByTestId("cal-feed-open").click();
+  await page.getByTestId("cal-feed-create").click();
+  const url = (await page.getByTestId("cal-feed-url").locator("code").textContent())!;
+  expect(url).toContain("/api/public/calendar/cal_");
+  await expect(page.getByTestId("cal-feed-item")).toHaveCount(1);
+  const ctx = await page.context().browser()!.newContext();
+  const r = await ctx.request.get(new URL(url).pathname.replace(/^/, new URL(page.url()).origin));
+  expect(r.status()).toBe(200);
+  expect(await r.text()).toContain("BEGIN:VCALENDAR");
+  await ctx.close();
+  page.once("dialog", (d) => void d.accept());
+  await page.getByTestId("cal-feed-item").getByRole("button", { name: "Zrušit" }).click();
+  await expect(page.getByTestId("cal-feed-item")).toHaveCount(0);
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("žádosti o přístup: import osob, žádost, vyřízení (v1.26)", async () => {
   await page.goto("/access");
   await expect(page.getByRole("heading", { name: "Žádosti o přístup", level: 1 })).toBeVisible();

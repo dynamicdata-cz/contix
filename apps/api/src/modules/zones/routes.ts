@@ -1,6 +1,6 @@
-import { SecurityZoneInput } from "@contix/shared";
+import { SecurityZoneInput, ZoneFlowControlInput, ZoneSuggestionsApply, cidrCovered } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
@@ -8,8 +8,8 @@ import { currentUser, requireModule, requirePerm } from "../../auth/middleware";
 import { hasPermIn, targetCompany } from "../../auth/scope";
 import { audit, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
-import { assets, securityZones } from "../../db/schema";
-import { assignZones, seedDefaultZones, syncZoneFindings, zoneDtos, zoneMap } from "./service";
+import { assetDependencies, assets, securityZones, zoneFlowControls } from "../../db/schema";
+import { assignZones, seedDefaultZones, syncZoneFindings, zoneDtos, zoneMap, zoneSuggestions } from "./service";
 
 /* Bezpečnostní zóny – /api/zones (v1.97, ADR-191). Vše v aktivní společnosti. */
 
@@ -35,6 +35,53 @@ export function zoneRoutes(db: Db) {
     .use(requireModule(db, "assets"))
     .get("/", requirePerm("assets:read"), async (c) => c.json(await zoneDtos(db, co(c))))
     .get("/map", requirePerm("assets:read"), async (c) => c.json(await zoneMap(db, co(c))))
+    /** Návrhy rozsahů ze síťových segmentů a podsítí aktiv (v1.101). */
+    .get("/suggestions", requirePerm("assets:read"), async (c) => c.json(await zoneSuggestions(db, co(c))))
+    .post("/suggestions/apply", requirePerm("assets:write"), zValidator("json", ZoneSuggestionsApply), async (c) => {
+      const id = co(c, true);
+      const items = c.req.valid("json").items;
+      const zones = await db.select().from(securityZones).where(and(eq(securityZones.companyId, id), inArray(securityZones.id, [...new Set(items.map((i) => i.zoneId))])));
+      const byId = new Map(zones.map((z) => [z.id, [...(z.cidrs ?? [])]]));
+      let added = 0;
+      for (const it of items) {
+        const list = byId.get(it.zoneId);
+        if (!list) throw new HTTPException(400, { message: "Zóna nepatří do aktivní společnosti" });
+        if (!cidrCovered(it.cidr, list)) {
+          list.push(it.cidr);
+          added++;
+        }
+      }
+      for (const [zid, cidrs] of byId) await db.update(securityZones).set({ cidrs: cidrs.slice(0, 200), updatedAt: new Date() }).where(eq(securityZones.id, zid));
+      const moved = await refresh(id);
+      await audit(db, { c, user: currentUser(c), action: "zones.suggestions_applied", entityType: "company", entityId: id, details: { added } });
+      return c.json({ added, moved, zones: await zoneDtos(db, id) });
+    })
+    /** Řízený přechod vazby přes hranici zón (v1.101): firewall / proxy / jump server nebo popis; nález se pak nezakládá. */
+    .put("/flows", requirePerm("assets:write"), zValidator("json", ZoneFlowControlInput), async (c) => {
+      const id = co(c, true);
+      const v = c.req.valid("json");
+      const ids = [v.fromId, v.toId, ...(v.viaAssetId ? [v.viaAssetId] : [])];
+      const own = await db.select({ id: assets.id }).from(assets).where(and(inArray(assets.id, ids), eq(assets.companyId, id)));
+      if (own.length !== new Set(ids).size) throw new HTTPException(400, { message: "Aktiva nepatří do aktivní společnosti" });
+      const [dep] = await db.select({ f: assetDependencies.fromId }).from(assetDependencies).where(and(eq(assetDependencies.fromId, v.fromId), eq(assetDependencies.toId, v.toId)));
+      if (!dep) throw new HTTPException(400, { message: "Mezi aktivy není evidovaná vazba" });
+      const vals = { fromId: v.fromId, toId: v.toId, viaAssetId: v.viaAssetId ?? null, note: v.note ?? "", createdById: currentUser(c).id };
+      await db.insert(zoneFlowControls).values(vals).onConflictDoUpdate({ target: [zoneFlowControls.fromId, zoneFlowControls.toId], set: { viaAssetId: vals.viaAssetId, note: vals.note, updatedAt: new Date() } });
+      await syncZoneFindings(db, [id]);
+      await audit(db, { c, user: currentUser(c), action: "zones.flow_controlled", entityType: "asset", entityId: v.toId, details: { fromId: v.fromId, viaAssetId: vals.viaAssetId, note: vals.note } });
+      return c.json(await zoneMap(db, id));
+    })
+    .delete("/flows/:fromId/:toId", requirePerm("assets:write"), zValidator("param", z.object({ fromId: z.string().uuid(), toId: z.string().uuid() })), async (c) => {
+      const id = co(c, true);
+      const fromId = c.req.param("fromId");
+      const toId = c.req.param("toId");
+      const [a] = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, toId), eq(assets.companyId, id)));
+      if (!a) throw new HTTPException(404, { message: "Aktivum nenalezeno" });
+      await db.delete(zoneFlowControls).where(and(eq(zoneFlowControls.fromId, fromId), eq(zoneFlowControls.toId, toId)));
+      await syncZoneFindings(db, [id]);
+      await audit(db, { c, user: currentUser(c), action: "zones.flow_control_removed", entityType: "asset", entityId: toId, details: { fromId } });
+      return c.json(await zoneMap(db, id));
+    })
     .post("/defaults", requirePerm("assets:write"), async (c) => {
       const id = co(c, true);
       const created = await seedDefaultZones(db, id);

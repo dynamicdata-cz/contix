@@ -779,7 +779,7 @@ A new version of the **risk assessment report** (Risks → document versions) co
 The calendar collects dates from the whole register: incident reporting deadlines, notification of a regulated service and data changes to NÚKIB, **implementing security measures within 1 year of the registration decision**, ISMS reviews, risk and document reviews, audits, continuity plan tests and exercises, access reviews, supplier contracts and reports, processing activity reviews (GDPR), AI systems (AI Act), product reporting and support periods (CRA) and the **backup restore test** (no later than 92 days after the last successful one). Each deadline has a legal basis; **Statutory deadlines only** hides internal dates (tasks, projects). You only see deadlines from areas you have permission for, in the currently selected company.
 
 ## Export to calendar
-**Download to calendar (.ics)** downloads the deadlines of the selected period as an iCalendar file. Open it in Outlook with a double-click, in Google Calendar via Settings → Import. Statutory deadlines have a reminder 7 days ahead. The file is a one-off snapshot – download it again after dates change (the same deadlines are overwritten on repeated import, not duplicated).
+**Download to calendar (.ics)** downloads the deadlines of the selected period as an iCalendar file. Open it in Outlook with a double-click, in Google Calendar via Settings → Import. Statutory deadlines have a reminder 7 days ahead. The file is a one-off snapshot – download it again after dates change (the same deadlines are overwritten on repeated import, not duplicated). More convenient is **Subscribe in calendar**: it creates a personal subscription address that you paste into Outlook (Add calendar → From internet) or Google Calendar (From URL), and the calendar then updates itself. The address works without sign-in, but only for reading deadlines and always with your current permissions; do not share it and revoke it when unused.
 
 ## This week
 The home Overview has a **What to do this week** card: statutory deadlines for the next 7 days and everything overdue, critical findings and high findings due within the week, and for administrators also unfinished required setup steps. Each item links straight to where it is handled.
@@ -793,13 +793,16 @@ The home Overview has a **What to do this week** card: statutory deadlines for t
 **Create default zones** sets up the basic set: Internet, DMZ, Guests, Users, Servers, Management and OT. Each zone has a **trust level** from 0 (untrusted) to 4 (critical). You can rename zones, change their colour and description, delete them or add a **custom zone** (e.g. Cameras, internal DMS, Lab) with its own trust level. Missing default zones can be added at any time.
 
 ## IP ranges and asset assignment
-Enter IP ranges for a zone (one per line, e.g. 10.10.0.0/24 or a single address). Assets are assigned to zones automatically by their IP addresses – the most specific range wins, so a custom zone with a narrower range inside the server network takes precedence. Assignment is recalculated after saving a zone, with **Reassign by IP** and regularly by the scheduler. In the asset detail (Technical details) you can set the zone **manually**; *Revert to assignment by IP* returns the asset to automatic assignment.
+Enter IP ranges for a zone (one per line, e.g. 10.10.0.0/24 or a single address). Assets are assigned to zones automatically by their IP addresses – the most specific range wins, so a custom zone with a narrower range inside the server network takes precedence. Assignment is recalculated after saving a zone, with **Reassign by IP** and regularly by the scheduler. In the asset detail (Technical details) you can set the zone **manually**; *Revert to assignment by IP* returns the asset to automatic assignment. Ranges can be IPv4 or IPv6 (e.g. 2001:db8:10::/48). **Suggest ranges** offers network scan segments and subnets (IPv4 /24, IPv6 /64) of asset IP addresses not yet in any zone, with a zone preselected by asset types – just review and confirm.
 
 ## Zone map
 The map shows zones as layers from untrusted to critical. For each asset you can see whether CONTIX collects data from it (green dot) and whether it is reachable from the internet. Arrows are **links between assets across zone boundaries** (asset uses asset):
 - **red** – a jump of more than one trust level, or a link into Management or OT from a zone other than servers,
 - **orange** – a link one level up (typically through a firewall),
-- **grey** – a link into a less sensitive zone.
+- **grey** – a link into a less sensitive zone,
+- **green** – a link through a controlled crossing.
+
+Below the map is a list of **links across zone boundaries**. If a risky link goes through a firewall, proxy or jump server, record a **controlled crossing** for it (a registered device or a description, e.g. the rule number) – the finding closes; removing the crossing reopens it.
 
 ## Zone checks as findings
 CONTIX creates findings in the findings register (source **Monitoring and zones**): an asset in the DMZ or reachable from the internet without data collection, a workstation in the server or management zone, a risky link across a zone boundary and a zone without a single monitored asset. A finding has an asset and a due date, and you can create a task or record an exception; once fixed (asset moved, collection enabled, link removed) it closes automatically.

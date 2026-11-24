@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { ObligationKind, ObligationUrgency } from "./notifications";
 
 /* ============================================================
@@ -137,4 +138,26 @@ export function buildIcs(items: CalendarItemDto[], o: IcsOptions): string {
   }
   lines.push("END:VCALENDAR");
   return lines.map(icsFold).join("\r\n") + "\r\n";
+}
+
+
+/* ---------- odběr kalendáře adresou (v1.101, ADR-195) ---------- */
+
+export const CALENDAR_FEED_PREFIX = "cal_";
+export const CalendarFeedInput = z.object({
+  name: z.string().trim().min(1).max(120).default("CONTIX – lhůty"),
+  /** null = všechny společnosti, ke kterým má uživatel přístup. */
+  companyId: z.string().uuid().nullable().optional(),
+  legalOnly: z.boolean().default(true),
+});
+export type CalendarFeedInput = z.input<typeof CalendarFeedInput>;
+
+export interface CalendarFeedDto {
+  id: string;
+  name: string;
+  companyId: string | null;
+  companyName: string | null;
+  legalOnly: boolean;
+  lastUsedAt: string | null;
+  createdAt: string;
 }

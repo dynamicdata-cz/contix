@@ -58,6 +58,8 @@ const INLINE_GUARDED = new Set([
   "modules/reports/routes.ts GET /management.docx",
   "modules/reports/routes.ts GET /management.html",
   "modules/soc/iocs.ts GET /feed/:token/:file",
+  // odběr kalendáře lhůt: token odběru v cestě, oprávnění uživatele při stažení (v1.101, ADR-195)
+  "modules/calendar/routes.ts GET /:file",
   "modules/soc/sources.ts POST /ingest",
   "modules/suppliers/questionnaires.ts DELETE /:token/files/:fileId",
   "modules/suppliers/questionnaires.ts GET /:token",

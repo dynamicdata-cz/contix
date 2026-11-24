@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.101.0
+
+Odběr kalendáře lhůt a vylepšení bezpečnostních zón (ADR-195).
+
+- **Odebírat v kalendáři** (Kalendář lhůt): osobní adresa odběru pro Outlook nebo Google Kalendář – lhůty se v kalendáři aktualizují samy. Adresa slouží jen ke čtení lhůt, vždy s aktuálními oprávněními uživatele, jde omezit na jednu společnost a na zákonné lhůty a kdykoli zrušit. Ukládá se jen otisk tokenu.
+- **Navrhnout rozsahy** (Bezpečnostní zóny): návrh rozsahů ze síťových segmentů skenů a z podsítí IP adres aktiv, které zatím nejsou v žádné zóně, s předvybranou zónou podle typů aktiv (pracovní stanice → Uživatelé, servery → Servery, síťové a bezpečnostní prvky → Správa, IoT/OT → OT, dostupné z internetu → DMZ). Rozsahy se ručně nemusí opisovat.
+- **Řízený přechod**: u rizikové vazby přes hranici zón jde zapsat firewall, proxy nebo jump server (z evidence) či popis pravidla – nález se uzavře a vazba je v mapě zelená. Nový seznam vazeb přes hranice zón pod mapou.
+- **IPv6 v zónách**: rozsahy i zařazení aktiv podle IPv6 adres (nejpřesnější rozsah vyhrává napříč IPv4 i IPv6).
+
 ## 1.100.0
 
 Prioritizace zranitelností – opravy místo tisíců nálezů (ADR-194).

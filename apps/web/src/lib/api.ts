@@ -553,6 +553,10 @@ import type {
   TmElement,
   TmThreat,
   CalendarDto,
+  CalendarFeedDto,
+  CalendarFeedInput,
+  ZoneSuggestionDto,
+  ZoneFlowControlInput,
 } from "@contix/shared";
 import { tt } from "./i18n";
 
@@ -1885,6 +1889,9 @@ export const api = {
   dashboard: () => request<DashboardDto>("/dashboard"),
 
   calendar: {
+    feeds: () => request<CalendarFeedDto[]>("/calendar/feeds"),
+    createFeed: (d: CalendarFeedInput) => post<{ feed: CalendarFeedDto; url: string }>("/calendar/feeds", d),
+    revokeFeed: (id: string) => del<{ ok: true }>(`/calendar/feeds/${id}`),
     list: (q: { from?: string; to?: string; legal?: "0" | "1" } = {}) => request<CalendarDto>(`/calendar?${qs(q)}`),
     icsUrl: (q: { from?: string; to?: string; legal?: "0" | "1" } = {}) => withCompany(`/api/calendar/contix-lhuty.ics?${qs(q)}`),
   },
@@ -1993,6 +2000,10 @@ export const api = {
     update: (id: string, d: SecurityZoneInput) => put<{ moved: number; zones: SecurityZoneDto[] }>(`/zones/${id}`, d),
     remove: (id: string) => del<{ moved: number; zones: SecurityZoneDto[] }>(`/zones/${id}`),
     setAssetZone: (assetId: string, zoneId: string | null) => put<{ zoneId: string | null; zoneManual: boolean }>(`/zones/assets/${assetId}`, { zoneId }),
+    suggestions: () => request<ZoneSuggestionDto[]>("/zones/suggestions"),
+    applySuggestions: (items: { cidr: string; zoneId: string }[]) => post<{ added: number; moved: number; zones: SecurityZoneDto[] }>("/zones/suggestions/apply", { items }),
+    setFlow: (d: ZoneFlowControlInput) => put<ZoneMapDto>("/zones/flows", d),
+    clearFlow: (fromId: string, toId: string) => del<ZoneMapDto>(`/zones/flows/${fromId}/${toId}`),
   },
   integrations: {
     /** Mapa propojení (v1.86): zóny, uzly, spojení, stavy a pokrytí serverů. */

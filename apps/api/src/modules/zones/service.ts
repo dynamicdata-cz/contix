@@ -1,7 +1,7 @@
-import { MONITORING_INFO, DEFAULT_ZONES, matchZone, zoneFlowLevel, type SecurityZoneDto, type ZoneKind, type ZoneMapDto } from "@contix/shared";
+import { MONITORING_INFO, DEFAULT_ZONES, cidrCovered, cidrRangeAny, matchZone, parseIp, subnetOf, suggestZoneKind, zoneFlowLevel, type SecurityZoneDto, type ZoneKind, type ZoneMapDto, type ZoneSuggestionDto } from "@contix/shared";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Db } from "../../db/client";
-import { assetDependencies, assets, monitoringFindings, securityZones } from "../../db/schema";
+import { assetDependencies, assets, monitoringFindings, netSegments, securityZones, zoneFlowControls } from "../../db/schema";
 import { monitoringOf } from "../identity/computers";
 import { applyMonitoringFindings, type MonitoringDesired } from "../integrations/monitoringFindings";
 
@@ -90,12 +90,16 @@ export async function zoneMap(db: Db, companyId: string): Promise<ZoneMapDto> {
   const [zones, list] = await Promise.all([zoneDtos(db, companyId), zoneAssets(db, companyId)]);
   const zm = new Map(zones.map((z) => [z.id, z]));
   const am = new Map(list.map((a) => [a.id, a]));
-  const deps = list.length
-    ? await db
-        .select({ fromId: assetDependencies.fromId, toId: assetDependencies.toId })
-        .from(assetDependencies)
-        .where(inArray(assetDependencies.fromId, list.map((a) => a.id)))
-    : [];
+  const ids = list.map((a) => a.id);
+  const [deps, ctrls] = ids.length
+    ? await Promise.all([
+        db.select({ fromId: assetDependencies.fromId, toId: assetDependencies.toId }).from(assetDependencies).where(inArray(assetDependencies.fromId, ids)),
+        db.select().from(zoneFlowControls).where(inArray(zoneFlowControls.fromId, ids)),
+      ])
+    : [[], []];
+  const viaIds = [...new Set(ctrls.map((x) => x.viaAssetId).filter((x): x is string => !!x))];
+  const viaNames = new Map(viaIds.length ? (await db.select({ id: assets.id, name: assets.name }).from(assets).where(inArray(assets.id, viaIds))).map((x) => [x.id, x.name]) : []);
+  const ctrlOf = new Map(ctrls.map((x) => [`${x.fromId}:${x.toId}`, { viaAssetId: x.viaAssetId, viaName: x.viaAssetId ? (viaNames.get(x.viaAssetId) ?? null) : null, note: x.note }]));
   const flows: ZoneMapDto["flows"] = [];
   for (const d of deps) {
     const a = am.get(d.fromId);
@@ -104,7 +108,7 @@ export async function zoneMap(db: Db, companyId: string): Promise<ZoneMapDto> {
     const za = zm.get(a.zoneId);
     const zb = zm.get(b.zoneId);
     if (!za || !zb) continue;
-    flows.push({ fromId: a.id, toId: b.id, fromZone: za.id, toZone: zb.id, level: zoneFlowLevel(za, zb) });
+    flows.push({ fromId: a.id, toId: b.id, fromZone: za.id, toZone: zb.id, level: zoneFlowLevel(za, zb), control: ctrlOf.get(`${a.id}:${b.id}`) ?? null });
   }
   return {
     zones,
@@ -131,7 +135,8 @@ export async function syncZoneFindings(db: Db, companyIds?: string[], now = new 
       if (z && (z.kind === "server" || z.kind === "management") && (a.assetType === "workstation" || a.assetType === "laptop"))
         desired.push({ ...base, assetId: a.id, key: `zone:${a.id}`, code: "zone_workstation_in_server", severity: "medium", subject: a.name, detail: `${a.name} je v zóně ${z.name}.` });
     }
-    for (const f of m.flows.filter((x) => x.level === "high")) {
+    // vazba přes řízený přechod (firewall, proxy, jump server) nález nezakládá (v1.101)
+    for (const f of m.flows.filter((x) => x.level === "high" && !x.control)) {
       const a = am.get(f.fromId)!;
       const b = am.get(f.toId)!;
       desired.push({ ...base, assetId: b.id, key: `flow:${a.id}:${b.id}`, code: "zone_boundary_flow", severity: "high", subject: `${a.name} → ${b.name}`.slice(0, 500), detail: `${a.name} (${zm.get(f.fromZone)?.name}) používá ${b.name} (${zm.get(f.toZone)?.name}).` });
@@ -155,3 +160,54 @@ export async function syncZoneFindings(db: Db, companyIds?: string[], now = new 
 }
 
 export type { ZoneRow };
+
+
+/* ---------- návrh rozsahů zón (v1.101, ADR-195) ---------- */
+
+/**
+ * Návrhy rozsahů pro zóny: síťové segmenty skenů a podsítě (IPv4 /24, IPv6 /64) z IP adres aktiv, které zatím
+ * nepokrývá žádná zóna. U každého návrhu druh zóny podle typů aktiv v rozsahu a existující zóna toho druhu.
+ */
+export async function zoneSuggestions(db: Db, companyId: string): Promise<ZoneSuggestionDto[]> {
+  const [zones, segs, list] = await Promise.all([
+    zonesOf(db, companyId),
+    db.select({ name: netSegments.name, cidrs: netSegments.cidrs }).from(netSegments).where(eq(netSegments.companyId, companyId)),
+    db
+      .select({ name: assets.name, assetType: assets.assetType, ips: assets.ipAddresses, internetFacing: assets.internetFacing, zoneId: assets.zoneId })
+      .from(assets)
+      .where(and(eq(assets.companyId, companyId), inArray(assets.lifecycleStatus, [...ACTIVE]))),
+  ]);
+  const covered = zones.flatMap((z) => z.cidrs ?? []);
+  const cands = new Map<string, ZoneSuggestionDto["source"]>();
+  for (const sg of segs) for (const c of sg.cidrs ?? []) if (cidrRangeAny(c) && !cidrCovered(c, covered)) cands.set(c, { kind: "segment", name: sg.name });
+  for (const a of list) {
+    if (a.zoneId) continue;
+    for (const ip of a.ips ?? []) {
+      const sn = subnetOf(ip);
+      // podsíť uvnitř navrženého segmentu už má návrh za segment
+      if (sn && !cidrCovered(sn, covered) && !cands.has(sn) && ![...cands.keys()].some((c) => cidrCovered(sn, [c]))) cands.set(sn, { kind: "assets" });
+    }
+  }
+  const out: ZoneSuggestionDto[] = [];
+  for (const [cidr, source] of cands) {
+    const r = cidrRangeAny(cidr)!;
+    const inside = list.filter((a) => !a.zoneId && (a.ips ?? []).some((ip) => {
+      const p = parseIp(ip);
+      return !!p && p.fam === r.fam && p.v >= r.start && p.v <= r.end;
+    }));
+    if (!inside.length && source.kind === "assets") continue;
+    const types: Record<string, number> = {};
+    for (const a of inside) types[a.assetType] = (types[a.assetType] ?? 0) + 1;
+    const kind = suggestZoneKind(types, inside.filter((a) => a.internetFacing).length);
+    out.push({
+      cidr,
+      source,
+      assets: inside.length,
+      sample: inside.map((a) => a.name).sort().slice(0, 5),
+      types,
+      suggestedKind: kind,
+      suggestedZoneId: zones.find((z) => z.kind === kind)?.id ?? null,
+    });
+  }
+  return out.sort((a, b) => b.assets - a.assets || a.cidr.localeCompare(b.cidr)).slice(0, 200);
+}
