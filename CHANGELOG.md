@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.100.0
+
+Prioritizace zranitelností – opravy místo tisíců nálezů (ADR-194).
+
+- **Přehled – karta Zranitelnosti** ukazuje počet **prioritních k opravě** (P1 + P2) místo všech otevřených nálezů, rozpad podle priority, aktivně zneužívané (KEV), po termínu opravy, kolik % prioritních vyřeší 10 aktualizací a nejúčinnější aktualizaci.
+- **Plán oprav podle balíčků**: nad tabulkou souhrn „prvních 10 aktualizací odstraní X % prioritních“, u každého balíčku počet odstraněných prioritních s kumulativním podílem, **cílová verze** ze skeneru (Trivy, Grype …) a nejbližší **termín opravy** podle lhůt priority.
+- **Naplánovat opravu**: z řádku plánu vznikne úkol „Aktualizovat balíček …“ s dotčenými aktivy, cílovou verzí, nejprioritnějšími CVE a termínem.
+- **Povinnost „Oprava zranitelností“** na aktivu nově jmenuje aktualizaci, která na něm odstraní nejvíc prioritních zranitelností.
+
 ## 1.99.0
 
 Technická bezpečnost na Přehledu (ADR-193).

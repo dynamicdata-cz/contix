@@ -26,7 +26,9 @@ import { cn, fmtDate } from "@/lib/utils";
 import { formatLocale } from "@/lib/utils";
 import {
   RISK_LABELS,
+  VULN_INTEL_LABELS,
   VULN_LABELS,
+  VULN_PRIORITIES,
   type DashboardDto,
   type ObligationKind,
   type OpsLevel,
@@ -264,40 +266,34 @@ export function Dashboard() {
 
   if (showVulns && vulns.data) {
     const v = vulns.data;
+    const all = v.openBySeverity.critical + v.openBySeverity.high + v.openBySeverity.medium + v.openBySeverity.low + v.openBySeverity.unknown;
+    const fp = v.fixPlan;
+    // hlavní číslo = prioritní (P1 + P2) k opravě, ne všechny nálezy – „18 469“ nikomu neřekne, co dělat (v1.100)
     areas.push(
       <AreaCard
         key="vulns"
-        empty={!v.lastSync}
+        empty={!v.lastSync && !all}
         emptyHint={t("dash.vulnHint")}
         to="/vulnerabilities"
         icon={Bug}
         title={t("dash.area.vulns")}
-        main={
-          v.openBySeverity.critical +
-          v.openBySeverity.high +
-          v.openBySeverity.medium +
-          v.openBySeverity.low
-        }
-        mainLabel={t("dash.main.vulns")}
-        segments={(["critical", "high", "medium", "low"] as const).map((k) => ({
-          key: k,
-          label: t.lbl(VULN_LABELS.severity[k]),
-          n: v.openBySeverity[k],
-          color: SEVERITY_COLOR[k],
-        }))}
+        main={fp.priorityOpen}
+        mainLabel={t("dash.vuln.mainPrio", { all: all.toLocaleString(formatLocale()) })}
+        segments={VULN_PRIORITIES.map((k) => ({ key: k, label: t.lbl(VULN_INTEL_LABELS.priority[k]), n: v.openByPriority[k], color: PRIO_COLOR[k] }))}
         metrics={[
-          {
-            label: t("dash.m.critical"),
-            value: v.openBySeverity.critical,
-            tone: "bad",
-          },
-          { label: t("dash.m.high"), value: v.openBySeverity.high, tone: "warn" },
+          { label: t("dash.vuln.kev"), value: v.kevOpen, tone: "bad" },
+          { label: t("dash.vuln.overdue"), value: v.overdue, tone: "bad" },
+          ...(fp.priorityOpen
+            ? [{ label: t("dash.vuln.top10"), value: `${Math.round((fp.top10Removes / fp.priorityOpen) * 100)} %` }]
+            : []),
           { label: t("dash.m.vuln.eol"), value: v.support.eol, tone: "warn" },
         ]}
         foot={
-          v.lastSync
-            ? t("dash.synced", { time: fmtDate(v.lastSync) })
-            : t("dash.notSynced")
+          fp.top[0]
+            ? t("dash.vuln.topFix", { pkg: fp.top[0].packageName, n: fp.top[0].removes })
+            : v.lastSync
+              ? t("dash.synced", { time: fmtDate(v.lastSync) })
+              : t("dash.notSynced")
         }
       />,
     );
@@ -1047,6 +1043,8 @@ function AreaCard({
 }
 
 /** Oblasti rozdělené do sekcí; nevyplněné oblasti v jedné kompaktní kartě (v1.57). */
+/** Barvy priorit oprav (P1 okamžitě … P4 sledovat). */
+const PRIO_COLOR: Record<(typeof VULN_PRIORITIES)[number], string> = { p1: "#b91c1c", p2: "#ea580c", p3: "#f59e0b", p4: "#94a3b8" };
 const TECH_AREAS = new Set(["assets", "vulns", "incidents", "identity", "sectests", "hosts", "monitoring", "tls", "soc", "sca", "ops"]);
 function AreaSections({ areas }: { areas: ReactNode[] }) {
   const t = useT();

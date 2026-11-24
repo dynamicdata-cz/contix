@@ -139,7 +139,7 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
           lastVulnSync(db),
         ]);
         const sla = await getVulnSla(db);
-        const [prio, [kevOpen], intel, [overdue]] = await Promise.all([
+        const [prio, [kevOpen], intel, [overdue], planTop] = await Promise.all([
           db
             .select({ p: vulnPrioritySql, n: count() })
             .from(assetVulnerabilities)
@@ -161,7 +161,17 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
             .innerJoin(assets, eq(assets.id, assetVulnerabilities.assetId))
             .leftJoin(vulnIntel, eq(vulnIntel.cveId, assetVulnerabilities.cveId))
             .where(and(sc, vulnOverdueSql(sla))),
+          // plán oprav ve zkratce: balíčky podle počtu prioritních (P1 + P2) zranitelností (v1.100)
+          db
+            .select({ name: assetVulnerabilities.packageName, n: sql<number>`count(*)::int` })
+            .from(assetVulnerabilities)
+            .innerJoin(assets, eq(assets.id, assetVulnerabilities.assetId))
+            .leftJoin(vulnIntel, eq(vulnIntel.cveId, assetVulnerabilities.cveId))
+            .where(and(eq(assetVulnerabilities.status, "open"), sc, sql`${assetVulnerabilities.packageName} <> ''`, sql`${vulnPrioritySql} <= 2`))
+            .groupBy(assetVulnerabilities.packageName)
+            .orderBy(sql`2 desc`, assetVulnerabilities.packageName),
         ]);
+        const top10 = planTop.slice(0, 10);
         const toRec = <K extends string>(rows: { k: K; n: number }[], keys: readonly K[]) =>
           Object.fromEntries(keys.map((k) => [k, rows.find((r) => r.k === k)?.n ?? 0])) as Record<K, number>;
         const body: VulnSummaryDto = {
@@ -178,6 +188,12 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
           kevOpen: kevOpen?.n ?? 0,
           overdue: overdue?.n ?? 0,
           intel,
+          fixPlan: {
+            priorityOpen: (prio.find((r) => Number(r.p) === 1)?.n ?? 0) + (prio.find((r) => Number(r.p) === 2)?.n ?? 0),
+            packages: planTop.length,
+            top10Removes: top10.reduce((a, r) => a + r.n, 0),
+            top: top10.slice(0, 3).map((r) => ({ packageName: r.name, removes: r.n })),
+          },
         };
         return c.json(body);
       })
@@ -278,6 +294,13 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
 
       /** Plán oprav: otevřené zranitelnosti podle balíčku – co zmizí opravou (aktualizací) jednoho balíčku. */
       .get("/fix-plan", requirePerm("assets:read"), async (c) => {
+        const due = vulnDueSql(await getVulnSla(db));
+        const [prioTotal] = await db
+          .select({ n: count() })
+          .from(assetVulnerabilities)
+          .innerJoin(assets, eq(assets.id, assetVulnerabilities.assetId))
+          .leftJoin(vulnIntel, eq(vulnIntel.cveId, assetVulnerabilities.cveId))
+          .where(and(inScope(c, assets.companyId), eq(assetVulnerabilities.status, "open"), sql`${vulnPrioritySql} <= 2`));
         const rows = await db
           .select({
             pkg: assetVulnerabilities.packageName,
@@ -292,21 +315,26 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
             kevRansomware: vulnIntel.kevRansomware,
             epss: vulnIntel.epss,
             linked: sql<boolean>`exists (select 1 from risk_cves rc where rc.vulnerability_id = ${assetVulnerabilities.id})`,
+            fixedVersion: assetVulnerabilities.fixedVersion,
+            due: sql<string | null>`${due}::text`,
           })
           .from(assetVulnerabilities)
           .innerJoin(assets, eq(assets.id, assetVulnerabilities.assetId))
           .leftJoin(vulnIntel, eq(vulnIntel.cveId, assetVulnerabilities.cveId))
           .where(and(inScope(c, assets.companyId), eq(assetVulnerabilities.status, "open"), sql`${assetVulnerabilities.packageName} <> ''`));
-        const by = new Map<string, VulnFixPlanItem & { _assets: Map<string, string>; _versions: Set<string>; _cves: Map<string, { cveId: string; priority: VulnPriority; kev: boolean; epss: number | null }> }>();
+        const by = new Map<string, VulnFixPlanItem & { _assets: Map<string, string>; _versions: Set<string>; _fixed: Map<string, number>; _cves: Map<string, { cveId: string; priority: VulnPriority; kev: boolean; epss: number | null }> }>();
         for (const r of rows) {
           let g = by.get(r.pkg);
           if (!g) {
-            g = { packageName: r.pkg, assets: 0, assetNames: [], versions: [], cves: 0, byPriority: { p1: 0, p2: 0, p3: 0, p4: 0 }, kev: 0, maxEpss: null, critical: 0, sample: [], unlinked: 0, _assets: new Map(), _versions: new Set(), _cves: new Map() };
+            g = { packageName: r.pkg, assets: 0, assetNames: [], versions: [], cves: 0, byPriority: { p1: 0, p2: 0, p3: 0, p4: 0 }, kev: 0, maxEpss: null, critical: 0, sample: [], unlinked: 0, priorityRemoves: 0, cumulativePct: 0, fixedVersion: null, due: null, _assets: new Map(), _versions: new Set(), _fixed: new Map(), _cves: new Map() };
             by.set(r.pkg, g);
           }
           const p = vulnPriority({ severity: r.severity, kev: !!r.kev, kevRansomware: !!r.kevRansomware, epss: r.epss, assetCriticality: r.criticality, exposed: r.exposed }).priority;
           g.cves++;
           g.byPriority[p]++;
+          if (p === "p1" || p === "p2") g.priorityRemoves++;
+          if (r.due && (!g.due || r.due < g.due)) g.due = r.due;
+          if (r.fixedVersion) g._fixed.set(r.fixedVersion, (g._fixed.get(r.fixedVersion) ?? 0) + 1);
           if (r.kev) g.kev++;
           if (r.severity === "critical") g.critical++;
           if (r.epss != null) g.maxEpss = Math.max(g.maxEpss ?? 0, r.epss);
@@ -318,8 +346,9 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
         }
         const score = (g: VulnFixPlanItem) => g.byPriority.p1 * 1_000_000 + g.byPriority.p2 * 1_000 + g.byPriority.p3;
         const items: VulnFixPlanItem[] = [...by.values()]
-          .map(({ _assets, _versions, _cves, ...g }) => ({
+          .map(({ _assets, _versions, _fixed, _cves, ...g }) => ({
             ...g,
+            fixedVersion: [..._fixed.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null,
             assets: _assets.size,
             assetNames: [..._assets.values()].sort().slice(0, 8),
             versions: [..._versions].sort().slice(0, 5),
@@ -327,6 +356,13 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
           }))
           .sort((a, b) => score(b) - score(a) || b.cves - a.cves)
           .slice(0, 100);
+        // kumulativní podíl prioritních zranitelností odstraněných opravami v tomto pořadí (v1.100)
+        let acc = 0;
+        const total = prioTotal?.n ?? 0;
+        for (const it of items) {
+          acc += it.priorityRemoves;
+          it.cumulativePct = total ? Math.round((acc / total) * 1000) / 10 : 0;
+        }
         return c.json(items);
       })
 

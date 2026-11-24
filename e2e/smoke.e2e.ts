@@ -1600,6 +1600,31 @@ test("ochota riskovat a KRI, detekce ATT&CK (v1.22–v1.24)", async () => {
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("plán oprav: podíl prioritních, cílová verze, naplánovat opravu jako úkol, přehled (v1.100)", async () => {
+  const headers = { origin: new URL(page.url()).origin };
+  await page.request.post("/api/assets", { data: { name: "E2E-FIX-01", assetType: "server", criticality: "critical", ipAddresses: ["10.100.0.1"] }, headers });
+  const vuln = (id: string) => ({ VulnerabilityID: id, PkgName: "e2e-openssl", InstalledVersion: "3.0.1", FixedVersion: "3.0.9", Severity: "CRITICAL", Title: `E2E ${id}` });
+  const trivy = { ArtifactName: "E2E-FIX-01", Results: [{ Target: "E2E-FIX-01 (debian 12)", Class: "os-pkgs", Vulnerabilities: [vuln("CVE-2026-10001"), vuln("CVE-2026-10002")] }] };
+  await page.goto("/vulnerabilities");
+  await page.getByRole("button", { name: "Importovat sken" }).click();
+  const dlg = page.getByRole("dialog");
+  await dlg.locator("input[type=file]").setInputFiles({ name: "trivy.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(trivy)) });
+  await dlg.getByRole("button", { name: "Náhled" }).click();
+  await dlg.getByRole("button", { name: /Importovat 2 nález/ }).click();
+  await expect(dlg).toBeHidden();
+  await page.goto("/vulnerabilities");
+  await expect(page.getByTestId("vp-plan-coverage")).toContainText("prioritních");
+  const row = page.locator("tr", { hasText: "cíl: verze 3.0.9" }).filter({ hasText: "e2e-openssl" });
+  await expect(row).toBeVisible();
+  await row.getByTestId("vp-plan-btn").click();
+  await expect(row.getByTestId("vp-plan-task")).toBeVisible();
+  await row.getByTestId("vp-plan-task").click();
+  await expect(page.getByText("Aktualizovat balíček e2e-openssl").first()).toBeVisible();
+  await page.goto("/");
+  await expect(page.getByTestId("dash-tech")).toContainText("prioritních k opravě");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("import skenu zranitelností: náhled, import, triáž falešně pozitivní", async () => {
   const headers = { origin: new URL(page.url()).origin };
   await page.request.post("/api/assets", { data: { name: "E2E-SCAN-01", assetType: "server", ipAddresses: ["10.88.0.1"] }, headers });

@@ -42,11 +42,23 @@ export async function vulnRemediationItems(db: Db, companyIds: string[], t: Tran
     .leftJoin(vulnIntel, eq(vulnIntel.cveId, assetVulnerabilities.cveId))
     .where(and(inArray(assets.companyId, companyIds), eq(assetVulnerabilities.status, "open"), sql`${vulnPrioritySql} in (${sql.join(prios.map((p) => sql`${p}`), sql`, `)})`))
     .groupBy(assets.id, assets.name, assets.companyId, assets.ownerUserId, assets.technicalOwnerUserId, assets.technicalDeputyUserId);
+  // nejúčinnější aktualizace na každém aktivu – balíček s nejvíc prioritními zranitelnostmi (v1.100)
+  const tops = rows.length
+    ? ((await db.execute(sql`select distinct on (asset_id) asset_id, pkg, n from (
+        select ${assetVulnerabilities.assetId} as asset_id, ${assetVulnerabilities.packageName} as pkg, count(*)::int as n
+        from ${assetVulnerabilities}
+        join ${assets} on ${assets.id} = ${assetVulnerabilities.assetId}
+        left join ${vulnIntel} on ${vulnIntel.cveId} = ${assetVulnerabilities.cveId}
+        where ${inArray(assets.id, rows.map((r) => r.assetId))} and ${assetVulnerabilities.status} = 'open' and ${assetVulnerabilities.packageName} <> ''
+          and ${vulnPrioritySql} in (${sql.join(prios.map((p) => sql`${p}`), sql`, `)})
+        group by 1, 2) x order by asset_id, n desc, pkg`)) as unknown as { asset_id: string; pkg: string; n: number }[])
+    : [];
+  const topBy = new Map(tops.map((x) => [x.asset_id, x]));
   return rows.map((r) => ({
     key: `vuln_remediation:${r.assetId}`,
     kind: "vuln_remediation" as const,
     title: t("srv.obl.vulnFix", { asset: r.name }),
-    detail: t("srv.obl.vulnFixDetail", { total: r.total, p1: r.p1, overdue: r.overdue }),
+    detail: [t("srv.obl.vulnFixDetail", { total: r.total, p1: r.p1, overdue: r.overdue }), topBy.get(r.assetId) && t("srv.obl.vulnFixTop", { pkg: topBy.get(r.assetId)!.pkg, n: topBy.get(r.assetId)!.n })].filter(Boolean).join(" · "),
     companyId: r.companyId,
     due: r.due,
     link: `/assets/${r.assetId}`,

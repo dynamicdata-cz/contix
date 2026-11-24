@@ -103,6 +103,26 @@ export interface VulnFixPlanItem {
   sample: { cveId: string; priority: VulnPriority; kev: boolean; epss: number | null }[];
   /** Kritické a vysoké otevřené zranitelnosti balíčku, které ještě nejsou navázané na riziko. */
   unlinked: number;
+  /** Prioritní (P1 + P2) zranitelnosti, které aktualizace balíčku odstraní (v1.100). */
+  priorityRemoves: number;
+  /** Kolik % všech otevřených prioritních zranitelností odstraní tato a všechny výše uvedené opravy (kumulativně). */
+  cumulativePct: number;
+  /** Nejčastější opravená verze uvedená skenerem (cíl aktualizace), pokud ji zdroj zná. */
+  fixedVersion: string | null;
+  /** Nejbližší termín opravy podle lhůt priority (YYYY-MM-DD), null = bez lhůty. */
+  due: string | null;
+}
+
+/** Shrnutí plánu oprav pro Přehled (v1.100): kolik prioritních zranitelností vyřeší deset nejúčinnějších aktualizací. */
+export interface VulnFixPlanSummary {
+  /** Otevřené prioritní (P1 + P2) zranitelnosti celkem. */
+  priorityOpen: number;
+  /** Balíčky s aspoň jednou prioritní zranitelností. */
+  packages: number;
+  /** Prioritní zranitelnosti, které odstraní 10 nejúčinnějších aktualizací balíčků. */
+  top10Removes: number;
+  /** Nejúčinnější aktualizace (název balíčku a kolik prioritních odstraní). */
+  top: { packageName: string; removes: number }[];
 }
 
 export const VULN_INTEL_LABELS = {

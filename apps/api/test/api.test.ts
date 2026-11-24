@@ -6554,6 +6554,17 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(item.byPriority.p1).toBeGreaterThanOrEqual(1);
     expect(plan[0].byPriority.p1).toBeGreaterThanOrEqual(1);
     expect(item.sample[0].priority).toBe("p1");
+    // v1.100: prioritní odstraněné opravou, kumulativní podíl, termín, shrnutí v souhrnu
+    expect(item.priorityRemoves).toBeGreaterThanOrEqual(1);
+    expect(item.due).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    for (let i = 1; i < plan.length; i++) expect(plan[i].cumulativePct).toBeGreaterThanOrEqual(plan[i - 1].cumulativePct);
+    expect(plan.at(-1).cumulativePct).toBeLessThanOrEqual(100);
+    const sm2 = (await admin.json("/api/vulnerabilities/summary")).body;
+    expect(sm2.fixPlan.priorityOpen).toBe(sm2.openByPriority.p1 + sm2.openByPriority.p2);
+    expect(sm2.fixPlan.top10Removes).toBeLessThanOrEqual(sm2.fixPlan.priorityOpen);
+    expect(sm2.fixPlan.top[0].removes).toBe(Math.max(...plan.map((x) => x.priorityRemoves)));
+    // povinnost jmenuje nejúčinnější aktualizaci na aktivu
+    expect(ob.detail).toContain("nejvíc odstraní aktualizace");
     // riziko za balíček (všechna aktiva s nepokrytými kritickými / vysokými CVE balíčku)
     const highPkg = plan.find((x) => x.unlinked > 0);
     if (highPkg) {

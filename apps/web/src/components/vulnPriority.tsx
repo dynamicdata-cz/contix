@@ -6,7 +6,7 @@ import { Badge, Button, Card, CardHeader, EmptyState, ErrorBox, Field, Input, Mo
 import { api } from "@/lib/api";
 import { useCan, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { cn, fmtDate } from "@/lib/utils";
+import { cn, fmtDate, fmtDay } from "@/lib/utils";
 import { VULN_INTEL_LABELS, VULN_PRIORITIES, type VulnFixPlanItem, type VulnPriority, type VulnPriorityReason, type VulnSla, type VulnSummaryDto } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -200,12 +200,42 @@ export function FixPlanCard({ onPackage }: { onPackage: (pkg: string) => void })
       nav({ to: "/risks/$riskId", params: { riskId: r.id } });
     },
   });
+  // naplánovat opravu balíčku jako úkol (v1.100) – jen u jedné společnosti (úkol patří společnosti)
+  const [planned, setPlanned] = useState<Record<string, string>>({});
+  const plan = useMutation({
+    mutationFn: (x: VulnFixPlanItem) =>
+      api.actions.create({
+        title: t("vp.plan.taskTitle", { pkg: x.packageName }),
+        description: [
+          t("vp.plan.taskRemoves", { n: x.priorityRemoves, all: x.cves }),
+          x.fixedVersion ? t("vp.plan.taskTarget", { v: x.fixedVersion }) : null,
+          t("vp.plan.taskAssets", { list: x.assetNames.join(", ") + (x.assets > x.assetNames.length ? ` (+${x.assets - x.assetNames.length})` : "") }),
+          t("vp.plan.taskCves", { list: x.sample.map((c) => c.cveId).join(", ") }),
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        dueDate: x.due ?? undefined,
+        priority: x.byPriority.p1 ? "high" : "medium",
+      }),
+    onSuccess: (task, x) => {
+      setPlanned((p) => ({ ...p, [x.packageName]: task.id }));
+      qc.invalidateQueries({ queryKey: ["tasks"] });
+    },
+  });
+  const canPlan = can("actions:write") && !!me.activeCompanyId;
   const items = q.data ?? [];
   const shown = all ? items : items.slice(0, 10);
+  const top10 = items.slice(0, 10);
+  const top10Pct = top10.length ? top10[top10.length - 1]!.cumulativePct : 0;
   return (
     <Card className="mb-6 overflow-hidden">
       <CardHeader title={t("vp.plan.title")} subtitle={t("vp.plan.subtitle")} action={<ShieldAlert size={16} className="text-slate-400" aria-hidden />} />
-      <ErrorBox error={q.error ?? risk.error} />
+      {top10Pct > 0 && (
+        <p className="border-b border-slate-100 bg-brand-50 px-4 py-2 text-sm text-brand-900" data-testid="vp-plan-coverage">
+          {t("vp.plan.coverage", { n: Math.min(10, items.length), pct: top10Pct })}
+        </p>
+      )}
+      <ErrorBox error={q.error ?? risk.error ?? plan.error} />
       {!q.data ? (
         <EmptyState>{t("common.loading")}</EmptyState>
       ) : items.length === 0 ? (
@@ -217,14 +247,23 @@ export function FixPlanCard({ onPackage }: { onPackage: (pkg: string) => void })
               <tr>
                 <th className="px-4 py-2">{t("vp.plan.package")}</th>
                 <th className="w-56 px-3 py-2">{t("vp.plan.removes")}</th>
+                <th className="w-28 px-3 py-2 text-right">{t("vp.plan.cumulative")}</th>
                 <th className="w-24 px-3 py-2 text-right">{t("vp.plan.assets")}</th>
                 <th className="px-3 py-2">{t("vp.plan.top")}</th>
-                {can("risks:write") && <th className="w-36 px-3 py-2" />}
+                {(can("risks:write") || canPlan) && <th className="w-40 px-3 py-2" />}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {shown.map((x) => (
-                <PlanRow key={x.packageName} x={x} onPackage={onPackage} onRisk={can("risks:write") ? () => risk.mutate(x.packageName) : undefined} busy={risk.isPending} />
+                <PlanRow
+                  key={x.packageName}
+                  x={x}
+                  onPackage={onPackage}
+                  onRisk={can("risks:write") ? () => risk.mutate(x.packageName) : undefined}
+                  onPlan={canPlan ? () => plan.mutate(x) : undefined}
+                  plannedTaskId={planned[x.packageName]}
+                  busy={risk.isPending || plan.isPending}
+                />
               ))}
             </tbody>
           </table>
@@ -239,7 +278,7 @@ export function FixPlanCard({ onPackage }: { onPackage: (pkg: string) => void })
   );
 }
 
-function PlanRow({ x, onPackage, onRisk, busy }: { x: VulnFixPlanItem; onPackage: (pkg: string) => void; onRisk?: () => void; busy: boolean }) {
+function PlanRow({ x, onPackage, onRisk, onPlan, plannedTaskId, busy }: { x: VulnFixPlanItem; onPackage: (pkg: string) => void; onRisk?: () => void; onPlan?: () => void; plannedTaskId?: string; busy: boolean }) {
   const t = useT();
   return (
     <tr className="align-top">
@@ -248,6 +287,8 @@ function PlanRow({ x, onPackage, onRisk, busy }: { x: VulnFixPlanItem; onPackage
           {x.packageName}
         </button>
         {x.versions.length > 0 && <div className="text-xs text-slate-500">{x.versions.join(", ")}</div>}
+        {x.fixedVersion && <div className="text-xs text-emerald-700">{t("vp.plan.target", { v: x.fixedVersion })}</div>}
+        {x.due && <div className={cn("text-xs", x.due < new Date().toISOString().slice(0, 10) ? "font-semibold text-red-700" : "text-slate-500")}>{t("vp.plan.due", { date: fmtDay(x.due) })}</div>}
       </td>
       <td className="px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-1">
@@ -264,6 +305,10 @@ function PlanRow({ x, onPackage, onRisk, busy }: { x: VulnFixPlanItem; onPackage
         </div>
         <div className="mt-0.5 text-xs text-slate-500">{t("vp.plan.cves", { n: x.cves, epss: epssText(x.maxEpss) })}</div>
       </td>
+      <td className="px-3 py-2.5 text-right text-xs tabular-nums" title={t("vp.plan.cumulativeHint")}>
+        <div className="font-semibold text-slate-900">{x.priorityRemoves}</div>
+        <div className="text-slate-500">{t("vp.plan.cumPct", { pct: x.cumulativePct })}</div>
+      </td>
       <td className="px-3 py-2.5 text-right text-xs tabular-nums" title={x.assetNames.join(", ")}>
         {x.assets}
       </td>
@@ -278,9 +323,19 @@ function PlanRow({ x, onPackage, onRisk, busy }: { x: VulnFixPlanItem; onPackage
           </div>
         ))}
       </td>
-      {onRisk && (
-        <td className="px-3 py-2.5 text-right">
-          {x.unlinked > 0 && (
+      {(onRisk || onPlan) && (
+        <td className="space-y-1 px-3 py-2.5 text-right">
+          {onPlan &&
+            (plannedTaskId ? (
+              <Link to="/actions" search={{ task: plannedTaskId } as never} className="block text-xs text-brand-700 hover:underline" data-testid="vp-plan-task">
+                {t("vp.plan.planned")}
+              </Link>
+            ) : (
+              <Button variant="secondary" className="px-2.5 py-1 text-xs" onClick={onPlan} disabled={busy} data-testid="vp-plan-btn">
+                {t("vp.plan.plan")}
+              </Button>
+            ))}
+          {onRisk && x.unlinked > 0 && (
             <Button variant="secondary" className="px-2.5 py-1 text-xs" onClick={onRisk} disabled={busy} title={t("vp.plan.riskHint", { n: x.unlinked })}>
               {t("rsk.zalozitRiziko")}
             </Button>

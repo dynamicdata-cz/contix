@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { VULN_PRIORITIES, type VulnIntelStatusDto, type VulnPriority, type VulnPriorityReason } from "./vulnIntel";
+import { VULN_PRIORITIES, type VulnIntelStatusDto, type VulnFixPlanSummary, type VulnPriority, type VulnPriorityReason } from "./vulnIntel";
 
 /* ============================================================
  * Zranitelnosti (CVE) a zdravotní stav aktiv – "semafor"
@@ -153,6 +153,8 @@ export interface VulnSummaryDto {
   /** Otevřené zranitelnosti po termínu opravy. */
   overdue: number;
   intel: VulnIntelStatusDto;
+  /** Plán oprav ve zkratce (v1.100, ADR-194). */
+  fixPlan: VulnFixPlanSummary;
 }
 
 /* ============================================================
