@@ -42,6 +42,7 @@ export interface Stored {
   apiKeyEnc: string | null;
   timeoutSec: number;
   temperature: number;
+  thinking: "default" | "off" | "on";
   instructions: string | null;
   mcpEnabled: boolean;
   mcpAllowedIps: string[];
@@ -60,6 +61,7 @@ const DEFAULTS: Stored = {
   apiKeyEnc: null,
   timeoutSec: 240,
   temperature: 0.2,
+  thinking: "default",
   instructions: null,
   mcpEnabled: false,
   mcpAllowedIps: [],
@@ -89,6 +91,7 @@ export const aiSettingsDto = (s: Stored): AiSettingsDto => ({
   apiKeySet: !!s.apiKeyEnc,
   timeoutSec: s.timeoutSec,
   temperature: s.temperature,
+  thinking: s.thinking,
   instructions: s.instructions,
   mcpEnabled: s.mcpEnabled,
   mcpAllowedIps: s.mcpAllowedIps,
@@ -120,7 +123,7 @@ export function clientFor(s: Stored, config: Config, fetchImpl?: FetchLike) {
   } catch {
     apiKey = null;
   }
-  return createAiClient({ provider: s.provider, baseUrl: s.baseUrl, apiKey, model: s.model, timeoutSec: s.timeoutSec, temperature: s.temperature, embeddingModel: s.embeddingModel }, fetchImpl);
+  return createAiClient({ provider: s.provider, baseUrl: s.baseUrl, apiKey, model: s.model, timeoutSec: s.timeoutSec, temperature: s.temperature, thinking: s.thinking, embeddingModel: s.embeddingModel }, fetchImpl);
 }
 
 /** Test spojení: seznam modelů + krátký dotaz. Výsledek se uloží do nastavení. */

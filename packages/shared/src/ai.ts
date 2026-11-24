@@ -110,6 +110,9 @@ export const AI_STATUS_LABELS: Record<AiSuggestionStatus, string> = {
   failed: "Chyba",
 };
 
+export const AI_THINKING = ["default", "off", "on"] as const;
+export type AiThinking = (typeof AI_THINKING)[number];
+
 export const AiSettingsInput = z.object({
   enabled: z.boolean().optional(),
   provider: z.enum(AI_PROVIDERS).optional(),
@@ -120,6 +123,8 @@ export const AiSettingsInput = z.object({
   /** Časový limit jednoho dotazu (lokální modely s uvažováním potřebují víc času). */
   timeoutSec: z.number().int().min(10).max(900).optional(),
   temperature: z.number().min(0).max(1.5).optional(),
+  /** Přemýšlení (uvažování) modelu (v1.102.2): výchozí podle modelu, vypnout (rychlé odpovědi, např. qwen3.5), zapnout. */
+  thinking: z.enum(AI_THINKING).optional(),
   /** Doplňující pokyny pro všechny dotazy (např. „odpovídej stručně“, terminologie organizace). */
   instructions: z.string().trim().max(2000).nullable().optional(),
   /** MCP server (/api/mcp) pro externí AI klienty s osobním API tokenem. */
@@ -145,6 +150,7 @@ export interface AiSettingsDto {
   apiKeySet: boolean;
   timeoutSec: number;
   temperature: number;
+  thinking: AiThinking;
   instructions: string | null;
   mcpEnabled: boolean;
   mcpAllowedIps: string[];

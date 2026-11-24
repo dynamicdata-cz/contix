@@ -3967,12 +3967,12 @@ describe("provozní skripty (v1.95, ADR-189)", () => {
     const dir = join(import.meta.dir, "../../../infra/scripts");
     const scripts = readdirSync(dir).filter((f) => f.endsWith(".sh"));
     expect(scripts).toEqual(expect.arrayContaining(["update.sh", "install.sh", "backup.sh", "restore.sh", "verify.sh", "lib.sh"]));
-    for (const f of scripts) expect((statSync(join(dir, f)).mode & 0o111) !== 0, `${f} na disku`).toBe(true);
+    // rozhoduje režim v gitu – s ním si skripty stáhnou zákazníci; disk jen tam, kde git není (balíček).
+    // Runner CI může klonovat bez +x na disku (připojený svazek, jiný souborový systém) – to není chyba vydání (1.102.2).
     const git = Bun.spawnSync(["git", "ls-files", "-s", "infra/scripts"], { cwd: join(import.meta.dir, "../../..") });
-    if (git.exitCode === 0) {
-      const rows = git.stdout.toString().trim().split("\n").filter((l) => l.endsWith(".sh"));
-      for (const l of rows) expect(l.split(/\s+/)[0], l).toBe("100755");
-    }
+    const rows = git.exitCode === 0 ? git.stdout.toString().trim().split("\n").filter((l) => l.endsWith(".sh")) : [];
+    if (rows.length) for (const l of rows) expect(l.split(/\s+/)[0], l).toBe("100755");
+    else for (const f of scripts) expect((statSync(join(dir, f)).mode & 0o111) !== 0, `${f} na disku`).toBe(true);
   });
 });
 
@@ -4067,5 +4067,37 @@ describe("zóny: IPv6, návrhy rozsahů (v1.101, ADR-195)", () => {
     expect(suggestZoneKind({ server: 2 }, 2)).toBe("dmz");
     expect(suggestZoneKind({ iot_ot: 4, workstation: 1 }, 0)).toBe("ot");
     expect(suggestZoneKind({}, 0)).toBe("server");
+  });
+});
+
+describe("AI: vypnutí přemýšlení modelu (v1.102.2)", () => {
+  test("Ollama think, OpenAI-kompatibilní reasoning_effort, výchozí bez parametru, opakování po odmítnutí", async () => {
+    const { createAiClient } = await import("../src/modules/ai/provider");
+    const sent: { url: string; body: any }[] = [];
+    let reject = false;
+    const fake = (async (url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}"));
+      sent.push({ url, body });
+      if (reject && ("think" in body || "reasoning_effort" in body)) return new Response('{"detail":"extra fields not permitted"}', { status: 422 });
+      if (url.endsWith("/api/chat")) return Response.json({ model: "qwen3.5:35b-a3b", message: { content: "Ahoj." } });
+      return Response.json({ model: "m", choices: [{ message: { content: "Ahoj." } }] });
+    }) as any;
+    const mk = (provider: "ollama" | "openai", thinking?: "default" | "off" | "on") => createAiClient({ provider, baseUrl: "http://ai:11434", apiKey: null, model: "qwen3.5:35b-a3b", timeoutSec: 10, temperature: 0.2, thinking }, fake);
+    const msg = [{ role: "user" as const, content: "Ahoj" }];
+    expect((await mk("ollama", "off").chat(msg)).text).toBe("Ahoj.");
+    expect(sent.at(-1)!.body.think).toBe(false);
+    await mk("ollama", "on").chat(msg);
+    expect(sent.at(-1)!.body.think).toBe(true);
+    await mk("ollama", "default").chat(msg);
+    expect("think" in sent.at(-1)!.body).toBe(false);
+    await mk("openai", "off").chat(msg);
+    expect(sent.at(-1)!.body.reasoning_effort).toBe("none");
+    await mk("openai", "on").chat(msg);
+    expect("reasoning_effort" in sent.at(-1)!.body).toBe(false);
+    // server parametr odmítne → druhý pokus bez něj, odpověď projde
+    reject = true;
+    sent.length = 0;
+    expect((await mk("openai", "off").chat(msg)).text).toBe("Ahoj.");
+    expect(sent.map((x) => "reasoning_effort" in x.body)).toEqual([true, false]);
   });
 });

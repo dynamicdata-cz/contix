@@ -3,7 +3,7 @@ import { aiStatusTone, decisionCount } from "@/components/ai";
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, Select, SuccessBox, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
-import { AI_PRESETS, AI_PROVIDERS, AI_PROVIDER_LABELS, AI_STATUS_LABELS, AI_USE_CASE_LABELS, type AiLogRow, type AiProvider, type AiSettingsDto, RECORD_KINDS, RECORD_LABELS, type RecordKind } from "@contix/shared";
+import { AI_PRESETS, AI_PROVIDERS, AI_THINKING, type AiThinking, AI_PROVIDER_LABELS, AI_STATUS_LABELS, AI_USE_CASE_LABELS, type AiLogRow, type AiProvider, type AiSettingsDto, RECORD_KINDS, RECORD_LABELS, type RecordKind } from "@contix/shared";
 import { cn, useDebounced } from "@/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -37,6 +37,7 @@ function SettingsForm({ s }: { s: AiSettingsDto }) {
         model: f.model,
         timeoutSec: f.timeoutSec,
         temperature: f.temperature,
+        thinking: f.thinking,
         instructions: f.instructions || null,
         mcpEnabled: f.mcpEnabled,
         mcpAllowedIps: f.ipsText.split(/[\s,;]+/).filter(Boolean),
@@ -117,6 +118,15 @@ function SettingsForm({ s }: { s: AiSettingsDto }) {
           </Field>
           <Field label={t("ai.teplota")} hint={t("ai.0Deterministicke02Doporuceno")}>
             <Input type="number" min={0} max={1.5} step={0.1} value={f.temperature} onChange={(e) => set("temperature", Number(e.target.value))} />
+          </Field>
+          <Field label={t("ai.thinking")} hint={t("ai.thinkingHint")}>
+            <Select value={f.thinking} onChange={(e) => set("thinking", e.target.value as AiThinking)} data-testid="ai-thinking">
+              {AI_THINKING.map((k) => (
+                <option key={k} value={k}>
+                  {t(`ai.thinking.${k}`)}
+                </option>
+              ))}
+            </Select>
           </Field>
         </div>
         {s.apiKeySet && <Checkbox checked={f.clearKey} onChange={(v) => set("clearKey", v)} label={t("ai.smazatUlozenyApiKlic")} />}

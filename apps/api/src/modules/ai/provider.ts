@@ -20,6 +20,11 @@ export interface AiClientConfig {
   model: string;
   timeoutSec: number;
   temperature: number;
+  /**
+   * Přemýšlení modelu (v1.102.2): Ollama nativně `think`, OpenAI-kompatibilní servery `reasoning_effort: "none"`.
+   * Výchozí = parametr se neposílá. Server, který parametr odmítne (HTTP 400/422), dostane dotaz znovu bez něj.
+   */
+  thinking?: "default" | "off" | "on";
   /** Model pro embedding (vektorové vyhledávání). */
   embeddingModel?: string;
 }
@@ -91,11 +96,24 @@ export function createAiClient(cfg: AiClientConfig, fetchImpl: FetchLike = fetch
     }
   }
 
+  /** Pošle dotaz s volitelným parametrem; odmítne-li ho server (400/422), zopakuje dotaz bez něj. */
+  async function withoutIfRejected(extra: Record<string, unknown>, send: (extra: Record<string, unknown>) => Promise<Record<string, unknown>>) {
+    if (!Object.keys(extra).length) return send({});
+    try {
+      return await send(extra);
+    } catch (e) {
+      if (/HTTP (400|422)/.test((e as Error).message)) return send({});
+      throw e;
+    }
+  }
+
   if (cfg.provider === "ollama") {
     return {
       async chat(messages) {
         const t0 = Date.now();
-        const r = await call("/api/chat", { method: "POST", body: { model: cfg.model, messages, stream: false, options: { temperature: cfg.temperature } } });
+        const base = { model: cfg.model, messages, stream: false, options: { temperature: cfg.temperature } };
+        const think = cfg.thinking === "off" ? { think: false } : cfg.thinking === "on" ? { think: true } : {};
+        const r = await withoutIfRejected(think, (extra) => call("/api/chat", { method: "POST", body: { ...base, ...extra } }));
         const msg = r.message as { content?: string } | undefined;
         return { text: msg?.content ?? "", model: String(r.model ?? cfg.model), durationMs: Date.now() - t0 };
       },
@@ -113,7 +131,10 @@ export function createAiClient(cfg: AiClientConfig, fetchImpl: FetchLike = fetch
   return {
     async chat(messages) {
       const t0 = Date.now();
-      const r = await call("/chat/completions", { method: "POST", body: { model: cfg.model, messages, stream: false, temperature: cfg.temperature } });
+      const base = { model: cfg.model, messages, stream: false, temperature: cfg.temperature };
+      // vypnutí uvažování standardním parametrem (Ollama /v1, llama.cpp, vLLM); „zapnout“ = výchozí chování modelu
+      const effort = cfg.thinking === "off" ? { reasoning_effort: "none" } : {};
+      const r = await withoutIfRejected(effort, (extra) => call("/chat/completions", { method: "POST", body: { ...base, ...extra } }));
       const choice = (r.choices as { message?: { content?: string } }[] | undefined)?.[0];
       return { text: choice?.message?.content ?? "", model: String(r.model ?? cfg.model), durationMs: Date.now() - t0 };
     },

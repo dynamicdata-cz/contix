@@ -194,6 +194,11 @@ sudo docker rm open-webui-old                                                 # 
 sudo ufw allow from <IP CONTIXu> to any port 8080 proto tcp                   # pokud běží ufw
 ```
 
+**Modely s uvažováním (qwen3, qwen3.5, deepseek-r1)** odpovídají bez přemýšlení výrazně rychleji. V Administraci → AI
+asistent nastavte **Přemýšlení modelu: Vypnout** – CONTIX pošle Ollamě `think: false` (stejné jako
+`ollama run … --think=false`), OpenAI-kompatibilnímu rozhraní `reasoning_effort: "none"`. gpt-oss uvažování vypnout
+neumí (jen zkrátit), u něj nechte výchozí volbu a delší časový limit.
+
 `--gpus all` jen pokud původní kontejner GPU používal (`DeviceRequests` není `null`). Je-li Open WebUI spuštěné
 přes compose, stačí v něm změnit `ports` a `docker compose up -d`. Bez `WEBUI_SECRET_KEY` se uživatelé Open WebUI
 musí po změně znovu přihlásit; API klíče platí dál.
