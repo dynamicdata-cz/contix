@@ -35,7 +35,7 @@ import { docxResponse, htmlToDocx } from "../documents/docx";
 import { printPage } from "../documents/render";
 import { tFor, translatorFor } from "../i18n/service";
 import { convertToPdf } from "../policies/convert";
-import { FindingQuery as IdentityFindingQuerySchema, findingWhere, type IdentityFindingQuery } from "./query";
+import { FindingQuery as IdentityFindingQuerySchema, findingWhere, type IdentityFindingQuery, identitySubjectSql } from "./query";
 import { monitoringOf } from "./computers";
 
 /* ============================================================
@@ -175,7 +175,7 @@ export async function summaryData(x: ReportCtx) {
     x.db.select({ n: count() }).from(identityFindings).where(and(sc, eq(identityFindings.status, "accepted"))),
     x.db.select({ n: count() }).from(identityFindings).where(and(sc, eq(identityFindings.status, "resolved"), gte(identityFindings.resolvedAt, since30))),
     x.db
-      .select({ f: identityFindings, login: identityAccounts.login, privileged: identityAccounts.privileged })
+      .select({ f: identityFindings, login: identitySubjectSql, privileged: identityAccounts.privileged })
       .from(identityFindings)
       .leftJoin(identityAccounts, eq(identityAccounts.id, identityFindings.accountId))
       .where(and(sc, eq(identityFindings.status, "open"), inArray(identityFindings.severity, ["critical", "high"])))

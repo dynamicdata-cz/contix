@@ -113,7 +113,7 @@ function Popup({ id, list, active, setActive, choose, selected, loading, noneTex
   }, [active]);
   let lastGroup: string | undefined;
   return (
-    <ul ref={ref} id={id} role="listbox" className="absolute z-40 mt-1 max-h-72 w-full min-w-56 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg">
+    <ul ref={ref} id={id} role="listbox" className="absolute z-40 mt-1 max-h-80 w-max min-w-full max-w-[min(32rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg">
       {loading && <li className="px-3 py-2 text-slate-500">…</li>}
       {!loading && list.length === 0 && <li className="px-3 py-2 text-slate-500">{noneText}</li>}
       {list.map((o, i) => {
@@ -138,8 +138,15 @@ function Popup({ id, list, active, setActive, choose, selected, loading, noneTex
               style={{ paddingLeft: `${0.75 + (o.depth ?? 0) * 1}rem` }}
             >
               {o.icon}
-              <span className="min-w-0 flex-1 truncate">{o.label}</span>
-              {o.hint && <span className="shrink-0 truncate text-xs text-slate-500">{o.hint}</span>}
+              {/* jméno má přednost, zkracuje se až pomocný text (funkce, e-mail) – v1.102.1 */}
+              <span className="min-w-0 max-w-[22rem] shrink-0 truncate" title={o.label}>
+                {o.label}
+              </span>
+              {o.hint && (
+                <span className="ml-auto min-w-0 truncate pl-3 text-xs text-slate-500" title={o.hint}>
+                  {o.hint}
+                </span>
+              )}
               {selected.has(o.id) && <Check size={14} className="shrink-0 text-brand-600" aria-hidden />}
             </div>
           </li>

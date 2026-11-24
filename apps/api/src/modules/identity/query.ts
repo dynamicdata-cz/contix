@@ -1,9 +1,18 @@
 import { IDENTITY_FINDING_STATUSES, IDENTITY_RULES, IDENTITY_SEVERITIES } from "@contix/shared";
-import { eq, ilike, or, type SQL } from "drizzle-orm";
+import { eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { identityAccounts, identityFindings } from "../../db/schema";
 
 /* Filtr nálezů identit – seznam, počty, exporty, reporty (v1.89, ADR-184). */
+
+/**
+ * Čitelný předmět nálezu identity (v1.102.1): přihlašovací jméno účtu, název počítače, jinak předmět bez
+ * předpony skupiny. Uložený `subject` je u účtu a počítače vnitřní ID – do názvů nálezů a úkolů nepatří.
+ */
+export const identitySubjectSql = sql<string>`coalesce(
+  (select ia.login from identity_accounts ia where ia.id = ${identityFindings.accountId}),
+  (select ic.name from identity_computers ic where ic.id = ${identityFindings.computerId}),
+  regexp_replace(${identityFindings.subject}, '^(group|computer):', ''))`;
 
 const likeEsc = (s: string) => s.replace(/[\\%_]/g, (m) => `\\${m}`);
 

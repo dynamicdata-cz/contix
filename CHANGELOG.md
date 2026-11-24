@@ -2,6 +2,14 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.102.1
+
+Opravy podle připomínek z provozu.
+
+- **Opravené zranitelnosti z Wazuhu se spolehlivě uzavírají**: když čtení z Wazuh Indexeru u velké instalace spadlo uprostřed (vypršení stránkování, časový limit), neuzavřelo se nic a běh přitom vypadal jako dokončený. Zranitelnosti se teď čtou seřazené podle agenta – při přerušení se uzavřou opravené u všech agentů, kteří se stihli celí načíst, a log řekne, kde čtení skončilo. Neúplné čtení (méně záznamů, než Indexer ohlásil) naopak nic neuzavře omylem. Stránkování Indexeru má delší platnost (5 min).
+- **Nálezy identit ukazují jméno**: nálezy počítačů a účtů (např. „Systém bez podpory výrobce“) měly v registru nálezů, úkolech, výjimkách a reportu místo názvu vnitřní kód (`computer:…`). Nově přihlašovací jméno účtu nebo název počítače; hledání v registru najde i podle názvu. Už založené úkoly se při aktualizaci přejmenují.
+- **Širší rozbalovací výběr** (osoby, garanti, zástupci): seznam se roztáhne podle obsahu až na 32 rem, jméno má přednost a zkracuje se jen pomocný text (funkce, e-mail), celý je v bublině.
+
 ## 1.102.0
 
 Rychlejší Přehled a trvalá kontrola čitelnosti (ADR-196).

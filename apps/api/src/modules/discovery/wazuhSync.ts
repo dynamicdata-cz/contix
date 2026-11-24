@@ -6,7 +6,7 @@ import type { Db } from "../../db/client";
 import { assetSources, discoveryRuns } from "../../db/schema";
 import { listWazuh, wazuhApiReady, type WazuhConn } from "../connections/wazuh";
 import { recomputeHealth, syncVulnerabilities } from "../vulnerabilities/service";
-import { fetchApiVulns, fetchIndexerVulns } from "../vulnerabilities/sources";
+import { fetchApiVulns, fetchIndexerVulns, type VulnStreamMeta } from "../vulnerabilities/sources";
 import { createWazuhConnector, type WazuhParams } from "./connectors/wazuh";
 import { startRun } from "./runner";
 import type { Connector } from "./types";
@@ -50,8 +50,9 @@ export async function startWazuhSync(db: Db, w: WazuhConn, companyId: string, tr
       let stats: Record<string, number> = {};
       if (w.vulnEnabled) {
         const useIndexer = !!(w.indexerUrl && w.indexerUser && w.indexerPassword);
+        const meta: VulnStreamMeta = { sortedByAgent: false, total: null, read: 0 };
         const records = useIndexer
-          ? fetchIndexerVulns({ url: w.indexerUrl, user: w.indexerUser, password: w.indexerPassword!, verifyTls: w.indexerVerifyTls, indexPattern: w.indexPattern }, ctx.log)
+          ? fetchIndexerVulns({ url: w.indexerUrl, user: w.indexerUser, password: w.indexerPassword!, verifyTls: w.indexerVerifyTls, indexPattern: w.indexPattern }, ctx.log, undefined, meta)
           : fetchApiVulns(
               { url: w.url, user: w.user, password: w.password!, verifyTls: w.verifyTls },
               (await db.select({ ref: assetSources.sourceRef }).from(assetSources).where(and(eq(assetSources.sourceType, "wazuh"), eq(assetSources.connectionId, w.id)))).map((r) => r.ref),
@@ -59,7 +60,7 @@ export async function startWazuhSync(db: Db, w: WazuhConn, companyId: string, tr
             );
         ctx.log(useIndexer ? "načítám zranitelnosti z Wazuh Indexeru" : "Wazuh Indexer není nastaven – zkouším Server API (Wazuh ≤ 4.7)");
         try {
-          stats = await syncVulnerabilities(db, records, ctx.log, w.id);
+          stats = await syncVulnerabilities(db, records, ctx.log, w.id, meta);
         } catch (e) {
           // aktiva jsou načtená – chyba zranitelností nemá shodit celý běh
           ctx.log(`CHYBA zranitelností: ${(e as Error).message}`);

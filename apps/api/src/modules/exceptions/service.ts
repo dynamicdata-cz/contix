@@ -4,6 +4,7 @@ import { alias } from "drizzle-orm/pg-core";
 import type { Db } from "../../db/client";
 import { hostFindings, hostInventories, secTestFindings, alertSuggestions, controls, exceptionControls, socSuppressions, assets, assetVulnerabilities, identityAccounts, identityFindings, positions, requirementAssessments, risks, sodRules, sodViolations, users } from "../../db/schema";
 import { hostFindingTitle } from "../collector/findings";
+import { identitySubjectSql } from "../identity/query";
 
 /* ============================================================
  * Výjimky a přijatá rizika (ADR-039): sběr z modulů, nic se nepersistuje.
@@ -31,7 +32,7 @@ export async function loadExceptions(db: Db, scope: ExceptionScope, today = new 
   if (has("identity_finding"))
     jobs.push(
       db
-        .select({ f: identityFindings, account: identityAccounts.displayName, by: accepter.displayName })
+        .select({ f: identityFindings, account: identityAccounts.displayName, name: identitySubjectSql, by: accepter.displayName })
         .from(identityFindings)
         .leftJoin(identityAccounts, eq(identityAccounts.id, identityFindings.accountId))
         .leftJoin(accepter, eq(accepter.id, identityFindings.acceptedBy))
@@ -43,7 +44,7 @@ export async function loadExceptions(db: Db, scope: ExceptionScope, today = new 
                 kind: "identity_finding",
                 id: r.f.id,
                 companyId: r.f.companyId,
-                title: `${IDENTITY_RULE_INFO[r.f.rule as IdentityRule]?.title ?? r.f.rule}: ${r.account || r.f.subject.replace(/^group:/, "")}`,
+                title: `${IDENTITY_RULE_INFO[r.f.rule as IdentityRule]?.title ?? r.f.rule}: ${r.account || r.name}`,
                 detail: r.f.detail || null,
                 severity: r.f.severity,
                 reason: r.f.acceptedReason,

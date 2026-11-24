@@ -44,6 +44,7 @@ import { createIdentityTasks, createMonitoringTasks, createVulnTasks, sourceTask
 import { getVulnSla, vulnDueSql } from "../vulnerabilities/intel";
 import { hostFindingTasks, hostFindingTitle } from "../collector/findings";
 import { findingTasks } from "../sectests/tasks";
+import { identitySubjectSql } from "../identity/query";
 
 /* ============================================================
  * Jednotný přehled nálezů (v1.65, ADR-158) – čte čtyři zdroje v rozsahu a oprávněních uživatele:
@@ -314,7 +315,7 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
           const sv = q.severity ? SRC_SEV.identity(q.severity) : null;
           const [fr, sr] = await Promise.all([
             db
-              .select({ f: identityFindings, src: identitySources.name })
+              .select({ f: identityFindings, src: identitySources.name, name: identitySubjectSql })
               .from(identityFindings)
               .innerJoin(identitySources, eq(identitySources.id, identityFindings.sourceId))
               .where(
@@ -322,7 +323,7 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
                   inArray(identityFindings.companyId, scope.identity),
                   st ? (st.length ? inArray(identityFindings.status, st as never) : sql`false`) : undefined,
                   sv ? (sv.length ? inArray(identityFindings.severity, sv as never) : sql`false`) : undefined,
-                  like ? or(ilike(identityFindings.subject, like), ilike(identityFindings.rule, like)) : undefined,
+                  like ? or(ilike(identitySubjectSql, like), ilike(identityFindings.rule, like)) : undefined,
                   resp ? taskOf("identity_finding", sql`${identityFindings.id}`) : undefined,
                 ),
               )
@@ -367,7 +368,7 @@ export function findingRoutes(db: Db, deps: { config: Config; fetchImpl?: FetchL
               priority: findingPriority({ severity: sevU, overdue: lateOf(x.status, x.t, sla ?? today, today) }),
             });
           };
-          for (const { f, src } of fr) push({ id: f.id, companyId: f.companyId, title: `${IDENTITY_RULE_INFO[f.rule as IdentityRule]?.title ?? f.rule}: ${f.subject}`, detail: src, sev: f.severity, status: f.status, firstSeenAt: f.firstSeenAt, acceptedUntil: f.acceptedUntil, t: ft.get(f.id) ?? null });
+          for (const { f, src, name } of fr) push({ id: f.id, companyId: f.companyId, title: `${IDENTITY_RULE_INFO[f.rule as IdentityRule]?.title ?? f.rule}: ${name}`, detail: src, sev: f.severity, status: f.status, firstSeenAt: f.firstSeenAt, acceptedUntil: f.acceptedUntil, t: ft.get(f.id) ?? null });
           for (const { v, rule, sev } of sr) push({ id: v.id, companyId: v.companyId, title: `SoD – ${rule}: ${v.person || v.subject}`, detail: "SoD", sev, status: v.status, firstSeenAt: v.firstSeenAt, acceptedUntil: v.acceptedUntil, t: stt.get(v.id) ?? null });
         })(),
       );

@@ -1,9 +1,10 @@
-import { TASK_LABELS, actionOverdue, sortActions, taskSourceLink, type ActionItem, type ActionKind, type TaskSource, type TaskStatus, type Translate } from "@contix/shared";
+import { TASK_LABELS, actionOverdue, sortActions, taskSourceLink, type ActionItem, type ActionKind, type TaskSource, type TaskStatus, type Translate, IDENTITY_RULE_INFO, type IdentityRule } from "@contix/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../../db/client";
 import { projectTasks, assetVulnerabilities, identityFindings, sodViolations, hostFindings, hostInventories, secTestFindings, aiSystems, craProducts, projects, soc2Engagements, alertSuggestions, exercises, infoFeedItems, infoItemReviews, assets, auditFindings, audits, changes, controls, incidents, legalTasks, policies, positions, processes, processingActivities, risks, riskTreatmentActions, suppliers, tasks, users } from "../../db/schema";
 import { CS_T } from "../i18n/service";
 import { hostFindingTitle } from "../collector/findings";
+import { identitySubjectSql } from "../identity/query";
 
 /* Akce a úkoly (ADR-043): sběr z modulů při čtení, persistují se jen samostatné úkoly (`tasks`). */
 
@@ -46,7 +47,7 @@ export async function sourceLabels(db: Db, pairs: { kind: string | null; id: str
   q("host_finding", (ids) => db.select({ id: hostFindings.id, companyId: hostFindings.companyId, code: hostFindings.code, s: hostFindings.subject, h: hostInventories.hostname }).from(hostFindings).innerJoin(hostInventories, eq(hostInventories.id, hostFindings.inventoryId)).where(inArray(hostFindings.id, ids)), (r) => `${hostFindingTitle(r.code, r.s)} (${r.h})`.slice(0, 200));
   // zranitelnosti, nálezy identit a SoD (v1.88)
   q("vulnerability", (ids) => db.select({ id: assetVulnerabilities.id, companyId: assets.companyId, c: assetVulnerabilities.cveId, a: assets.name }).from(assetVulnerabilities).innerJoin(assets, eq(assets.id, assetVulnerabilities.assetId)).where(inArray(assetVulnerabilities.id, ids)), (r) => `${r.c} (${r.a})`);
-  q("identity_finding", (ids) => db.select({ id: identityFindings.id, companyId: identityFindings.companyId, s: identityFindings.subject, r: identityFindings.rule }).from(identityFindings).where(inArray(identityFindings.id, ids)), (r) => `${r.r}: ${r.s}`.slice(0, 200));
+  q("identity_finding", (ids) => db.select({ id: identityFindings.id, companyId: identityFindings.companyId, s: identitySubjectSql, r: identityFindings.rule }).from(identityFindings).where(inArray(identityFindings.id, ids)), (r) => `${IDENTITY_RULE_INFO[r.r as IdentityRule]?.title ?? r.r}: ${r.s}`.slice(0, 200));
   q("sod_violation", (ids) => db.select({ id: sodViolations.id, companyId: sodViolations.companyId, p: sodViolations.person, s: sodViolations.subject }).from(sodViolations).where(inArray(sodViolations.id, ids)), (r) => `SoD: ${r.p || r.s}`.slice(0, 200));
   await Promise.all(jobs);
   return out;

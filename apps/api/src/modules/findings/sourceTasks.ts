@@ -5,6 +5,7 @@ import { assets, assetVulnerabilities, identityFindings, monitoringFindings, pos
 import { orgSnapshot } from "../org/hierarchy";
 import { technicalAssignee } from "../sectests/tasks";
 import { getVulnSla, vulnDueSql } from "../vulnerabilities/intel";
+import { identitySubjectSql } from "../identity/query";
 
 /* ============================================================
  * Úkoly z nálezů registru, které dosud úkol nezakládaly (v1.88, ADR-183): zranitelnosti (garant aktiva, termín
@@ -90,9 +91,9 @@ export async function createIdentityTasks(db: Db, refs: { kind: "identity_findin
   const sIds = [...new Set(refs.filter((r) => r.kind === "sod_violation").map((r) => r.id))];
   const items: { kind: "identity_finding" | "sod_violation"; id: string; companyId: string; status: string; severity: string; title: string; description: string }[] = [];
   if (fIds.length)
-    for (const f of await db.select().from(identityFindings).where(inArray(identityFindings.id, fIds))) {
+    for (const { f, name } of await db.select({ f: identityFindings, name: identitySubjectSql }).from(identityFindings).where(inArray(identityFindings.id, fIds))) {
       const info = IDENTITY_RULE_INFO[f.rule as IdentityRule];
-      items.push({ kind: "identity_finding", id: f.id, companyId: f.companyId, status: f.status, severity: f.severity, title: `${info?.title ?? f.rule}: ${f.subject}`, description: [f.detail, info?.why, info?.fix ? `Náprava: ${info.fix}` : ""].filter(Boolean).join("\n\n") });
+      items.push({ kind: "identity_finding", id: f.id, companyId: f.companyId, status: f.status, severity: f.severity, title: `${info?.title ?? f.rule}: ${name}`, description: [f.detail, info?.why, info?.fix ? `Náprava: ${info.fix}` : ""].filter(Boolean).join("\n\n") });
     }
   if (sIds.length)
     for (const { v, rule, sev } of await db.select({ v: sodViolations, rule: sodRules.name, sev: sodRules.severity }).from(sodViolations).innerJoin(sodRules, eq(sodRules.id, sodViolations.ruleId)).where(inArray(sodViolations.id, sIds)))

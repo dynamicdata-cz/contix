@@ -124,39 +124,57 @@ export async function testIndexer(p: IndexerParams, fetchImpl: FetchLike = fetch
   return { count: Number(r.count ?? 0) };
 }
 
-/** Streamuje všechny zranitelnosti z indexeru (scroll API, dávky po 1000). */
+/** Průběh čtení zdroje (v1.102.1): seřazení podle agenta (pro částečné uzavření při chybě) a úplnost. */
+export interface VulnStreamMeta {
+  /** Záznamy chodí seřazené podle `agent.id` – agent menší než právě čtený je úplný. */
+  sortedByAgent: boolean;
+  /** Kolik záznamů zdroj ohlásil a kolik se skutečně přečetlo. */
+  total: number | null;
+  read: number;
+}
+
+/**
+ * Streamuje všechny zranitelnosti z indexeru (scroll API, dávky po 1000), seřazené podle agenta. Když index
+ * neumí řadit podle `agent.id`, čte bez řazení. Přečte-li méně záznamů, než index ohlásil, skončí chybou –
+ * neúplné čtení nesmí uzavírat zranitelnosti, které jen nedošly (v1.102.1).
+ */
 export async function* fetchIndexerVulns(
   p: IndexerParams,
   log: (m: string) => void,
   fetchImpl: FetchLike = fetch as FetchLike,
+  meta: VulnStreamMeta = { sortedByAgent: false, total: null, read: 0 },
 ): AsyncGenerator<VulnRecord> {
   const index = encodeURIComponent(p.indexPattern).replace(/%2A/g, "*");
-  let page = await indexerCall(
-    p,
-    `/${index}/_search?scroll=2m`,
-    {
-      size: 1000,
-      _source: ["agent.id", "agent.name", "package.name", "package.version", "vulnerability"],
-      query: { match_all: {} },
-    },
-    fetchImpl,
-  );
-  const total = page.hits?.total?.value ?? page.hits?.total ?? "?";
-  log(`Wazuh Indexer: ${total} záznamů o zranitelnostech`);
+  const body = { size: 1000, _source: ["agent.id", "agent.name", "package.name", "package.version", "vulnerability"], query: { match_all: {} } };
+  let page: any;
+  try {
+    page = await indexerCall(p, `/${index}/_search?scroll=5m`, { ...body, sort: [{ "agent.id": "asc" }, "_doc"] }, fetchImpl);
+    meta.sortedByAgent = true;
+  } catch (e) {
+    if (!/HTTP 400/.test((e as Error).message)) throw e;
+    log("Wazuh Indexer neumí řadit podle agenta – čtu bez řazení");
+    page = await indexerCall(p, `/${index}/_search?scroll=5m`, body, fetchImpl);
+    meta.sortedByAgent = false;
+  }
+  const rawTotal = page.hits?.total?.value ?? page.hits?.total;
+  meta.total = typeof rawTotal === "number" ? rawTotal : null;
+  log(`Wazuh Indexer: ${meta.total ?? "?"} záznamů o zranitelnostech`);
   let scrollId: string | undefined = page._scroll_id;
   try {
     while (page.hits?.hits?.length) {
       for (const h of page.hits.hits) {
+        meta.read++;
         const r = fromIndexerDoc(h._source);
         if (r) yield r;
       }
       if (!scrollId) break;
-      page = await indexerCall(p, "/_search/scroll", { scroll: "2m", scroll_id: scrollId }, fetchImpl);
+      page = await indexerCall(p, "/_search/scroll", { scroll: "5m", scroll_id: scrollId }, fetchImpl);
       scrollId = page._scroll_id ?? scrollId;
     }
   } finally {
     if (scrollId) await indexerCall(p, "/_search/scroll", { scroll_id: [scrollId] }, fetchImpl, "DELETE").catch(() => {});
   }
+  if (meta.total !== null && meta.read < meta.total) throw new Error(`Wazuh Indexer vrátil jen ${meta.read} z ${meta.total} záznamů – čtení bylo přerušené`);
 }
 
 /** Wazuh ≤ 4.7: zranitelnosti přes Server API po agentech. */

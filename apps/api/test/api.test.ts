@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { PDFDocument } from "pdf-lib";
 import { config as globalConfig } from "../src/config";
@@ -1190,6 +1190,74 @@ describe.skipIf(!url)("API (integrace)", () => {
     // řazení podle rizika
     expect((await admin.json("/api/assets?sort=risk&limit=1")).body.items[0].healthStatus).toBe("red");
     expect((await admin.json("/api/assets?health=red")).body.total).toBeGreaterThanOrEqual(2);
+  });
+
+  test("zranitelnosti: přerušené čtení uzavře opravené jen u úplně načtených agentů, neúplné čtení nic navíc (v1.102.1)", async () => {
+    const { syncVulnerabilities } = await import("../src/modules/vulnerabilities/service");
+    const CO = "00000000-0000-4000-8000-000000000001";
+    const [conn] = await db.insert(schema.connections).values({ kind: "wazuh", name: "W-102", companyId: CO, config: {}, secrets: {} } as any).returning();
+    const mk = async (name: string, ref: string) => {
+      const [a] = await db.insert(schema.assets).values({ companyId: CO, name, assetType: "server" } as any).returning();
+      await db.insert(schema.assetSources).values({ assetId: a!.id, sourceType: "wazuh", sourceRef: ref, connectionId: conn!.id });
+      return a!.id;
+    };
+    const A = await mk("V102-A", "901");
+    const B = await mk("V102-B", "902");
+    const C = await mk("V102-C", "903");
+    const rec = (agentId: string, cveId: string) => ({ agentId, cveId, severity: "high" as const, cvssScore: 7.5, packageName: "pkg", packageVersion: "1", description: null, reference: null, publishedAt: null, detectedAt: null });
+    async function* gen(list: ReturnType<typeof rec>[], failAt?: number) {
+      let i = 0;
+      for (const r of list) {
+        if (failAt !== undefined && i++ === failAt) throw new Error("scroll vypršel");
+        yield r;
+      }
+    }
+    const log: string[] = [];
+    const meta = { sortedByAgent: true, total: null, read: 0 };
+    // výchozí stav: každý agent dvě zranitelnosti
+    await syncVulnerabilities(db, gen([rec("901", "CVE-102-1"), rec("901", "CVE-102-2"), rec("902", "CVE-102-3"), rec("902", "CVE-102-4"), rec("903", "CVE-102-5"), rec("903", "CVE-102-6")]), (m) => log.push(m), conn!.id, meta);
+    const open = async (assetId: string) => ((await db.select().from(schema.assetVulnerabilities).where(eq(schema.assetVulnerabilities.assetId, assetId))) as any[]).filter((v) => v.status === "open").map((v) => v.cveId).sort();
+    expect(await open(A)).toEqual(["CVE-102-1", "CVE-102-2"]);
+    // opraveno: CVE-102-2 (A), CVE-102-4 (B), CVE-102-6 (C); čtení spadne uprostřed agenta 903
+    await new Promise((r) => setTimeout(r, 5));
+    await expect(syncVulnerabilities(db, gen([rec("901", "CVE-102-1"), rec("902", "CVE-102-3"), rec("903", "CVE-102-5"), rec("903", "CVE-102-7")], 3), (m) => log.push(m), conn!.id, meta)).rejects.toThrow("scroll vypršel");
+    expect(await open(A)).toEqual(["CVE-102-1"]);
+    expect(await open(B)).toEqual(["CVE-102-3"]);
+    expect(await open(C)).toEqual(["CVE-102-5", "CVE-102-6"]); // agent 903 se nedočetl – nic se neuzavřelo
+    expect(log.some((m) => m.includes("čtení zranitelností přerušeno u agenta 903"))).toBe(true);
+    // bez řazení se při chybě neuzavře nic
+    await new Promise((r) => setTimeout(r, 5));
+    await expect(syncVulnerabilities(db, gen([rec("903", "CVE-102-5")], 0), (m) => log.push(m), conn!.id, { sortedByAgent: false, total: null, read: 0 })).rejects.toThrow();
+    expect(await open(C)).toEqual(["CVE-102-5", "CVE-102-6"]);
+    // úplná synchronizace uzavře zbytek
+    await new Promise((r) => setTimeout(r, 5));
+    await syncVulnerabilities(db, gen([rec("901", "CVE-102-1"), rec("902", "CVE-102-3"), rec("903", "CVE-102-5")]), (m) => log.push(m), conn!.id, meta);
+    expect(await open(C)).toEqual(["CVE-102-5"]);
+    await db.delete(schema.assets).where(inArray(schema.assets.id, [A, B, C]));
+    await db.delete(schema.connections).where(eq(schema.connections.id, conn!.id));
+  });
+
+  test("Wazuh Indexer: neúplné čtení (méně záznamů než ohlášeno) skončí chybou (v1.102.1)", async () => {
+    const { fetchIndexerVulns } = await import("../src/modules/vulnerabilities/sources");
+    const doc = (id: string) => ({ _source: { agent: { id: "001" }, package: { name: "p", version: "1" }, vulnerability: { id } } });
+    const bodies: any[] = [];
+    const fake = (async (url: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") return Response.json({});
+      const b = JSON.parse(String(init?.body ?? "{}"));
+      bodies.push(b);
+      if (url.includes("/_search?scroll")) return Response.json({ _scroll_id: "x", hits: { total: { value: 3 }, hits: [doc("CVE-1"), doc("CVE-2")] } });
+      return Response.json({ _scroll_id: "x", hits: { hits: [] } });
+    }) as any;
+    const meta = { sortedByAgent: false, total: null as number | null, read: 0 };
+    const got: string[] = [];
+    await expect(
+      (async () => {
+        for await (const r of fetchIndexerVulns({ url: "http://ix", user: "u", password: "p", verifyTls: true, indexPattern: "wazuh-states-vulnerabilities-*" }, () => {}, fake, meta)) got.push(r.cveId);
+      })(),
+    ).rejects.toThrow("jen 2 z 3");
+    expect(got).toEqual(["CVE-1", "CVE-2"]);
+    expect(meta).toMatchObject({ sortedByAgent: true, total: 3, read: 2 });
+    expect(bodies[0].sort[0]).toEqual({ "agent.id": "asc" });
   });
 
   test("zranitelnosti: vyřešené zmizí, výjimka a její zrušení", async () => {
@@ -3867,6 +3935,20 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(reg.items.some((f: any) => f.key === `identity:${idf!.id}`)).toBe(true);
     const tk = (await admin.json("/api/findings/tasks", { method: "POST", headers: H, json: { keys: [`identity:${idf!.id}`] } })).body;
     expect(tk.created).toBe(1);
+    // v1.102.1: počítač a účet – v názvu nálezu i úkolu jméno, ne vnitřní ID
+    const [pcx] = await db.insert(schema.identityComputers).values({ sourceId: src!.id, companyId: root.id, externalId: "pc-1021", name: "PC-UCETNI-07", dn: "CN=PC-UCETNI-07" } as any).returning();
+    const [acx] = await db.insert(schema.identityAccounts).values({ sourceId: src!.id, companyId: root.id, externalId: "acc-1021", login: "jnovak", enabled: true, flags: {} } as any).returning();
+    const [pcf] = await db.insert(schema.identityFindings).values({ sourceId: src!.id, companyId: root.id, computerId: pcx!.id, subject: `computer:${pcx!.id}`, rule: "computer_eol", severity: "medium", detail: "" } as any).returning();
+    const [acf] = await db.insert(schema.identityFindings).values({ sourceId: src!.id, companyId: root.id, accountId: acx!.id, subject: acx!.id, rule: "stale", severity: "medium", detail: "" } as any).returning();
+    const reg2 = (await admin.json("/api/findings?source=identity", { headers: H })).body.items as any[];
+    expect(reg2.find((f) => f.key === `identity:${pcf!.id}`).title).toBe("Systém bez podpory výrobce: PC-UCETNI-07");
+    expect(reg2.find((f) => f.key === `identity:${acf!.id}`).title).toMatch(/: jnovak$/);
+    expect(JSON.stringify(reg2)).not.toContain(`computer:${pcx!.id}`);
+    expect(((await admin.json("/api/findings?source=identity&q=UCETNI", { headers: H })).body.items as any[]).map((f) => f.key)).toContain(`identity:${pcf!.id}`);
+    expect((await admin.json("/api/findings/tasks", { method: "POST", headers: H, json: { keys: [`identity:${pcf!.id}`] } })).body.created).toBe(1);
+    const [task2] = await db.select().from(schema.tasks).where(and(eq(schema.tasks.sourceKind, "identity_finding"), eq(schema.tasks.sourceId, pcf!.id)));
+    expect(task2!.title).toBe("Systém bez podpory výrobce: PC-UCETNI-07");
+    await db.delete(schema.identityFindings).where(inArray(schema.identityFindings.id, [pcf!.id, acf!.id]));
     await db.update(schema.identityFindings).set({ status: "resolved", resolvedAt: now }).where(eq(schema.identityFindings.id, idf!.id));
     const { closeResolvedSourceTasks } = await import("../src/modules/findings/sourceTasks");
     expect(await closeResolvedSourceTasks(db)).toBeGreaterThan(0);

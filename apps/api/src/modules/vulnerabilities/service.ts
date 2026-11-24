@@ -4,7 +4,7 @@ import { getSettings } from "../../auth/service";
 import type { Db } from "../../db/client";
 import { appSettings, assetLinks, assetSources, assets, assetVulnerabilities, hostFindings, secTestFindings, vulnIntel } from "../../db/schema";
 import { vulnPrioritySql } from "./intel";
-import type { VulnRecord } from "./sources";
+import type { VulnRecord, VulnStreamMeta } from "./sources";
 
 const LAST_SYNC_KEY = "vuln.lastSync";
 
@@ -14,7 +14,7 @@ const LAST_SYNC_KEY = "vuln.lastSync";
  *  - dříve vyřešené, které se znovu objevily, znovu otevře,
  *  - CVE, které se v této synchronizaci na aktivu z Wazuhu už neobjevily, označí jako vyřešené.
  */
-export async function syncVulnerabilities(db: Db, records: AsyncIterable<VulnRecord>, log: (m: string) => void, connectionId?: string) {
+export async function syncVulnerabilities(db: Db, records: AsyncIterable<VulnRecord>, log: (m: string) => void, connectionId?: string, meta?: VulnStreamMeta) {
   const syncStart = new Date();
   const map = new Map(
     (
@@ -57,7 +57,32 @@ export async function syncVulnerabilities(db: Db, records: AsyncIterable<VulnRec
     stats.vulnNew += res.filter((r) => r.inserted).length;
   };
 
+  /** Uzavře zranitelnosti z Wazuhu, které se v této synchronizaci na daných aktivech neobjevily. */
+  const resolveFor = async (assetIds: string[]) => {
+    if (!assetIds.length) return 0;
+    let n = 0;
+    for (let i = 0; i < assetIds.length; i += 1000) {
+      const r = await db
+        .update(assetVulnerabilities)
+        .set({ status: "resolved", resolvedAt: syncStart })
+        .where(
+          and(
+            eq(assetVulnerabilities.sourceType, "wazuh"),
+            lt(assetVulnerabilities.lastSeenAt, syncStart),
+            inArray(assetVulnerabilities.status, ["open", "accepted"]),
+            inArray(assetVulnerabilities.assetId, assetIds.slice(i, i + 1000)),
+          ),
+        )
+        .returning({ id: assetVulnerabilities.id });
+      n += r.length;
+    }
+    return n;
+  };
+  let lastAgent: string | null = null;
+
+  try {
   for await (const r of records) {
+    lastAgent = r.agentId;
     const assetId = map.get(r.agentId);
     if (!assetId) {
       stats.vulnUnmatched++;
@@ -84,6 +109,19 @@ export async function syncVulnerabilities(db: Db, records: AsyncIterable<VulnRec
     if (batch.size >= 500) await flush();
   }
   await flush();
+  } catch (e) {
+    // čtení spadlo uprostřed (v1.102.1): při řazení podle agenta jsou agenti „před“ právě čteným úplní –
+    // jejich opravené zranitelnosti se uzavřou, ostatní zůstanou do příští úspěšné synchronizace
+    await flush().catch(() => undefined);
+    if (meta?.sortedByAgent && lastAgent !== null) {
+      const done = new Map<string, boolean>();
+      for (const [ref, assetId] of map) done.set(assetId, (done.get(assetId) ?? true) && ref < lastAgent);
+      const ids = [...done].filter(([, ok]) => ok).map(([id]) => id);
+      stats.vulnResolved = await resolveFor(ids);
+      log(`čtení zranitelností přerušeno u agenta ${lastAgent}: uzavřeno ${stats.vulnResolved} opravených u ${ids.length} úplně načtených aktiv, zbytek při příští synchronizaci`);
+    } else log("čtení zranitelností přerušeno – opravené zranitelnosti se uzavřou při příští úplné synchronizaci");
+    throw e;
+  }
 
   if (unmatchedAgents.size)
     log(`zranitelnosti ${stats.vulnUnmatched}× u agentů, kteří nejsou v inventáři (${[...unmatchedAgents].slice(0, 10).join(", ")}) – spusťte nejdřív synchronizaci agentů`);
@@ -91,19 +129,7 @@ export async function syncVulnerabilities(db: Db, records: AsyncIterable<VulnRec
   if (stats.vulnFound === 0 && map.size > 0) {
     log("varování: nenalezena žádná zranitelnost – stávající záznamy ponechány beze změny (ochrana proti chybné konfiguraci)");
   } else {
-    const resolved = await db
-      .update(assetVulnerabilities)
-      .set({ status: "resolved", resolvedAt: syncStart })
-      .where(
-        and(
-          eq(assetVulnerabilities.sourceType, "wazuh"),
-          lt(assetVulnerabilities.lastSeenAt, syncStart),
-          inArray(assetVulnerabilities.status, ["open", "accepted"]),
-          inArray(assetVulnerabilities.assetId, [...new Set(map.values())]),
-        ),
-      )
-      .returning({ id: assetVulnerabilities.id });
-    stats.vulnResolved = resolved.length;
+    stats.vulnResolved = await resolveFor([...new Set(map.values())]);
   }
 
   await db
