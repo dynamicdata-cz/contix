@@ -31,6 +31,7 @@ import {
   supplierAssets,
   suppliers,
   supplierQuestionnaires,
+  personCertificates,
   supplierReports,
   supplierReportItems,
   trainingCourses, aiSuggestions, docChunks, docIndexState, auditFindings, controlTests, processingActivities, aiSystems, soc2Engagements, craProducts, craReports, craFindings, riskScenarioProposals, threatAssessments, mapPlacements, evidence, evidenceControls, tasks, secTestFindings, hostInventories, hostFindings, secTestScopes, secTestSchedules } from "../../db/schema";
@@ -152,6 +153,8 @@ export async function transferRecords(db: Db, c: Context<AppEnv>, input: Transfe
     if (taskSource[input.entity]) await tx.update(tasks).set({ companyId: target.id, updatedAt: new Date() }).where(and(eq(tasks.sourceKind, taskSource[input.entity]!), inArray(tasks.sourceId, move)));
     // dotazníky patří dodavateli
     if (input.entity === "suppliers") await tx.update(supplierQuestionnaires).set({ companyId: target.id, updatedAt: new Date() }).where(inArray(supplierQuestionnaires.supplierId, move));
+    // certifikáty pracovníků dodavatele jdou s dodavatelem (v1.110.1) – jinak by zůstaly ve zdrojové společnosti bez dodavatele
+    if (input.entity === "suppliers") await tx.update(personCertificates).set({ companyId: target.id, updatedAt: new Date() }).where(inArray(personCertificates.supplierId, move));
     // zprávy o ujištění (ADR-098): vazba CUEC na opatření zdrojové společnosti se zruší (opatření tam nezůstane viditelné)
     if (input.entity === "suppliers") {
       const reps = await tx.update(supplierReports).set({ companyId: target.id, updatedAt: new Date() }).where(inArray(supplierReports.supplierId, move)).returning({ id: supplierReports.id });

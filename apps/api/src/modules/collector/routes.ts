@@ -1,6 +1,6 @@
 import { HostAssetInput, HostFindingPatch, HostInventoryInput, SecTestTasksInput } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { currentUser, requireModule, requirePerm } from "../../auth/middleware";
@@ -93,7 +93,8 @@ export function hostRoutes(db: Db) {
         .from(hostInventories)
         .innerJoin(connections, eq(connections.id, hostInventories.connectionId))
         .leftJoin(assets, eq(assets.id, hostInventories.assetId))
-        .where(and(eq(hostInventories.assetId, c.req.param("assetId"))));
+        .where(and(eq(hostInventories.assetId, c.req.param("assetId"))))
+        .orderBy(asc(connections.name), asc(hostInventories.hostname), asc(hostInventories.id));
       return c.json(rows.map(({ h, conn, assetName }) => hostDto(h, conn, assetName)));
     })
     /* ---- nálezy serveru: stav, přijetí rizika, úkoly (v1.65, ADR-158) ---- */

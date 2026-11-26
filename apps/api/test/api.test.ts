@@ -11824,7 +11824,7 @@ describe.skipIf(!url)("API (integrace)", () => {
 
   test("Harbor SBOM (v1.110): komponenty produktu ze SBOM obrazu, ruční SBOM se bez potvrzení nepřepíše", async () => {
     const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "HS SBOM s.r.o." } })).body.id as string;
-    const H = { "x-company-id": CO };
+    const H = { [COMPANY_HEADER]: CO };
     await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "https://harbor.test", username: "robot$x", password: "pw", verifyTls: true, autoSyncHours: 24 } });
     const p = (await admin.json("/api/cra", { method: "POST", headers: H, json: { name: "HS Aplikace", version: "1.0", harborRef: "shop/api:2.0" } })).body;
     let sbomMode: "spdx" | "wrapped" | "none" = "spdx";
@@ -11869,7 +11869,7 @@ describe.skipIf(!url)("API (integrace)", () => {
 
   test("dotazník dodavatele (v1.110): certifikáty pracovníků → Certifikáty pracovníků u dodavatele", async () => {
     const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "QC Certifikáty s.r.o." } })).body.id as string;
-    const H = { "x-company-id": CO };
+    const H = { [COMPANY_HEADER]: CO };
     const sup = (await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "QC Servis a.s.", significant: true } })).body;
     const cr = await admin.json(`/api/suppliers/${sup.id}/questionnaires`, { method: "POST", headers: H, json: { template: "cz410", locale: "cs", sendEmail: false, validDays: 7 } });
     expect(cr.status).toBe(201);
@@ -11928,6 +11928,13 @@ describe.skipIf(!url)("API (integrace)", () => {
     const list2 = (await admin.json(`/api/person-certificates?supplierId=${sup.id}`, { headers: H })).body.items as any[];
     expect(list2).toHaveLength(2);
     expect(list2.find((c) => c.name === "CCNA").validUntil).toBe("2029-01-10");
+    // přesun dodavatele do jiné společnosti vezme i certifikáty jeho pracovníků (v1.110.1)
+    const CO2 = (await admin.json("/api/companies", { method: "POST", json: { name: "QC Cíl s.r.o." } })).body.id as string;
+    const tr = await admin.json("/api/companies/transfer", { method: "POST", json: { entity: "suppliers", ids: [sup.id], targetCompanyId: CO2, force: true } });
+    expect(tr.body.moved).toBe(1);
+    expect(((await admin.json(`/api/person-certificates?supplierId=${sup.id}`, { headers: H })).body.items as any[]).length).toBe(0);
+    const moved = (await admin.json(`/api/person-certificates?supplierId=${sup.id}`, { headers: { [COMPANY_HEADER]: CO2 } })).body.items as any[];
+    expect(moved.map((c) => [c.name, c.supplier?.name]).sort()).toEqual([["CCNA", "QC Servis a.s."], ["ISO 27001 Lead Auditor", "QC Servis a.s."]]);
   });
 
   test("lokality (v1.108): převod textového umístění na strom lokalit a umístění aktiv", async () => {

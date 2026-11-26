@@ -2,6 +2,13 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.110.1
+
+Opravy.
+
+- **Přesun dodavatele do jiné společnosti** nově přesune i certifikáty pracovníků dodavatele (dříve zůstaly ve zdrojové společnosti).
+- **Stabilní pořadí** inventářů ze sběrače u aktiva (dříve náhodné); testy nových funkcí 1.110 nyní ověřují i oddělení dat podle společnosti.
+
 ## 1.110.0
 
 SBOM automaticky z Harboru a certifikáty pracovníků v dotazníku dodavatele (ADR-202).
