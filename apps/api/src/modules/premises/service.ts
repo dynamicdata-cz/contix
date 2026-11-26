@@ -11,10 +11,12 @@ import {
   type LocationsDto,
   type TextLocationDto,
   splitLocationText,
+  PHYSICAL_CONTROL_LABELS,
 } from "@contix/shared";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Db } from "../../db/client";
-import { assetDependencies, assetSources, assets, securityZones, siteMaps } from "../../db/schema";
+import { assetDependencies, assetSources, assets, monitoringFindings, securityZones, siteMaps } from "../../db/schema";
+import { applyMonitoringFindings, type MonitoringDesired } from "../integrations/monitoringFindings";
 
 /* Lokality (v1.104, ADR-198): strom budov, pater a místností z aktiv typu facility a vazeb „umístěno v“. */
 
@@ -309,4 +311,45 @@ export async function importTextLocations(db: Db, companyId: string, items: { te
     placed += ids.length;
   }
   return { created, placed };
+}
+
+/* ---------- nálezy fyzické bezpečnosti (v1.109) ---------- */
+
+/** Lokality s mezerami doporučené fyzické bezpečnosti → nálezy monitoringu (kód premise_physical_gap). */
+export async function syncPremiseFindings(db: Db, companyIds?: string[], now = new Date()) {
+  const cos =
+    companyIds ??
+    [
+      ...new Set([
+        ...(await db.selectDistinct({ c: assets.companyId }).from(assets).where(eq(assets.assetType, "facility"))).map((x) => x.c),
+        // společnosti s otevřenými nálezy, které už lokality nemají (smazané) – nálezy se uzavřou
+        ...(await db.selectDistinct({ c: monitoringFindings.companyId }).from(monitoringFindings).where(eq(monitoringFindings.code, "premise_physical_gap"))).map((x) => x.c),
+      ]),
+    ];
+  const res = { opened: 0, fixed: 0, reopened: 0 };
+  for (const companyId of cos) {
+    const { nodes } = await locationsOf(db, companyId);
+    const desired: MonitoringDesired[] = [];
+    for (const n of nodes) {
+      if (!n.gaps.length) continue;
+      const core = n.gaps.some((g) => g.control === "access_control" || g.control === "fire_detection");
+      const tech = n.kind === "datacenter" || n.kind === "server_room";
+      const path = [...n.path.map((x) => x.name), n.name].join(" › ");
+      desired.push({
+        companyId,
+        connectionId: null,
+        assetId: n.id,
+        key: `prem:${n.id}`,
+        code: "premise_physical_gap",
+        severity: tech && core ? "high" : tech ? "medium" : "low",
+        subject: path.slice(0, 500),
+        detail: `${path}: chybí ${n.gaps.map((g) => `${PHYSICAL_CONTROL_LABELS[g.control]}${g.level === "partial" ? " (částečně)" : ""}`).join(", ")}.`,
+      });
+    }
+    const r = await applyMonitoringFindings(db, desired, and(eq(monitoringFindings.companyId, companyId), eq(monitoringFindings.code, "premise_physical_gap"))!, now);
+    res.opened += r.opened;
+    res.fixed += r.fixed;
+    res.reopened += r.reopened;
+  }
+  return res;
 }

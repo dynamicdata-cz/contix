@@ -17,6 +17,19 @@ export const FACILITY_RANK: Record<FacilityKind, number> = { site: 0, building: 
 export const PHYSICAL_CONTROLS = ["access_control", "intrusion_alarm", "cctv", "fire_detection", "fire_suppression", "hvac", "ups", "generator", "flood_detection", "visitor_log"] as const;
 export type PhysicalControl = (typeof PHYSICAL_CONTROLS)[number];
 export const PHYSICAL_LEVELS = ["yes", "partial", "no"] as const;
+/** Názvy prvků fyzické bezpečnosti (texty nálezů a monitorů – v UI překlady prem.ctl.*). */
+export const PHYSICAL_CONTROL_LABELS: Record<(typeof PHYSICAL_CONTROLS)[number], string> = {
+  access_control: "přístupový systém",
+  intrusion_alarm: "EZS",
+  cctv: "kamerový systém",
+  fire_detection: "EPS",
+  fire_suppression: "hašení",
+  hvac: "klimatizace",
+  ups: "UPS",
+  generator: "záložní zdroj",
+  flood_detection: "detekce zaplavení",
+  visitor_log: "evidence návštěv",
+};
 export type PhysicalLevel = (typeof PHYSICAL_LEVELS)[number];
 
 export const FacilityPhysical = z.object({

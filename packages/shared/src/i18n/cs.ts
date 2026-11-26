@@ -7392,6 +7392,7 @@ export const CS = {
   "mon.kindHint.sca_score": "Průměrné skóre shody konfigurace (Wazuh SCA / CIS benchmark) přes všechna aktiva.",
   "mon.kindHint.agent_coverage": "Podíl aktivních serverů a koncových zařízení s agentem Wazuh, který se nedávno ohlásil.",
   "mon.kindHint.eol_assets": "Aktivní systémy, jejichž operační systém už nemá podporu výrobce.",
+  "mon.kindHint.physical_security": "Chybějící doporučené prvky fyzické bezpečnosti (přístupový systém, EZS, EPS, klimatizace, UPS…) u datových center, serveroven, technických místností a budov v Lokalitách.",
   "mon.kindHint.tls_expiry": "Sledované certifikáty po platnosti nebo končící v zadané lhůtě.",
   "mon.kindHint.soc_sla": "Alerty a případy SOC, u kterých uplynula lhůta převzetí nebo vyřešení.",
   "nav.group.compliance": "Shoda a audit",

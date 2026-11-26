@@ -2,6 +2,13 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.109.0
+
+Fyzická bezpečnost lokalit v nálezech a v plnění opatření.
+
+- **Nálezy**: lokalita, které chybí doporučené prvky fyzické bezpečnosti (datové centrum, serverovna, technická místnost, budova), má nález v Nálezech (zdroj Monitoring a zóny) – závažnost vysoká u serverovny / datového centra bez přístupového systému nebo EPS. Po doplnění prvků se nález sám uzavře; lze k němu zapsat výjimku.
+- **Průběžné monitorování opatření**: nový monitor „Fyzická bezpečnost lokalit“ – připojte ho k opatření fyzické bezpečnosti (vyhláška 409/410, ISO 27001 A.7) a jeho běhy slouží jako průběžný důkaz a test účinnosti; výjimky jsou lokality s chybějícími prvky.
+
 ## 1.108.0
 
 Lokality – dotažení (navazuje na ADR-198).

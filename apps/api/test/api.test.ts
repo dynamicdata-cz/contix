@@ -11845,6 +11845,27 @@ describe.skipIf(!url)("API (integrace)", () => {
     void a1; void a3; void a4;
   });
 
+  test("fyzická bezpečnost lokalit (v1.109): nálezy monitoringu a monitor opatření", async () => {
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "FB Fyzika s.r.o." } })).body.id as string;
+    const H = { "x-contix-company": CO };
+    const sr = (await admin.json("/api/premises", { method: "POST", headers: H, json: { name: "FB Serverovna", kind: "server_room", physical: { controls: { access_control: "yes", ups: "partial" } } } })).body;
+    const room = (await admin.json("/api/premises", { method: "POST", headers: H, json: { name: "FB Kancelář", kind: "room" } })).body;
+    const open = async () => (await db.select().from(schema.monitoringFindings).where(and(eq(schema.monitoringFindings.companyId, CO), eq(schema.monitoringFindings.code, "premise_physical_gap"))));
+    const f1 = await open();
+    expect(f1.map((f) => [f.assetId, f.status, f.severity])).toEqual([[sr.id, "open", "high"]]);
+    expect(f1[0]!.detail).toContain("EZS");
+    expect(f1[0]!.detail).toContain("UPS (částečně)");
+    const { collectMonitor } = await import("../src/modules/controls/monitors");
+    const mon = { id: "00000000-0000-0000-0000-000000000000", companyId: CO, kind: "physical_security", params: {} } as any;
+    const c1 = await collectMonitor(db, config, mon);
+    expect([c1.value, c1.population, c1.exceptions]).toEqual([4, 1, 1]);
+    // vše doplněno → nález opravený, monitor 0
+    await admin.json(`/api/premises/${sr.id}`, { method: "PATCH", headers: H, json: { physical: { controls: { access_control: "yes", intrusion_alarm: "yes", fire_detection: "yes", hvac: "yes", ups: "yes" } } } });
+    expect((await open()).map((f) => f.status)).toEqual(["fixed"]);
+    expect((await collectMonitor(db, config, mon)).value).toBe(0);
+    void room;
+  });
+
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {
     expect(secretLeaks).toEqual([]);
     const rows = await db.execute(sql`select action, details::text as d from audit_log where details::text ~ '(passwordHash|tokenHash|[a-zA-Z]+Enc|_enc)"\s*:\s*"'`);

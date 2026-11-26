@@ -9,7 +9,7 @@ import { hasPermIn, targetCompany } from "../../auth/scope";
 import { audit, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
 import { assetSources, assets, siteMaps } from "../../db/schema";
-import { importTextLocations, isWithin, locationDetail, locationsOf, placeAsset, textLocations } from "./service";
+import { importTextLocations, isWithin, locationDetail, locationsOf, placeAsset, syncPremiseFindings, textLocations } from "./service";
 
 /* Lokality – /api/locations (v1.104, ADR-198). Vše v aktivní společnosti. */
 
@@ -62,6 +62,7 @@ export function premiseRoutes(db: Db) {
         return r!;
       });
       if (v.parentId) await placeAsset(db, row.id, v.parentId);
+      await syncPremiseFindings(db, [companyId]);
       await audit(db, { c, user: currentUser(c), action: "location.created", entityType: "asset", entityId: row.id, details: { name: row.name, kind: v.kind, parentId: v.parentId } });
       return c.json(await locationDetail(db, companyId, row.id), 201);
     })
@@ -77,6 +78,7 @@ export function premiseRoutes(db: Db) {
       if (v.physical !== undefined) set.physical = v.physical;
       if (Object.keys(set).length) await db.update(assets).set({ ...set, updatedAt: new Date() }).where(eq(assets.id, f.id));
       if (v.parentId !== undefined) await placeAsset(db, f.id, v.parentId);
+      await syncPremiseFindings(db, [companyId]);
       await audit(db, { c, user: currentUser(c), action: "location.updated", entityType: "asset", entityId: f.id, details: v });
       return c.json(await locationDetail(db, companyId, f.id));
     })

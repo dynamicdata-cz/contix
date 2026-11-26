@@ -1,4 +1,6 @@
 import {
+  PHYSICAL_CONTROL_LABELS,
+  requiredPhysical,
   ControlMonitorInput,
   EntraSourceConfig,
   MONITOR_FREQ_HOURS,
@@ -62,6 +64,7 @@ import { collectObligations, kindsForModules } from "../notifications/obligation
 import { loadPolicies } from "../policies/routes";
 import { normalizeInventory } from "../collector/service";
 import { getVulnSla, vulnOverdueSql, vulnPrioritySql } from "../vulnerabilities/intel";
+import { locationsOf } from "../premises/service";
 
 /* ============================================================
  * Průběžné monitorování opatření (ADR-096). Kolektory jen čtou data CONTIXu (a u Secure Score Microsoft Graph);
@@ -252,6 +255,21 @@ export async function collectMonitor(db: Db, config: Config, m: MonitorRow, now 
         .from(assets)
         .where(and(eq(assets.companyId, m.companyId), eq(assets.lifecycleStatus, "active"), eq(assets.supportStatus, "eol"), p.productionOnly ? eq(assets.environment, "production") : undefined));
       return { value: rows.length, population: null, exceptions: rows.length, summary: `${rows.length} aktivních systémů bez podpory výrobce`, details: top(rows, (r) => ({ ref: r.name, detail: `${[r.os, r.ver].filter(Boolean).join(" ")}${r.eol ? ` (EOL ${r.eol})` : ""}` })) };
+    }
+    case "physical_security": {
+      // mezery doporučené fyzické bezpečnosti u lokalit (v1.109)
+      const { nodes } = await locationsOf(db, m.companyId);
+      const relevant = nodes.filter((n) => requiredPhysical(n.kind).length > 0);
+      if (!relevant.length) throw new MonitorError("V Lokalitách nejsou evidované budovy, serverovny ani datová centra.");
+      const bad = relevant.filter((n) => n.gaps.length > 0);
+      const gaps = bad.reduce((a, n) => a + n.gaps.length, 0);
+      return {
+        value: gaps,
+        population: relevant.length,
+        exceptions: bad.length,
+        summary: `${gaps} chybějících prvků fyzické bezpečnosti v ${bad.length} z ${relevant.length} lokalit`,
+        details: top(bad, (n) => ({ ref: [...n.path.map((x) => x.name), n.name].join(" › ").slice(0, 200), detail: n.gaps.map((g) => `${PHYSICAL_CONTROL_LABELS[g.control]}${g.level === "partial" ? " (částečně)" : ""}`).join(", ") })),
+      };
     }
     case "tls_expiry": {
       const limit = new Date(now.getTime() + (p.warnDays ?? 14) * DAY);

@@ -539,6 +539,8 @@ export function startNotificationScheduler(db: Db, config: Config, intervalMs = 
           await m.syncZoneFindings(db, cos);
         })
         .catch((e) => console.error("Bezpečnostní zóny:", (e as Error).message));
+      // fyzická bezpečnost lokalit (v1.109) – úpravy aktiv mimo stránku Lokality, smazané lokality
+      await import("../premises/service").then((m) => m.syncPremiseFindings(db)).catch((e) => console.error("Lokality:", (e as Error).message));
       // odkazy na smazané záznamy (štítky, výjimky, vazby infoservisu) – úklid
       await sweepDangling(db).catch((e) => console.error("Úklid odkazů:", (e as Error).message));
       // nejdřív Wazuh alerty (nové návrhy událostí), pak upozornění

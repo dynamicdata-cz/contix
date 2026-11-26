@@ -1472,6 +1472,7 @@ export const EN_LABELS: Record<string, string> = {
   "lbl:Systémovou roli nelze smazat": "A system role cannot be deleted",
   "lbl:Systémy SIEM": "SIEM systems",
   "lbl:Systémy bez podpory výrobce (EOL)": "Systems without vendor support (EOL)",
+  "lbl:Fyzická bezpečnost lokalit": "Physical security of locations",
   "lbl:Systémy správy sítě": "Network management systems",
   "lbl:Síť a bezpečnostní prvky": "Network and security devices",
   "lbl:Síťová infrastruktura": "Network infrastructure",

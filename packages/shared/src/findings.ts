@@ -238,7 +238,7 @@ export interface FindingEscalationDto {
 }
 
 /* ---------- nálezy monitoringu (v1.96, ADR-190) ---------- */
-export const MONITORING_CODES = ["wazuh_agent_stale", "wazuh_agent_outdated", "zone_exposed_unmonitored", "zone_workstation_in_server", "zone_boundary_flow", "zone_unmonitored"] as const;
+export const MONITORING_CODES = ["wazuh_agent_stale", "wazuh_agent_outdated", "zone_exposed_unmonitored", "zone_workstation_in_server", "zone_boundary_flow", "zone_unmonitored", "premise_physical_gap"] as const;
 export type MonitoringCode = (typeof MONITORING_CODES)[number];
 export const MONITORING_INFO: Record<MonitoringCode, { title: string; fix: string }> = {
   wazuh_agent_stale: {
@@ -265,5 +265,10 @@ export const MONITORING_INFO: Record<MonitoringCode, { title: string; fix: strin
   zone_unmonitored: {
     title: "Zóna bez jediného sledovaného aktiva",
     fix: "Zapojte do sběru dat (Wazuh, agent CONTIX, sběrač) aspoň klíčová aktiva zóny.",
+  },
+  // lokality (v1.109, ADR-198)
+  premise_physical_gap: {
+    title: "Lokalita bez doporučené fyzické bezpečnosti",
+    fix: "Doplňte chybějící prvky (přístupový systém, EZS, EPS, klimatizace, UPS…) nebo zapište, proč nejsou potřeba (výjimka); stav upravte v Aktiva → Lokality.",
   },
 };

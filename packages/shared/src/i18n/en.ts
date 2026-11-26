@@ -7393,6 +7393,7 @@ export const EN: Record<keyof typeof CS, string> = {
   "mon.kindHint.sca_score": "Average configuration compliance score (Wazuh SCA / CIS benchmark) across all assets.",
   "mon.kindHint.agent_coverage": "Share of active servers and endpoints with a Wazuh agent that reported recently.",
   "mon.kindHint.eol_assets": "Active systems whose operating system is no longer supported by the vendor.",
+  "mon.kindHint.physical_security": "Missing recommended physical security controls (access control, intrusion alarm, fire detection, air conditioning, UPS…) in data centres, server rooms, technical rooms and buildings in Locations.",
   "mon.kindHint.tls_expiry": "Monitored certificates that are expired or expire within the set window.",
   "mon.kindHint.soc_sla": "SOC alerts and cases past their acknowledgement or resolution deadline.",
   "nav.group.compliance": "Compliance and audit",

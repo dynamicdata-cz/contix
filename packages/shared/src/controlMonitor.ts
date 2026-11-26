@@ -29,6 +29,8 @@ export const CONTROL_MONITOR_KINDS = [
   // v1.87 (ADR-182 fáze A): hardening serverů z agenta CONTIX jako průběžný důkaz k opatřením
   "host_hardening",
   "hardening_check",
+  // v1.109: fyzická bezpečnost lokalit (serverovny, datová centra)
+  "physical_security",
 ] as const;
 export type ControlMonitorKind = (typeof CONTROL_MONITOR_KINDS)[number];
 
@@ -90,6 +92,8 @@ export const MONITOR_SPEC: Record<ControlMonitorKind, MonitorSpec> = {
   vuln_kev: { metric: "count", direction: "max", thresholdKey: "maxCount", defaults: { maxCount: 0, graceDays: 14 }, params: ["maxCount", "graceDays"], source: "vulnerabilities", module: "vulnerabilities" },
   sca_score: { metric: "score", direction: "min", thresholdKey: "minScore", defaults: { minScore: 80 }, params: ["minScore"], source: "sca", module: "assets" },
   agent_coverage: { metric: "pct", direction: "min", thresholdKey: "minPct", defaults: { minPct: 95, staleDays: 7 }, params: ["minPct", "staleDays", "productionOnly"], source: "assets", module: "assets" },
+  /** Mezery fyzické bezpečnosti lokalit (v1.109): doporučené prvky u datových center, serveroven, technických místností a budov. */
+  physical_security: { metric: "count", direction: "max", thresholdKey: "maxCount", defaults: { maxCount: 0 }, params: ["maxCount"], source: "assets", module: "assets" },
   eol_assets: { metric: "count", direction: "max", thresholdKey: "maxCount", defaults: { maxCount: 0 }, params: ["maxCount", "productionOnly"], source: "assets", module: "assets" },
   tls_expiry: { metric: "count", direction: "max", thresholdKey: "maxCount", defaults: { maxCount: 0, warnDays: 14 }, params: ["maxCount", "warnDays"], source: "tls", module: "assets" },
   soc_sla: { metric: "count", direction: "max", thresholdKey: "maxCount", defaults: { maxCount: 0 }, params: ["maxCount"], source: "soc", module: "soc" },
@@ -230,6 +234,7 @@ export const MONITOR_LABELS = {
     sca_score: "Shoda konfigurace (Wazuh SCA / CIS)",
     agent_coverage: "Pokrytí aktiv agentem Wazuh",
     eol_assets: "Systémy bez podpory výrobce (EOL)",
+    physical_security: "Fyzická bezpečnost lokalit",
     tls_expiry: "Certifikáty po platnosti nebo brzy končící",
     soc_sla: "Alerty a případy SOC po lhůtě",
     training_completion: "Plnění povinných školení",
