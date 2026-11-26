@@ -182,6 +182,8 @@ export const RELATION_COVERAGE: Record<"assets" | "processes" | "risks" | "contr
     identity_computers: "detail", // zdroj „Active Directory“ v detailu aktiva (v1.90)
     monitoring_findings: "detail", // nálezy aktiva (karta Nálezy v detailu aktiva) – v1.96
     zone_flow_controls: "elsewhere", // řízené přechody vazeb přes hranice zón – Bezpečnostní zóny (v1.101)
+    security_zones: "elsewhere", // lokalita zóny – Aktiva → Lokality a Bezpečnostní zóny (v1.104)
+    site_maps: "elsewhere", // půdorysy lokality – Aktiva → Lokality (v1.104)
     incident_assets: "backlink:incident",
     info_assessment_assets: "detail",
     map_placements: "detail",
@@ -264,6 +266,7 @@ export const RELATION_COVERAGE: Record<"assets" | "processes" | "risks" | "contr
     supplier_report_items: "backlink:supplier_report",
   },
   suppliers: {
+    person_certificates: "detail", // certifikáty pracovníků dodavatele (v1.105)
     activity_suppliers: "backlink:activity",
     ai_system_suppliers: "backlink:ai_system",
     audits: "backlink:audit",

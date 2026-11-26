@@ -2,6 +2,11 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.107.1
+
+- Anglické znění nových chybových hlášek (lokality, certifikáty osob, Harbor).
+- Přehled vazeb mezi evidencemi zná nové vazby: zóna a půdorys v lokalitě, certifikáty pracovníků dodavatele (oprava kontrolního testu v CI).
+
 ## 1.107.0
 
 Harbor a opravy zranitelností komponent v CRA (ADR-201).
