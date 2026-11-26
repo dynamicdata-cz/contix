@@ -31,10 +31,16 @@ export function zoneRoutes(db: Db) {
     return z;
   };
   const Id = z.object({ id: z.string().uuid() });
+  /** Lokalita zóny musí být lokalita (facility) téže společnosti. */
+  const checkLocation = async (companyId: string, locationId: string | null | undefined) => {
+    if (!locationId) return;
+    const [f] = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, locationId), eq(assets.companyId, companyId), eq(assets.assetType, "facility")));
+    if (!f) throw new HTTPException(400, { message: "Lokalita nepatří do aktivní společnosti" });
+  };
   return new Hono<AppEnv>()
     .use(requireModule(db, "assets"))
     .get("/", requirePerm("assets:read"), async (c) => c.json(await zoneDtos(db, co(c))))
-    .get("/map", requirePerm("assets:read"), async (c) => c.json(await zoneMap(db, co(c))))
+    .get("/map", requirePerm("assets:read"), zValidator("query", z.object({ location: z.string().uuid().optional() })), async (c) => c.json(await zoneMap(db, co(c), c.req.valid("query").location ?? null)))
     /** Návrhy rozsahů ze síťových segmentů a podsítí aktiv (v1.101). */
     .get("/suggestions", requirePerm("assets:read"), async (c) => c.json(await zoneSuggestions(db, co(c))))
     .post("/suggestions/apply", requirePerm("assets:write"), zValidator("json", ZoneSuggestionsApply), async (c) => {
@@ -95,6 +101,7 @@ export function zoneRoutes(db: Db) {
     })
     .post("/", requirePerm("assets:write"), zValidator("json", SecurityZoneInput), async (c) => {
       const id = co(c, true);
+      await checkLocation(id, c.req.valid("json").locationId);
       const [z] = await db.insert(securityZones).values({ ...c.req.valid("json"), companyId: id }).returning();
       const moved = await refresh(id);
       await audit(db, { c, user: currentUser(c), action: "zones.created", entityType: "company", entityId: id, details: { name: z!.name, cidrs: z!.cidrs } });
@@ -103,6 +110,7 @@ export function zoneRoutes(db: Db) {
     .put("/:id", requirePerm("assets:write"), zValidator("param", Id), zValidator("json", SecurityZoneInput), async (c) => {
       const id = co(c, true);
       const cur = await zoneOf(c, id);
+      await checkLocation(id, c.req.valid("json").locationId);
       await db.update(securityZones).set({ ...c.req.valid("json"), updatedAt: new Date() }).where(eq(securityZones.id, cur.id));
       const moved = await refresh(id);
       await audit(db, { c, user: currentUser(c), action: "zones.updated", entityType: "company", entityId: id, details: { name: cur.name } });

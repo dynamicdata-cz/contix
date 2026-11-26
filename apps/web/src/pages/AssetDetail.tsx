@@ -22,7 +22,7 @@ import { AssetMapsCard } from "@/pages/SiteMaps";
 import { useCan, useModule } from "@/lib/auth";
 import { AssetScaCard } from "./Sca";
 import { cn, fmtDate } from "@/lib/utils";
-import { ASSET_GRAPH_LABELS, hostKeyOfAsset, LABELS, type HealthStatus, type AssetClass, type LinkedAssetDto, type SourceType } from "@contix/shared";
+import { ASSET_GRAPH_LABELS, hostKeyOfAsset, LABELS, recordPath, type HealthStatus, type AssetClass, type LinkedAssetDto, type SourceType } from "@contix/shared";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowDownRight, ArrowUpRight, Link2, Network, Pencil, Plus, Radar, Trash2, X } from "lucide-react";
@@ -176,6 +176,31 @@ export function AssetDetailPage() {
               <Item label={t("zn.assetZone")}>
                 <AssetZoneSelect assetId={a.id} zoneId={a.zoneId ?? null} manual={!!a.zoneManual} />
               </Item>
+              <Item label={t("prem.assetLocation")}>
+                {a.locationPath?.length ? (
+                  <span className="flex flex-wrap items-center gap-1" data-testid="asset-location">
+                    {a.locationPath.map((p, i) => (
+                      <span key={p.id}>
+                        {i > 0 && <span className="text-slate-400"> › </span>}
+                        <Link to={recordPath("asset", p.id)} className="hover:underline">
+                          {p.name}
+                        </Link>
+                      </span>
+                    ))}
+                  </span>
+                ) : (
+                  <Link to="/assets/locations" className="text-xs text-slate-500 hover:underline">
+                    {a.assetType === "facility" ? t("prem.openTree") : t("prem.notPlaced")}
+                  </Link>
+                )}
+              </Item>
+              {a.assetType === "facility" && (
+                <Item label={t("prem.f.kind")}>
+                  <Link to="/assets/locations" className="hover:underline">
+                    {a.facilityKind ? t(`prem.kind.${a.facilityKind}`) : t("prem.kindUnknown")}
+                  </Link>
+                </Item>
+              )}
               <Item label={t("ast.macAdresy")}>{a.macAddresses.length ? <AddrList items={a.macAddresses} /> : null}</Item>
               <Item label={t("ast.operacniSystem")}>{osLabel(a.osName, a.osVersion)}</Item>
               <Item label={t("ast.vyrobceModel")}>{[a.manufacturer, a.model].filter(Boolean).join(" ")}</Item>

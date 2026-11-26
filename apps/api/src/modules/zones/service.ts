@@ -1,8 +1,9 @@
 import { MONITORING_INFO, DEFAULT_ZONES, cidrCovered, cidrRangeAny, matchZone, parseIp, subnetOf, suggestZoneKind, zoneFlowLevel, type SecurityZoneDto, type ZoneKind, type ZoneMapDto, type ZoneSuggestionDto } from "@contix/shared";
-import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import type { Db } from "../../db/client";
 import { assetDependencies, assets, monitoringFindings, netSegments, securityZones, zoneFlowControls } from "../../db/schema";
 import { monitoringOf } from "../identity/computers";
+import { locationsOf, subtreeOf } from "../premises/service";
 import { applyMonitoringFindings, type MonitoringDesired } from "../integrations/monitoringFindings";
 
 /* ============================================================
@@ -55,14 +56,16 @@ async function zoneAssets(db: Db, companyId: string) {
 }
 
 export async function zoneDtos(db: Db, companyId: string): Promise<SecurityZoneDto[]> {
-  const [zones, list, open] = await Promise.all([
+  const [zones, list, open, locs] = await Promise.all([
     zonesOf(db, companyId),
     zoneAssets(db, companyId),
     db
       .select({ key: monitoringFindings.key, assetId: monitoringFindings.assetId })
       .from(monitoringFindings)
       .where(and(eq(monitoringFindings.companyId, companyId), eq(monitoringFindings.status, "open"), sql`${monitoringFindings.code} like 'zone\\_%'`)),
+    locationsOf(db, companyId),
   ]);
+  const locPath = new Map(locs.nodes.map((n) => [n.id, [...n.path.map((p) => p.name), n.name].join(" › ")]));
   return zones.map((z) => {
     const mine = list.filter((a) => a.zoneId === z.id);
     const ids = new Set(mine.map((a) => a.id));
@@ -76,6 +79,8 @@ export async function zoneDtos(db: Db, companyId: string): Promise<SecurityZoneD
       description: z.description,
       cidrs: z.cidrs ?? [],
       sortOrder: z.sortOrder,
+      locationId: z.locationId ?? null,
+      locationPath: z.locationId ? (locPath.get(z.locationId) ?? null) : null,
       assets: mine.length,
       monitored: mine.filter((a) => a.monitored).length,
       servers: mine.filter((a) => a.assetType === "server").length,
@@ -86,14 +91,23 @@ export async function zoneDtos(db: Db, companyId: string): Promise<SecurityZoneD
   });
 }
 
-export async function zoneMap(db: Db, companyId: string): Promise<ZoneMapDto> {
-  const [zones, list] = await Promise.all([zoneDtos(db, companyId), zoneAssets(db, companyId)]);
+export async function zoneMap(db: Db, companyId: string, locationId?: string | null): Promise<ZoneMapDto> {
+  const [allZones, allAssets] = await Promise.all([zoneDtos(db, companyId), zoneAssets(db, companyId)]);
+  // filtr podle lokality (budovy): zóny v jejím podstromu a jejich aktiva (v1.104)
+  const within = locationId ? await subtreeOf(db, companyId, locationId) : null;
+  const zones = within ? allZones.filter((z) => z.locationId && within.has(z.locationId)) : allZones;
+  const zoneIds = new Set(zones.map((z) => z.id));
+  const list = within ? allAssets.filter((a) => a.zoneId && zoneIds.has(a.zoneId)) : allAssets;
   const zm = new Map(zones.map((z) => [z.id, z]));
   const am = new Map(list.map((a) => [a.id, a]));
   const ids = list.map((a) => a.id);
   const [deps, ctrls] = ids.length
     ? await Promise.all([
-        db.select({ fromId: assetDependencies.fromId, toId: assetDependencies.toId }).from(assetDependencies).where(inArray(assetDependencies.fromId, ids)),
+        // „umístěno v“ není síťový tok – fyzické umístění nepřekračuje hranici zón (v1.104)
+        db
+          .select({ fromId: assetDependencies.fromId, toId: assetDependencies.toId })
+          .from(assetDependencies)
+          .where(and(inArray(assetDependencies.fromId, ids), ne(assetDependencies.kind, "located_in"))),
         db.select().from(zoneFlowControls).where(inArray(zoneFlowControls.fromId, ids)),
       ])
     : [[], []];
@@ -114,7 +128,8 @@ export async function zoneMap(db: Db, companyId: string): Promise<ZoneMapDto> {
     zones,
     assets: list.map((a) => ({ id: a.id, name: a.name, assetType: a.assetType, zoneId: a.zoneId, manual: a.manual, health: a.health, monitored: a.monitored, internetFacing: a.internetFacing, criticality: a.criticality })),
     flows,
-    unassigned: list.filter((a) => !a.zoneId && (a.ips ?? []).length > 0).length,
+    unassigned: within ? 0 : list.filter((a) => !a.zoneId && (a.ips ?? []).length > 0).length,
+    locationId: locationId ?? null,
   };
 }
 

@@ -114,3 +114,4 @@ export * from "./hardening";
 export * from "./integrationMap";
 export * from "./zones";
 export * from "./calendar";
+export * from "./locations";

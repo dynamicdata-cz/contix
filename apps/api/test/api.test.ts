@@ -11607,6 +11607,57 @@ describe.skipIf(!url)("API (integrace)", () => {
 
   /* ============ Audit a odhlášení ============ */
 
+  test("lokality (v1.104): strom budova › patro › serverovna, umístění techniky, zóna v lokalitě, filtr mapy, kontrola vazeb", async () => {
+    const H = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
+    const mk = async (name: string, kind: string, parentId: string | null = null, physical?: any) => {
+      const r = await admin.json("/api/premises", { method: "POST", headers: H, json: { name, kind, parentId, ...(physical ? { physical } : {}) } });
+      expect(r.status).toBe(201);
+      return r.body;
+    };
+    const bld = await mk("LOC Budova A", "building", null, { controls: { access_control: "yes", fire_detection: "yes" }, address: "Hlavní 1" });
+    const floor = await mk("LOC 2. patro", "floor", bld.id);
+    const sr = await mk("LOC Serverovna", "server_room", floor.id, { controls: { access_control: "yes", hvac: "partial" } });
+    expect(sr.path.map((p: any) => p.name)).toEqual(["LOC Budova A", "LOC 2. patro"]);
+    expect(sr.gaps.map((g: any) => g.control).sort()).toEqual(["fire_detection", "hvac", "intrusion_alarm", "ups"]);
+    expect(bld.gaps).toEqual([]);
+    // technika: server přímo, druhý server v racku
+    const srv = (await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "LOC-SRV1", assetType: "server", criticality: "critical" } })).body;
+    const rack = (await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "LOC-RACK1", assetType: "rack" } })).body;
+    const srv2 = (await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "LOC-SRV2", assetType: "server" } })).body;
+    const placed = await admin.json(`/api/premises/${sr.id}/assets`, { method: "POST", headers: H, json: { assetIds: [srv.id, rack.id] } });
+    expect(placed.body.assets.map((a: any) => a.name).sort()).toEqual(["LOC-RACK1", "LOC-SRV1"]);
+    expect((await admin.json("/api/assets/dependencies", { method: "POST", headers: H, json: { fromId: srv2.id, toId: rack.id, kind: "located_in" } })).status).toBe(201);
+    const det = (await admin.json(`/api/premises/${sr.id}`, { headers: H })).body;
+    expect(det.assets.find((a: any) => a.name === "LOC-SRV2").viaRack).toBe("LOC-RACK1");
+    const tree = (await admin.json("/api/premises", { headers: H })).body;
+    const nb = tree.nodes.find((n: any) => n.id === bld.id);
+    expect([nb.assetsTotal, nb.assetsCritical, nb.assetsDirect]).toEqual([3, 1, 0]);
+    // přesun: server se přesune, ne zdvojí
+    expect((await admin.json(`/api/premises/${floor.id}/assets`, { method: "POST", headers: H, json: { assetIds: [srv.id] } })).status).toBe(200);
+    expect((await admin.json(`/api/assets/${srv.id}`, { headers: H })).body.locationPath.map((p: any) => p.name)).toEqual(["LOC Budova A", "LOC 2. patro"]);
+    expect((await admin.json(`/api/assets/${srv2.id}`, { headers: H })).body.locationPath.map((p: any) => p.name)).toEqual(["LOC Budova A", "LOC 2. patro", "LOC Serverovna", "LOC-RACK1"]);
+    // cyklus a neplatné vazby
+    expect((await admin.json(`/api/premises/${bld.id}`, { method: "PATCH", headers: H, json: { parentId: sr.id } })).status).toBe(400);
+    expect((await admin.json(`/api/premises/${sr.id}/assets`, { method: "POST", headers: H, json: { assetIds: [bld.id] } })).status).toBe(400);
+    expect((await admin.json("/api/assets/dependencies", { method: "POST", headers: H, json: { fromId: srv2.id, toId: srv.id, kind: "located_in" } })).status).toBe(400);
+    // historická vazba „umístěno v“ na server → kontrola vazeb ji ukáže
+    await db.insert(schema.assetDependencies).values({ fromId: srv.id, toId: srv2.id, kind: "located_in" });
+    const iss = (await admin.json("/api/premises", { headers: H })).body.issues;
+    expect(iss.find((i: any) => i.code === "located_in_non_container" && i.assetId === srv.id).related.map((r: any) => r.name)).toEqual(["LOC-SRV2"]);
+    // zóna v lokalitě + filtr mapy; umístění není tok přes hranici zón
+    const zr = await admin.json("/api/zones", { method: "POST", headers: H, json: { name: "LOC zóna serverů", kind: "server", trust: 3, cidrs: ["10.188.0.0/24"], locationId: sr.id } });
+    expect(zr.status).toBe(201);
+    expect(zr.body.zones.find((z: any) => z.id === zr.body.id).locationPath).toBe("LOC Budova A › LOC 2. patro › LOC Serverovna");
+    const fm = (await admin.json(`/api/zones/map?location=${bld.id}`, { headers: H })).body;
+    expect(fm.zones.map((z: any) => z.name)).toEqual(["LOC zóna serverů"]);
+    const other = await mk("LOC Budova B", "building");
+    expect((await admin.json(`/api/zones/map?location=${other.id}`, { headers: H })).body.zones).toEqual([]);
+    expect((await admin.json(`/api/zones/${zr.body.id}`, { method: "PUT", headers: { "x-contix-company": "00000000-0000-4000-8000-000000000001" }, json: { name: "LOC zóna serverů", trust: 3, locationId: srv.id } })).status).toBe(400);
+    expect((await admin.json(`/api/premises/${sr.id}`, { headers: H })).body.zones.map((z: any) => z.name)).toEqual(["LOC zóna serverů"]);
+    await admin.json(`/api/zones/${zr.body.id}`, { method: "DELETE", headers: H });
+    await db.delete(schema.assets).where(sql`name like 'LOC %' or name like 'LOC-%'`);
+  });
+
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {
     expect(secretLeaks).toEqual([]);
     const rows = await db.execute(sql`select action, details::text as d from audit_log where details::text ~ '(passwordHash|tokenHash|[a-zA-Z]+Enc|_enc)"\s*:\s*"'`);
@@ -11650,4 +11701,5 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect(scan).toMatchObject({ action: "updated", assetId: id1, reason: "ip" });
     await db.delete(schema.assets).where(inArray(schema.assets.id, [id1, (fix as any).assetId, (a2 as any).assetId]));
   });
+
 });

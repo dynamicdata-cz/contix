@@ -23,7 +23,9 @@ export function ZonesPage() {
   const t = useT();
   const can = useCan();
   const qc = useQueryClient();
-  const map = useQuery({ queryKey: ["zones", "map"], queryFn: api.zones.map });
+  const [loc, setLoc] = useState("");
+  const map = useQuery({ queryKey: ["zones", "map", loc], queryFn: () => api.zones.map(loc || null) });
+  const locs = useQuery({ queryKey: ["premises"], queryFn: api.premises.list });
   const [edit, setEdit] = useState<SecurityZoneDto | "new" | null>(null);
   const [suggest, setSuggest] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -60,9 +62,26 @@ export function ZonesPage() {
           </>
         )}
       </div>
+      {(locs.data?.nodes.length ?? 0) > 0 && (
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-slate-600" htmlFor="zn-loc">
+            {t("prem.filter")}
+          </label>
+          <Select id="zn-loc" value={loc} onChange={(e) => setLoc(e.target.value)} className="w-auto min-w-64" data-testid="zn-location">
+            <option value="">{t("prem.all")}</option>
+            {locs.data!.nodes.map((n) => (
+              <option key={n.id} value={n.id}>
+                {"\u00a0\u00a0".repeat(n.depth)}
+                {n.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+      )}
       <ErrorBox error={map.error ?? defaults.error ?? assign.error ?? remove.error} />
       {msg && <SuccessBox>{msg}</SuccessBox>}
-      {d && !d.zones.length && (
+      {d && !d.zones.length && loc && <p className="text-sm text-slate-600">{t("prem.noZones")}</p>}
+      {d && !d.zones.length && !loc && (
         <Card className="p-6" data-testid="zn-empty">
           <p className="text-sm text-slate-700">{t("zn.empty")}</p>
           {write && (
@@ -100,6 +119,7 @@ export function ZonesPage() {
                     <p className="mt-0.5 text-xs text-slate-500">
                       {z.cidrs.length ? z.cidrs.join(", ") : t("zn.noCidrs")} · {t("zn.counts", { n: z.assets, mon: z.monitored })}
                       {z.openFindings ? ` · ${t("zn.findings", { n: z.openFindings })}` : ""}
+                      {z.locationPath ? ` · ${z.locationPath}` : ""}
                     </p>
                   </div>
                   {write && (
@@ -459,8 +479,10 @@ function ZoneModal({ zone, onClose, onDone }: { zone: SecurityZoneDto | null; on
     color: zone?.color ?? "#64748b",
     description: zone?.description ?? "",
     sortOrder: zone?.sortOrder ?? 100,
+    locationId: zone?.locationId ?? null,
     cidrText: (zone?.cidrs ?? []).join("\n"),
   });
+  const locs = useQuery({ queryKey: ["premises"], queryFn: api.premises.list });
   const save = useMutation({
     mutationFn: () => {
       const { cidrText, ...rest } = f;
@@ -515,6 +537,17 @@ function ZoneModal({ zone, onClose, onDone }: { zone: SecurityZoneDto | null; on
         </Field>
         <Field label={t("zn.f.cidrs")} hint={t("zn.f.cidrsHint")} className="sm:col-span-2">
           <Textarea rows={4} value={f.cidrText} onChange={(e) => setF({ ...f, cidrText: e.target.value })} placeholder={"10.10.0.0/24\n10.10.1.0/24"} data-testid="zn-cidrs" />
+        </Field>
+        <Field label={t("prem.zoneLocation")} hint={t("prem.zoneLocationHint")} className="sm:col-span-2">
+          <Select value={f.locationId ?? ""} onChange={(e) => setF({ ...f, locationId: e.target.value || null })} data-testid="zn-location-select">
+            <option value="">{t("prem.none")}</option>
+            {(locs.data?.nodes ?? []).map((n) => (
+              <option key={n.id} value={n.id}>
+                {"\u00a0\u00a0".repeat(n.depth)}
+                {n.name}
+              </option>
+            ))}
+          </Select>
         </Field>
         <Field label={t("zn.f.description")} className="sm:col-span-2">
           <Textarea rows={2} value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} />

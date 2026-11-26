@@ -2,6 +2,17 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.104.0
+
+Lokality – budovy, patra, místnosti a datová centra (ADR-198).
+
+- **Nová obrazovka Aktiva → Lokality**: strom Areál › Budova › Patro › Místnost / Serverovna / Datové centrum. Lokalita je aktivum (typ „prostory“), takže má vlastníka, kritičnost, rizika a vazby jako každé jiné aktivum.
+- **Umístění techniky**: servery, racky, síťové prvky i podřízené lokality se umisťují do lokality (vazba „umístěno v“); technika v racku se počítá do místnosti racku. Detail aktiva ukazuje celou cestu umístění. Aktivum leží vždy na jednom místě – nové umístění nahradí dosavadní.
+- **Fyzická bezpečnost lokality**: přístupový systém, EZS, kamery, EPS, hašení, klimatizace, UPS, generátor, detekce zaplavení, evidence návštěv (ano / částečně / ne), adresa a datum poslední kontroly. U serveroven, datových center, technických místností a budov se ukazují mezery proti doporučenému minimu.
+- **Zóny v lokalitě**: bezpečnostní zóna může patřit do lokality; mapu zón lze filtrovat podle budovy. Půdorysy (Mapy) lze přiřadit k lokalitě.
+- **Kontrola vazeb**: vazba „umístěno v“ na aktivum, které není lokalitou ani rackem, umístění na více místech, cyklus lokalit, nelogické vnoření (budova v místnosti) a kritická technika bez umístění. Nové vazby „umístěno v“ jinam než do lokality nebo racku se už nepřijmou.
+- Oprava: vazba „umístěno v“ se už nepočítá jako síťový tok přes hranici zón (nezakládá nález „vazba přes hranici zón“).
+
 ## 1.103.1
 
 Opravy podle připomínek z provozu.

@@ -25,6 +25,7 @@ import { recomputeHealth } from "../vulnerabilities/service";
 import { reassignFindingTasks } from "../sectests/tasks";
 import type { Db } from "../../db/client";
 import { assetCompanies, assetDuplicateDismissals, assetLinks, assetSoftware, assetSources, assets, orgUnits, users, type AssetRow } from "../../db/schema";
+import { locationPathOf } from "../premises/service";
 import { canonicalTags } from "../tags/routes";
 import { ApiError } from "../../lib/apiError";
 
@@ -316,6 +317,7 @@ export function assetRoutes(db: Db) {
           supports: supports as LinkedAssetDto[],
           supportedBy: supportedBy as LinkedAssetDto[],
           ...(await dependenciesOf(db, id)),
+          locationPath: await locationPathOf(db, asset.companyId, id),
           effectiveCia: effectiveCia(asset, supports),
           sharedWith,
           ownedHere: ownerInScope,

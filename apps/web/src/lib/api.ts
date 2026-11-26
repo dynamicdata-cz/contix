@@ -558,6 +558,10 @@ import type {
   CalendarFeedInput,
   ZoneSuggestionDto,
   ZoneFlowControlInput,
+  LocationsDto,
+  LocationDetailDto,
+  LocationInput,
+  LocationPatch,
 } from "@contix/shared";
 import { tt } from "./i18n";
 
@@ -669,6 +673,8 @@ export type AssetDetail = AssetDto & {
   supportedBy: LinkedAssetDto[];
   dependsOn: AssetDependencyDto[];
   dependedBy: AssetDependencyDto[];
+  /** Umístění (v1.104): lokality a rack od kořene po bezprostřední kontejner. */
+  locationPath?: { id: string; name: string; assetType: string }[];
   effectiveCia: EffectiveCia;
   canEdit: boolean;
   /** Smí nastavit sdílení se společnostmi holdingu (ADR-085). */
@@ -1996,7 +2002,7 @@ export const api = {
 
   zones: {
     list: () => request<SecurityZoneDto[]>("/zones"),
-    map: () => request<ZoneMapDto>("/zones/map"),
+    map: (location?: string | null) => request<ZoneMapDto>(`/zones/map${location ? `?location=${location}` : ""}`),
     defaults: () => post<{ created: number; moved: number; zones: SecurityZoneDto[] }>("/zones/defaults", {}),
     assign: () => post<{ moved: number; zones: SecurityZoneDto[] }>("/zones/assign", {}),
     create: (d: SecurityZoneInput) => post<{ id: string; moved: number; zones: SecurityZoneDto[] }>("/zones", d),
@@ -2007,6 +2013,15 @@ export const api = {
     applySuggestions: (items: { cidr: string; zoneId: string }[]) => post<{ added: number; moved: number; zones: SecurityZoneDto[] }>("/zones/suggestions/apply", { items }),
     setFlow: (d: ZoneFlowControlInput) => put<ZoneMapDto>("/zones/flows", d),
     clearFlow: (fromId: string, toId: string) => del<ZoneMapDto>(`/zones/flows/${fromId}/${toId}`),
+  },
+  premises: {
+    list: () => request<LocationsDto>("/premises"),
+    get: (id: string) => request<LocationDetailDto>(`/premises/${id}`),
+    create: (d: LocationInput) => post<LocationDetailDto>("/premises", d),
+    update: (id: string, d: LocationPatch) => patch<LocationDetailDto>(`/premises/${id}`, d),
+    place: (id: string, assetIds: string[]) => post<LocationDetailDto>(`/premises/${id}/assets`, { assetIds }),
+    unplace: (id: string, assetId: string) => del<LocationDetailDto>(`/premises/${id}/assets/${assetId}`),
+    setMaps: (id: string, mapIds: string[]) => put<LocationDetailDto>(`/premises/${id}/maps`, { mapIds }),
   },
   integrations: {
     /** Mapa propojení (v1.86): zóny, uzly, spojení, stavy a pokrytí serverů. */

@@ -1920,6 +1920,44 @@ test("bezpečnostní zóny: výchozí sada, rozsah IP, mapa a zóna v detailu ak
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("lokality: budova, serverovna s fyzickou bezpečností, umístění serveru, filtr mapy zón (v1.104)", async () => {
+  await page.goto("/assets");
+  const headers = { origin: new URL(page.url()).origin };
+  const srv = await (await page.request.post("/api/assets", { data: { name: "E2E-LOK-SRV", assetType: "server", criticality: "high" }, headers })).json();
+  await page.getByTestId("nav-locations").click();
+  await expect(page.getByRole("heading", { name: "Lokality", level: 1 })).toBeVisible();
+  await page.getByTestId("loc-new").click();
+  await page.getByTestId("loc-name").fill("E2E Budova Zlín");
+  await page.getByTestId("loc-kind").selectOption("building");
+  await page.getByTestId("loc-save").click();
+  await expect(page.getByTestId("loc-tree")).toContainText("E2E Budova Zlín");
+  await page.getByTestId("loc-add-child").click();
+  await page.getByTestId("loc-name").fill("E2E Serverovna");
+  await page.getByTestId("loc-kind").selectOption("server_room");
+  await page.getByTestId("loc-ctl-access_control").selectOption("yes");
+  await page.getByTestId("loc-ctl-ups").selectOption("partial");
+  await page.getByTestId("loc-save").click();
+  await expect(page.getByTestId("loc-detail")).toContainText("E2E Budova Zlín");
+  await expect(page.getByTestId("loc-physical")).toContainText("Částečně");
+  await page.getByTestId("loc-place").click();
+  await page.getByRole("dialog").getByPlaceholder(/Hledat aktivum/).fill("E2E-LOK");
+  await page.getByRole("option", { name: /E2E-LOK-SRV/ }).click();
+  await page.getByTestId("loc-place-save").click();
+  await expect(page.getByTestId("loc-assets")).toContainText("E2E-LOK-SRV");
+  await page.goto(`/assets/${srv.id}`);
+  await expect(page.getByTestId("asset-location")).toHaveText(/E2E Budova Zlín › E2E Serverovna/);
+  // zóna v serverovně a filtr mapy podle budovy
+  await page.goto("/assets/zones");
+  await page.getByTestId("zn-list").locator("div", { hasText: "Servery" }).getByRole("button", { name: "Upravit zónu" }).first().click();
+  await page.getByTestId("zn-location-select").selectOption({ label: "\u00a0\u00a0E2E Serverovna" });
+  await page.getByTestId("zn-save").click();
+  await expect(page.getByTestId("zn-list")).toContainText("E2E Budova Zlín › E2E Serverovna");
+  await page.getByTestId("zn-location").selectOption({ label: "E2E Budova Zlín" });
+  await expect(page.getByTestId("zn-list")).toContainText("Servery");
+  await expect(page.getByTestId("zn-list")).not.toContainText("DMZ");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("tento týden a kalendář lhůt s exportem .ics (v1.98)", async () => {
   await page.goto("/");
   await expect(page.getByTestId("week-card")).toBeVisible();
@@ -2752,7 +2790,7 @@ test("odhlášení", async () => {
  * z předchozích testů. Práh kontrastu 2,5 : 1 je pojistka proti „bílé na bílé“, ne audit WCAG.
  * ============================================================ */
 const READABILITY_ROUTES =
-  "/ /my /calendar /actions /ask /isms /compliance-path /quality /management /group /projects /organization /processes /assets /assets/duplicates /assets/graph /assets/resilience /assets/certificates /assets/maps /assets/zones /suppliers /suppliers/dora /tags /risks /risks/catalog /risks/plan /risks/scenarios /risks/modeling /risks/appetite /findings /exceptions /vulnerabilities /security-tests /controls /controls/sca /controls/monitoring /controls/assurance /controls/library /bia /continuity/plans /continuity/exercises /incidents /soc /phishing /audits /identity /access /policies /legislation /infoservice /awareness /docs /knowledge /gdpr /aiact /cra /soc2 /trust /discovery /profile /admin/setup /admin/users /admin/roles /admin/settings /admin/companies /admin/notifications /admin/audit /admin/connectors /admin/ops".split(" ");
+  "/ /my /calendar /actions /ask /isms /compliance-path /quality /management /group /projects /organization /processes /assets /assets/duplicates /assets/graph /assets/resilience /assets/certificates /assets/maps /assets/zones /assets/locations /suppliers /suppliers/dora /tags /risks /risks/catalog /risks/plan /risks/scenarios /risks/modeling /risks/appetite /findings /exceptions /vulnerabilities /security-tests /controls /controls/sca /controls/monitoring /controls/assurance /controls/library /bia /continuity/plans /continuity/exercises /incidents /soc /phishing /audits /identity /access /policies /legislation /infoservice /awareness /docs /knowledge /gdpr /aiact /cra /soc2 /trust /discovery /profile /admin/setup /admin/users /admin/roles /admin/settings /admin/companies /admin/notifications /admin/audit /admin/connectors /admin/ops".split(" ");
 
 test("čitelnost a rozvržení všech obrazovek ve světlém i tmavém režimu (v1.102)", async () => {
   test.setTimeout(600_000);

@@ -4177,3 +4177,23 @@ describe("AI: vypnutí přemýšlení modelu (v1.102.2)", () => {
     expect(sent.at(-1).think).toBe(true);
   });
 });
+
+describe("lokality (v1.104, ADR-198)", () => {
+  test("mezery fyzické bezpečnosti podle druhu lokality", async () => {
+    const { physicalGaps, canNest } = await import("@contix/shared");
+    expect(physicalGaps("server_room", { controls: { access_control: "yes", ups: "partial" } }).map((g) => [g.control, g.level])).toEqual([
+      ["intrusion_alarm", null],
+      ["fire_detection", null],
+      ["hvac", null],
+      ["ups", "partial"],
+    ]);
+    expect(physicalGaps("room", {})).toEqual([]);
+    expect(physicalGaps(null, null)).toEqual([]);
+    expect(canNest("building", "floor")).toBe(true);
+    expect(canNest("floor", "server_room")).toBe(true);
+    expect(canNest("server_room", "building")).toBe(false);
+    expect(canNest("room", "room")).toBe(false);
+    expect(canNest("site", "site")).toBe(true);
+    expect(canNest("other", "building")).toBe(true);
+  });
+});

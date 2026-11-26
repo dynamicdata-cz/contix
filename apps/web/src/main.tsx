@@ -42,6 +42,7 @@ const InfoServicePage = lazyRouteComponent(() => import("./pages/InfoService"), 
 const CertificatesPage = lazyRouteComponent(() => import("./pages/Certificates"), "CertificatesPage");
 const SiteMapsPage = lazyRouteComponent(() => import("./pages/SiteMaps"), "SiteMapsPage");
 const ZonesPage = lazyRouteComponent(() => import("./pages/Zones"), "ZonesPage");
+const LocationsPage = lazyRouteComponent(() => import("./pages/Locations"), "LocationsPage");
 const AccessPage = lazyRouteComponent(() => import("./pages/Access"), "AccessPage");
 const ProjectsPage = lazyRouteComponent(() => import("./pages/Projects"), "ProjectsPage");
 const ProjectDetailPage = lazyRouteComponent(() => import("./pages/Projects"), "ProjectDetailPage");
@@ -273,6 +274,7 @@ const routeTree = root.addChildren([
     r("/assets/certificates", CertificatesPage),
     r("/assets/maps", SiteMapsPage),
     r("/assets/zones", ZonesPage),
+    r("/assets/locations", LocationsPage),
     r("/audit-portal", AuditPortalPage),
     r("/controls/sca", ScaPage),
     r("/controls/monitoring", MonitoringPage),

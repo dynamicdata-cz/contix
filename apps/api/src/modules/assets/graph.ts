@@ -25,6 +25,7 @@ import { hasPermIn, riskPolicies, visibleIds } from "../../auth/scope";
 import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
 import { alertSuggestions, assetDependencies, assetLinks, assets, assetVulnerabilities, biaAssessments, continuityPlans, planAssets, planProcesses, processAssets, processes, riskAssets, risks, vulnIntel, type AssetRow } from "../../db/schema";
+import { placeAsset } from "../premises/service";
 import { vulnPrioritySql } from "../vulnerabilities/intel";
 
 /* ============================================================
@@ -176,6 +177,14 @@ export function assetGraphRoutes(db: Db) {
       if (!canEdit(c, f) && !canEdit(c, t)) throw new HTTPException(403, { message: "Nemáte oprávnění upravovat toto aktivum" });
       const [back] = await db.select({ n: sql<number>`count(*)::int` }).from(assetDependencies).where(and(eq(assetDependencies.fromId, toId), eq(assetDependencies.toId, fromId)));
       if (back!.n) throw new HTTPException(400, { message: "Opačná závislost už existuje" });
+      // „umístěno v“ míří jen na lokalitu nebo rack; jedno aktivum leží na jednom místě (v1.104, ADR-198)
+      if (kind === "located_in") {
+        if (t.assetType !== "facility" && t.assetType !== "rack") throw new HTTPException(400, { message: "Umístit lze jen do lokality (budova, místnost, datové centrum) nebo racku" });
+        await placeAsset(db, fromId, toId);
+        if (note) await db.update(assetDependencies).set({ note }).where(and(eq(assetDependencies.fromId, fromId), eq(assetDependencies.toId, toId)));
+        await audit(db, { c, user: currentUser(c), action: "asset.dependency_added", entityType: "asset", entityId: fromId, details: { toId, toName: t.name, kind } });
+        return c.json({ ok: true }, 201);
+      }
       await db
         .insert(assetDependencies)
         .values({ fromId, toId, kind, note: note ?? null })

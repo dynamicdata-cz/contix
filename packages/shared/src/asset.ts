@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { FACILITY_KINDS, FacilityPhysical, type FacilityKind } from "./locations";
 
 /**
  * Sdílený doménový slovník modulu Asset.
@@ -106,6 +107,9 @@ const AssetBase = z.object({
   internetFacing: z.boolean(),
   tags: z.array(z.string().trim().min(1)),
   attributes: z.record(z.string(), z.unknown()),
+  /** Lokalita (v1.104, ADR-198): druh a fyzická bezpečnost u aktiva typu `facility`. */
+  facilityKind: z.enum(FACILITY_KINDS).optional().nullable(),
+  physical: FacilityPhysical.optional().nullable(),
 });
 
 export const AssetInput = AssetBase.extend({
@@ -189,6 +193,8 @@ export interface AssetDto {
   /** Bezpečnostní zóna (v1.97); `zoneManual` = zvolena ručně, jinak podle IP. */
   zoneId?: string | null;
   zoneManual?: boolean;
+  facilityKind?: FacilityKind | null;
+  physical?: FacilityPhysical | null;
   lifecycleStatus: LifecycleStatus;
   environment: Environment | null;
   tags: string[];

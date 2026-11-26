@@ -60,6 +60,8 @@ export const SecurityZoneInput = z.object({
     .max(200)
     .default([]),
   sortOrder: z.number().int().min(0).max(999).default(100),
+  /** Lokalita zóny – budova, místnost, datové centrum (v1.104, ADR-198). */
+  locationId: z.string().uuid().nullable().default(null),
 });
 export type SecurityZoneInput = z.input<typeof SecurityZoneInput>;
 
@@ -73,6 +75,9 @@ export interface SecurityZoneDto {
   description: string;
   cidrs: string[];
   sortOrder: number;
+  locationId: string | null;
+  /** Cesta lokality, např. „Areál Valašské Meziříčí › Budova A › Serverovna“. */
+  locationPath: string | null;
   assets: number;
   /** Aktiva se sběrem dat (agent, sběrač, Wazuh). */
   monitored: number;
@@ -97,6 +102,8 @@ export interface ZoneMapDto {
   }[];
   /** Aktiva s IP mimo všechny zóny (návrh na doplnění rozsahů). */
   unassigned: number;
+  /** Filtr lokality (budova) – mapa obsahuje jen zóny v ní (v1.104). */
+  locationId?: string | null;
 }
 export type ZoneFlowLevel = "ok" | "warn" | "high";
 

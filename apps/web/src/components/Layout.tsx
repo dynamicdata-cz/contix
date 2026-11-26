@@ -42,7 +42,7 @@ import { Activity, ShieldCheck,
   UserRound,
   KeyRound,
   Scale,
-  ChevronDown, Star, ListChecks, Fish, Rss, BrainCircuit, BadgeCheck, PackageCheck, Menu, Search, X, Library, MapPinned, UserCheck, FolderKanban, Milestone, Crosshair, Layers, CalendarDays } from "lucide-react";
+  ChevronDown, Star, ListChecks, Fish, Rss, BrainCircuit, BadgeCheck, PackageCheck, Menu, Search, X, Library, MapPinned, UserCheck, FolderKanban, Milestone, Crosshair, Layers, CalendarDays, Warehouse } from "lucide-react";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 const linkCls = "flex items-center gap-3 rounded-lg px-3 py-[7px] text-[13.5px] text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-300";
@@ -182,7 +182,7 @@ export function Layout() {
               </Link>
             )}
             {can("assets:read") && mod("assets") && (
-              <Link to="/assets" className={linkCls} activeProps={path.startsWith("/assets/maps") || path.startsWith("/assets/zones") ? {} : activeCls}>
+              <Link to="/assets" className={linkCls} activeProps={path.startsWith("/assets/maps") || path.startsWith("/assets/zones") || path.startsWith("/assets/locations") ? {} : activeCls}>
                 <Server size={17} /> {t("nav.assets")}
               </Link>
             )}
@@ -194,6 +194,11 @@ export function Layout() {
             {can("assets:read") && mod("assets") && (
               <Link to="/assets/zones" className={linkCls} activeProps={activeCls} data-testid="nav-zones">
                 <Layers size={17} /> {t("zn.title")}
+              </Link>
+            )}
+            {can("assets:read") && mod("assets") && (
+              <Link to="/assets/locations" className={linkCls} activeProps={activeCls} data-testid="nav-locations">
+                <Warehouse size={17} /> {t("prem.title")}
               </Link>
             )}
             {can("suppliers:read") && mod("suppliers") && (

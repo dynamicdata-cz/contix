@@ -1,5 +1,6 @@
 import { integrationRoutes } from "./modules/integrations/routes";
 import { zoneRoutes } from "./modules/zones/routes";
+import { premiseRoutes } from "./modules/premises/routes";
 import { positionRoutes } from "./modules/org/positions";
 import { knowledgeRoutes } from "./modules/knowledge/routes";
 import { quickSearchRoutes } from "./modules/search/quick";
@@ -173,6 +174,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/hosts", hostRoutes(db))
     .route("/integrations", integrationRoutes(deps))
     .route("/zones", zoneRoutes(deps.db))
+    .route("/premises", premiseRoutes(deps.db))
     .route("/quality", qualityRoutes(db))
     .route("/bulk", bulkRoutes(db))
     .route("/findings", findingRoutes(db, { config, fetchImpl: deps.fetchImpl }))

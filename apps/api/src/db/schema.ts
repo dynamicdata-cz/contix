@@ -127,6 +127,7 @@ import {
   LEGAL_IMPACTS,
   LEGAL_TASK_STATUSES,
   type SodConflict,
+  type FacilityPhysical,
 } from "@contix/shared";
 import { sql } from "drizzle-orm";
 import {
@@ -401,6 +402,8 @@ export const securityZones = pgTable(
     description: text("description").notNull().default(""),
     cidrs: text("cidrs").array().notNull().default(sql`'{}'::text[]`),
     sortOrder: smallint("sort_order").notNull().default(100),
+    /** Lokalita zóny (v1.104, ADR-198) – budova, místnost, datové centrum (aktivum typu facility). */
+    locationId: uuid("location_id").references((): AnyPgColumn => assets.id, { onDelete: "set null" }),
     ...timestamps,
   },
   (t) => [index("security_zones_company_idx").on(t.companyId)],
@@ -447,6 +450,10 @@ export const assets = pgTable(
     /** Bezpečnostní zóna (v1.97, ADR-191): podle IP, nebo ručně (`zoneManual`). */
     zoneId: uuid("zone_id").references(() => securityZones.id, { onDelete: "set null" }),
     zoneManual: boolean("zone_manual").notNull().default(false),
+    /** Druh lokality u aktiva typu `facility` (v1.104, ADR-198): budova, patro, místnost, datové centrum… */
+    facilityKind: varchar("facility_kind", { length: 20 }),
+    /** Fyzická bezpečnost lokality (přístupový systém, EZS, EPS, klimatizace, UPS…). */
+    physical: jsonb("physical").$type<FacilityPhysical>(),
     environment: environmentEnum("environment"),
     tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
     attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default({}),
@@ -3720,6 +3727,8 @@ export const siteMaps = pgTable(
     site: varchar("site", { length: 200 }),
     building: varchar("building", { length: 200 }),
     floor: varchar("floor", { length: 100 }),
+    /** Lokalita půdorysu (v1.104) – budova nebo patro z evidence lokalit. */
+    locationId: uuid("location_id").references(() => assets.id, { onDelete: "set null" }),
     fileName: varchar("file_name", { length: 255 }).notNull(),
     fileMime: varchar("file_mime", { length: 100 }).notNull(),
     fileSha256: varchar("file_sha256", { length: 64 }).notNull(),
