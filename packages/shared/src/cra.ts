@@ -1,4 +1,4 @@
-import { parseHarborRef } from "./craVuln";
+import { parseHarborRef, type HarborState } from "./craVuln";
 import { z } from "zod";
 import { patchOf } from "./zutil";
 import { CPE_RE, type CraProductFileDto, type CraSupplyCheckItem } from "./craSupply";
@@ -576,7 +576,7 @@ export interface CraProductDto {
   cpe: string | null;
   /** Obraz v Harboru a stav posledního načtení skenu (v1.107). */
   harborRef: string | null;
-  harborState: { digest?: string | null; scannedAt?: string | null; syncedAt?: string; error?: string | null; vulns?: number; fixable?: number };
+  harborState: HarborState;
   memberStates: string[];
   ownerPositionId: string | null;
   ownerPositionName: string | null;

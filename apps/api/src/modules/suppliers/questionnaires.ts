@@ -15,7 +15,9 @@ import {
   questionnaireExpired,
   questionsFor,
   scoreQuestionnaire,
+  staffCertFileKey,
   type PublicQuestionnaireDto,
+  type QuestionnaireStaffCert,
   type QuestionnaireDto,
   type QuestionnaireLocale,
   type QuestionnaireStatus,
@@ -32,7 +34,7 @@ import { audit, getSettings, type AppEnv } from "../../auth/service";
 import { assertScope, settingsFor } from "../../auth/scope";
 import type { Config } from "../../config";
 import type { Db } from "../../db/client";
-import { companies, riskCatalog, risks, supplierQuestionnaireFiles, supplierQuestionnaires, supplierRisks, suppliers, users } from "../../db/schema";
+import { companies, personCertificates, riskCatalog, risks, supplierQuestionnaireFiles, supplierQuestionnaires, supplierRisks, suppliers, users } from "../../db/schema";
 import { safeFilename } from "../assurance/routes";
 import { mimeFor } from "../policies/mime";
 import { ApiError } from "../../lib/apiError";
@@ -90,7 +92,32 @@ function dto(r: Row, names: { evaluatedBy: string | null; createdBy: string | nu
     createdByName: names.createdBy,
     lastSavedAt: r.lastSavedAt?.toISOString() ?? null,
     files,
+    staffCerts: r.staffCerts ?? [],
   };
+}
+
+/**
+ * Certifikáty pracovníků z odevzdaného dotazníku → Certifikáty pracovníků (v1.110). Externí držitel u dodavatele;
+ * stejný certifikát (dodavatel + držitel + název + číslo) se aktualizuje, nezakládá se znovu. Příloha se zkopíruje.
+ */
+export async function importStaffCerts(db: Db, r: Row, now = new Date()): Promise<number> {
+  const list = (r.staffCerts ?? []) as QuestionnaireStaffCert[];
+  if (!list.length) return 0;
+  const files = await db.select().from(supplierQuestionnaireFiles).where(eq(supplierQuestionnaireFiles.questionnaireId, r.id));
+  const note = `Doloženo dodavatelem v dotazníku „${r.title}“ (${r.respondentName ?? ""}, ${now.toISOString().slice(0, 10)}).`.slice(0, 2000);
+  let n = 0;
+  for (const c of list) {
+    const f = files.find((x) => x.questionKey === staffCertFileKey(c.id));
+    const fileCols = f ? { fileName: f.filename, fileMime: f.mime, fileSize: f.size, fileSha256: f.sha256, fileContent: f.content } : {};
+    const [ex] = await db
+      .select({ id: personCertificates.id })
+      .from(personCertificates)
+      .where(and(eq(personCertificates.companyId, r.companyId), eq(personCertificates.supplierId, r.supplierId), eq(personCertificates.holderName, c.holderName), eq(personCertificates.name, c.name), eq(personCertificates.credentialId, c.credentialId)));
+    if (ex) await db.update(personCertificates).set({ issuer: c.issuer, issuedAt: c.issuedAt, validUntil: c.validUntil, note, ...fileCols, updatedAt: now }).where(eq(personCertificates.id, ex.id));
+    else await db.insert(personCertificates).values({ companyId: r.companyId, supplierId: r.supplierId, holderName: c.holderName, name: c.name, kind: "certification", issuer: c.issuer, credentialId: c.credentialId, issuedAt: c.issuedAt, validUntil: c.validUntil, note, ...fileCols });
+    n++;
+  }
+  return n;
 }
 
 /** Seznam příloh (bez obsahu) pro dotazníky. */
@@ -154,7 +181,8 @@ ${q.evaluationNote ? `<p>${e(q.evaluationNote)}</p>` : ""}
 <h2>${e(t("srv.sq.answers"))}</h2>
 <table><thead><tr><th>${e(t("srv.sq.section"))}</th><th>${e(t("srv.sq.question"))}</th><th>${e(t("srv.sq.answer"))}</th><th>${e(t("srv.sq.comment"))}</th></tr></thead><tbody>${rows}</tbody></table>
 ${q.generalNote ? `<h3>${e(t("srv.sq.generalNote"))}</h3><p>${e(q.generalNote)}</p>` : ""}
-${q.files.some((f) => !f.questionKey) ? `<h3>${e(t("srv.sq.files"))}</h3><ul>${q.files.filter((f) => !f.questionKey).map((f) => `<li>${e(f.filename)}</li>`).join("")}</ul>` : ""}`;
+${q.files.some((f) => !f.questionKey) ? `<h3>${e(t("srv.sq.files"))}</h3><ul>${q.files.filter((f) => !f.questionKey).map((f) => `<li>${e(f.filename)}</li>`).join("")}</ul>` : ""}
+${q.staffCerts.length ? `<h3>${e(t("srv.sq.staffCerts"))}</h3><table><thead><tr><th>${e(t("srv.sq.certHolder"))}</th><th>${e(t("srv.sq.certName"))}</th><th>${e(t("srv.sq.certValid"))}</th></tr></thead><tbody>${q.staffCerts.map((c) => `<tr><td>${e(c.holderName)}</td><td>${e([c.name, c.issuer, c.credentialId].filter(Boolean).join(" · "))}</td><td>${e(c.validUntil ?? "—")}</td></tr>`).join("")}</tbody></table>` : ""}`;
   return printPage(`${t("srv.sq.reportTitle")} – ${supplierName}`, body, t.locale);
 }
 
@@ -364,7 +392,15 @@ export function publicQuestionnaireRoutes(db: Db) {
       generalNote: status === "closed" ? null : r.generalNote,
       submittedAt: r.submittedAt?.toISOString() ?? null,
       files: status === "closed" ? [] : ((await filesOf(db, [r.id])).get(r.id) ?? []),
+      staffCerts: status === "closed" ? [] : (r.staffCerts ?? []),
     };
+  }
+  /** Přílohy certifikátů, které už v seznamu nejsou, se odstraní. */
+  async function dropOrphanCertFiles(qid: string, certs: QuestionnaireStaffCert[]) {
+    const keep = new Set(certs.map((c) => staffCertFileKey(c.id)));
+    const rows = await db.select({ id: supplierQuestionnaireFiles.id, k: supplierQuestionnaireFiles.questionKey }).from(supplierQuestionnaireFiles).where(eq(supplierQuestionnaireFiles.questionnaireId, qid));
+    const del = rows.filter((x) => x.k?.startsWith("cert:") && !keep.has(x.k)).map((x) => x.id);
+    if (del.length) await db.delete(supplierQuestionnaireFiles).where(inArray(supplierQuestionnaireFiles.id, del));
   }
   /** Odpovědi jen na otázky šablony; „netýká se“ jen tam, kde je dovoleno. */
   function clean(template: QuestionnaireTemplate, answers: QuestionnaireSaveInput["answers"]) {
@@ -385,8 +421,9 @@ export function publicQuestionnaireRoutes(db: Db) {
       const template = (r.template === "cz410" ? "cz410" : "cz409") as QuestionnaireTemplate;
       await db
         .update(supplierQuestionnaires)
-        .set({ answers: clean(template, input.answers), respondentName: input.respondentName ?? null, respondentEmail: input.respondentEmail ?? null, respondentRole: input.respondentRole ?? null, generalNote: input.generalNote ?? null, lastSavedAt: new Date() })
+        .set({ answers: clean(template, input.answers), respondentName: input.respondentName ?? null, respondentEmail: input.respondentEmail ?? null, respondentRole: input.respondentRole ?? null, generalNote: input.generalNote ?? null, ...(input.staffCerts ? { staffCerts: input.staffCerts } : {}), lastSavedAt: new Date() })
         .where(eq(supplierQuestionnaires.id, r.id));
+      if (input.staffCerts) await dropOrphanCertFiles(r.id, input.staffCerts);
       return c.json(await view((await db.select().from(supplierQuestionnaires).where(eq(supplierQuestionnaires.id, r.id)))[0]!));
     })
     /** Příloha dodavatele (multipart: file, questionKey) – jen u otevřeného dotazníku, limity velikosti a počtu, typ podle přípony. */
@@ -403,7 +440,11 @@ export function publicQuestionnaireRoutes(db: Db) {
       if (!questionnaireFileAllowed(filename)) throw new ApiError(400, "err.sq.fileType");
       const template = (r.template === "cz410" ? "cz410" : "cz409") as QuestionnaireTemplate;
       const qk = typeof body.questionKey === "string" && body.questionKey ? body.questionKey : null;
-      if (qk && !questionsFor(template).some((x) => x.key === qk)) throw new ApiError(400, "err.sq.fileQuestion");
+      // otázka šablony, nebo uložený certifikát pracovníka („cert:<id>“, jedna příloha na certifikát)
+      const certKey = qk?.startsWith("cert:") ? qk : null;
+      if (certKey && !(r.staffCerts ?? []).some((x) => staffCertFileKey(x.id) === certKey)) throw new ApiError(400, "err.sq.fileQuestion");
+      if (qk && !certKey && !questionsFor(template).some((x) => x.key === qk)) throw new ApiError(400, "err.sq.fileQuestion");
+      if (certKey) await db.delete(supplierQuestionnaireFiles).where(and(eq(supplierQuestionnaireFiles.questionnaireId, r.id), eq(supplierQuestionnaireFiles.questionKey, certKey)));
       const [agg] = await db
         .select({ n: sql<number>`count(*)::int`, total: sql<number>`coalesce(sum(${supplierQuestionnaireFiles.size}), 0)::bigint` })
         .from(supplierQuestionnaireFiles)
@@ -440,11 +481,14 @@ export function publicQuestionnaireRoutes(db: Db) {
       // podmínka na stav – souběžné odevzdání proběhne jen jednou
       const done = await db
         .update(supplierQuestionnaires)
-        .set({ answers, respondentName: input.respondentName, respondentEmail: input.respondentEmail, respondentRole: input.respondentRole ?? null, generalNote: input.generalNote ?? null, lastSavedAt: now, submittedAt: now, status: "submitted" })
+        .set({ answers, respondentName: input.respondentName, respondentEmail: input.respondentEmail, respondentRole: input.respondentRole ?? null, generalNote: input.generalNote ?? null, ...(input.staffCerts ? { staffCerts: input.staffCerts } : {}), lastSavedAt: now, submittedAt: now, status: "submitted" })
         .where(and(eq(supplierQuestionnaires.id, r.id), inArray(supplierQuestionnaires.status, ["sent"])))
         .returning({ id: supplierQuestionnaires.id });
       if (!done.length) throw new ApiError(409, "err.sq.closed");
-      await audit(db, { c, user: null, action: "supplier.questionnaire_submitted", entityType: "supplier", entityId: r.supplierId, details: { questionnaireId: r.id, score: res.score, respondent: input.respondentEmail } });
-      return c.json(await view((await db.select().from(supplierQuestionnaires).where(eq(supplierQuestionnaires.id, r.id)))[0]!));
+      const fresh = (await db.select().from(supplierQuestionnaires).where(eq(supplierQuestionnaires.id, r.id)))[0]!;
+      if (input.staffCerts) await dropOrphanCertFiles(r.id, input.staffCerts);
+      const certs = await importStaffCerts(db, fresh, now);
+      await audit(db, { c, user: null, action: "supplier.questionnaire_submitted", entityType: "supplier", entityId: r.supplierId, details: { questionnaireId: r.id, score: res.score, respondent: input.respondentEmail, staffCerts: certs } });
+      return c.json(await view(fresh));
     });
 }

@@ -886,7 +886,7 @@ function FindingsCard({ p, onReport }: { p: CraProductDto; onReport: (x: { title
   const match = useMutation({ mutationFn: () => api.cra.match(p.id), onSuccess: refresh });
   const nvdCfg = useQuery({ queryKey: ["cra", "nvd"], queryFn: () => api.cra.nvd() });
   const nvd = useMutation({ mutationFn: () => api.cra.nvdLookup(p.id), onSuccess: refresh });
-  const harbor = useMutation({ mutationFn: () => api.cra.harborSync(p.id), onSuccess: refresh });
+  const harbor = useMutation({ mutationFn: (replaceSbom: boolean = false) => api.cra.harborSync(p.id, replaceSbom), onSuccess: () => (refresh(), qc.invalidateQueries({ queryKey: ["cra", "components", p.id] })) });
   const acceptAll = useMutation({ mutationFn: () => api.cra.acceptSuggestions(p.id), onSuccess: refresh });
   const suggested = (q.data ?? []).filter((f) => f.suggestion).length;
   const add = useMutation({ mutationFn: () => api.cra.addFinding(p.id, nf), onSuccess: () => (setNf({ vulnId: "", componentRef: "" }), refresh()) });
@@ -905,7 +905,7 @@ function FindingsCard({ p, onReport }: { p: CraProductDto; onReport: (x: { title
               </Button>
             )}
             {p.canEdit && p.harborRef && (
-              <Button variant="secondary" disabled={harbor.isPending} onClick={() => harbor.mutate()} data-testid="cra-harbor-sync">
+              <Button variant="secondary" disabled={harbor.isPending} onClick={() => harbor.mutate(false)} data-testid="cra-harbor-sync">
                 <RefreshCw size={14} /> {harbor.isPending ? t("cra.harbor.running") : t("cra.harbor.sync")}
               </Button>
             )}
@@ -935,6 +935,16 @@ function FindingsCard({ p, onReport }: { p: CraProductDto; onReport: (x: { title
             {t("cra.harbor.state", { ref: p.harborRef })}
             {p.harborState.syncedAt ? ` · ${t("cra.harbor.synced", { d: fmtDate(p.harborState.syncedAt), n: p.harborState.vulns ?? 0, fix: p.harborState.fixable ?? 0 })}` : ` · ${t("cra.harbor.never")}`}
             {p.harborState.error && <span className="ml-1 text-red-700">· {p.harborState.error}</span>}
+            {p.harborState.sbomStatus && (
+              <span className="ml-1" data-testid="cra-harbor-sbom">
+                · {t(`cra.harbor.sbom.${p.harborState.sbomStatus}`, { n: p.harborState.sbomComponents ?? 0 })}
+                {p.canEdit && p.harborState.sbomStatus === "manual" && (
+                  <button type="button" className="ml-1 text-brand-700 underline" disabled={harbor.isPending} onClick={() => harbor.mutate(true)} data-testid="cra-harbor-sbom-replace">
+                    {t("cra.harbor.sbom.replace")}
+                  </button>
+                )}
+              </span>
+            )}
           </p>
         )}
         {harbor.data && <SuccessBox>{t("cra.harbor.done", { n: harbor.data.vulns ?? 0, fix: harbor.data.fixable ?? 0, gone: harbor.data.gone })}</SuccessBox>}

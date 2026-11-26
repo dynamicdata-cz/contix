@@ -1,4 +1,6 @@
 import {
+  type HarborState,
+  type QuestionnaireStaffCert,
   type NetScanSummary,
   type TuningKind,
   type TuningCondition,
@@ -1976,6 +1978,8 @@ export const supplierQuestionnaires = pgTable(
     respondentEmail: varchar("respondent_email", { length: 200 }),
     respondentRole: varchar("respondent_role", { length: 200 }),
     generalNote: text("general_note"),
+    /** Certifikáty pracovníků doložené dodavatelem (v1.110) – po odevzdání zapsané do person_certificates. */
+    staffCerts: jsonb("staff_certs").$type<QuestionnaireStaffCert[]>().notNull().default([]),
     lastSavedAt: timestamp("last_saved_at", { withTimezone: true }),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     evaluatedAt: timestamp("evaluated_at", { withTimezone: true }),
@@ -3744,7 +3748,7 @@ export const craProducts = pgTable(
     docInfo: jsonb("doc_info").$type<Record<string, unknown>>().notNull().default({}),
     /** Obraz v registru Harbor (v1.107, ADR-201): „projekt/repozitář:tag“ nebo „…@sha256:…“; stav posledního načtení. */
     harborRef: varchar("harbor_ref", { length: 500 }),
-    harborState: jsonb("harbor_state").$type<{ digest?: string | null; scannedAt?: string | null; syncedAt?: string; error?: string | null; vulns?: number; fixable?: number }>().notNull().default({}),
+    harborState: jsonb("harbor_state").$type<HarborState>().notNull().default({}),
     ...timestamps,
   },
   (t) => [index("cra_products_company_idx").on(t.companyId)],

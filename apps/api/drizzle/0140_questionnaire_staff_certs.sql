@@ -1,0 +1,1 @@
+ALTER TABLE "supplier_questionnaires" ADD COLUMN "staff_certs" jsonb DEFAULT '[]'::jsonb NOT NULL;

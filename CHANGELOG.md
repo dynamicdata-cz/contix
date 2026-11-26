@@ -2,6 +2,14 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.110.0
+
+SBOM automaticky z Harboru a certifikáty pracovníků v dotazníku dodavatele (ADR-202).
+
+- **CRA – SBOM z Harboru**: tlačítko „Načíst z Harboru“ (i automatické načítání) nově stáhne i SBOM obrazu, pokud ho Harbor vygeneroval (Harbor 2.11+, „Generate SBOM“ nebo automaticky při push), a doplní komponenty produktu včetně párování se zranitelnostmi. Ručně nahraný SBOM se bez potvrzení nepřepíše – u produktu je odkaz „Nahradit SBOMem z Harboru“. Stav SBOM je vidět u produktu.
+- **Dotazník dodavatele – certifikáty pracovníků**: dodavatel v dotazníku vyplní certifikáty a školení svých pracovníků (jméno, certifikát, vydavatel, číslo, platnost) a přiloží doklad. Po odevzdání se zapíší do Certifikátů pracovníků u dodavatele a hlídá se jejich platnost; v detailu dotazníku i v tiskové zprávě je jejich přehled.
+- **Oprava**: převod textového umístění aktiv bere zápis místa vždy od nejstaršího aktiva (dříve náhodně).
+
 ## 1.109.0
 
 Fyzická bezpečnost lokalit v nálezech a v plnění opatření.

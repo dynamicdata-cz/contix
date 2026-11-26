@@ -495,6 +495,13 @@ test("dodavatel: bezpečnostní dotazník – odkaz, vyplnění dodavatelem bez 
   // příloha k první otázce
   await sp.locator('input[type="file"]').first().setInputFiles({ name: "certifikat.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 e2e") });
   await expect(sp.getByText("certifikat.pdf")).toBeVisible();
+  // certifikát pracovníka dodavatele s dokladem (v1.110)
+  await sp.getByTestId("pq-cert-add").click();
+  await sp.getByLabel("Jméno pracovníka").fill("Jan Technik");
+  await sp.getByLabel("Název certifikátu / školení").fill("CCNA");
+  await sp.getByLabel("Platné do").fill("2028-01-10");
+  await sp.getByTestId("pq-cert-0").locator('input[type="file"]').setInputFiles({ name: "ccna.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 ccna") });
+  await expect(sp.getByTestId("pq-cert-0")).toContainText("ccna.pdf");
   await sp.getByLabel("Jméno a příjmení").fill("Eva Dodavatelová");
   await sp.getByLabel("E-mail").fill("eva@e2e-cloud.test");
   await sp.getByRole("button", { name: "Uložit rozpracované" }).click();
@@ -511,6 +518,7 @@ test("dodavatel: bezpečnostní dotazník – odkaz, vyplnění dodavatelem bez 
   const det = page.getByRole("dialog");
   await expect(det.getByText("Vysoké").first()).toBeVisible(); // klíčová odpověď „ne“
   await expect(det.getByRole("link", { name: "certifikat.pdf" })).toHaveCount(1);
+  await expect(det.getByTestId("sq-staff-certs")).toContainText("Jan Technik – CCNA");
   await det.getByRole("button", { name: "Vyhodnotit" }).click();
   await expect(det.getByText(/^Vyhodnotil\(a\)/)).toBeVisible();
   await det.getByRole("button", { name: "Založit riziko dodavatele" }).click();

@@ -427,6 +427,21 @@ export const HarborSettingsInput = z.object({
   autoSyncHours: z.number().int().min(0).max(168).default(24),
 });
 export type HarborSettingsInput = z.input<typeof HarborSettingsInput>;
+/** Stav načtení z Harboru u produktu (sken; od v1.110 i SBOM obrazu). */
+export interface HarborState {
+  digest?: string | null;
+  scannedAt?: string | null;
+  syncedAt?: string;
+  error?: string | null;
+  vulns?: number;
+  fixable?: number;
+  /** počet komponent v SBOM obrazu v Harboru (null = SBOM nenalezen) */
+  sbomComponents?: number | null;
+  /** imported = komponenty produktu nahrazeny; manual = ponechán ručně nahraný SBOM; missing = Harbor SBOM nemá; error = nečitelný */
+  sbomStatus?: "imported" | "manual" | "missing" | "error";
+  /** komponenty produktu pocházejí ze SBOM v Harboru */
+  sbomFromHarbor?: boolean;
+}
 export interface HarborSettingsDto {
   url: string;
   username: string;

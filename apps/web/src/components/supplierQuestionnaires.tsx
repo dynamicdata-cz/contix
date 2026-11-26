@@ -333,6 +333,20 @@ function QuestionnaireModal({ supplier, q, edit, onClose, onChanged }: { supplie
                 <FileLinks supplierId={supplier.id} q={q} questionKey={null} />
               </div>
             )}
+            {q.staffCerts.length > 0 && (
+              <div className="text-sm" data-testid="sq-staff-certs">
+                <div className="font-medium text-slate-700">{t("sq.staffCerts", { n: q.staffCerts.length })}</div>
+                <ul className="list-disc pl-5 text-slate-600">
+                  {q.staffCerts.map((c) => (
+                    <li key={c.id}>
+                      {c.holderName} – {[c.name, c.issuer, c.credentialId].filter(Boolean).join(" · ")}
+                      {c.validUntil && <span className="text-slate-500"> · {t("sq.staffCertValid", { d: fmtDay(c.validUntil) })}</span>}
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-slate-500">{t(q.submittedAt ? "sq.staffCertsImported" : "sq.staffCertsPending")}</p>
+              </div>
+            )}
             {q.generalNote && (
               <div className="text-sm">
                 <div className="font-medium text-slate-700">{t("sq.generalNote")}</div>

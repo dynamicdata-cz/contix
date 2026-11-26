@@ -1,10 +1,11 @@
-import { HARBOR_DEFAULTS_KEY, parseHarborRef, type HarborSettingsDto, type HarborSettingsInput, type HarborVulnItem } from "@contix/shared";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { HARBOR_DEFAULTS_KEY, parseHarborRef, parseSbom, type HarborSettingsDto, type HarborSettingsInput, type HarborVulnItem } from "@contix/shared";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { decrypt, encrypt } from "../../auth/crypto";
 import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
-import { appSettings, craFindings, craProducts } from "../../db/schema";
+import { appSettings, craComponents, craFindings, craProducts } from "../../db/schema";
 import type { FetchLike } from "../discovery/connectors/wazuh";
+import { matchProducts } from "./osv";
 
 /* ============================================================
  * Harbor (v1.107, ADR-201): výsledek skenu obrazu (Trivy v Harboru) → nálezy produktu CRA s opravenou verzí
@@ -41,8 +42,21 @@ const ecoOf = (it: HarborVulnItem & { type?: string; purl?: string }) => {
   return (p ?? it.type ?? "pkg").toLowerCase().replace(/[^a-z0-9.+-]/g, "").slice(0, 20) || "pkg";
 };
 
+/** Dokument SBOM z odpovědi Harboru – přímo SPDX / CycloneDX, nebo zabalený v objektu (podle verze Harboru). */
+export function harborSbomDoc(v: unknown, depth = 0): Record<string, unknown> | null {
+  if (!v || typeof v !== "object" || Array.isArray(v) || depth > 2) return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.spdxVersion === "string" || o.bomFormat === "CycloneDX") return o;
+  for (const x of Object.values(o)) {
+    const inner = typeof x === "string" && x.trim().startsWith("{") ? (() => { try { return JSON.parse(x) as unknown; } catch { return null; } })() : x;
+    const d = harborSbomDoc(inner, depth + 1);
+    if (d) return d;
+  }
+  return null;
+}
+
 /** Načte sken obrazu z Harboru a promítne ho do nálezů produktu. */
-export async function syncHarborProduct(db: Db, config: Config, productId: string, fetchImpl: FetchLike = fetch as FetchLike, now = new Date()) {
+export async function syncHarborProduct(db: Db, config: Config, productId: string, fetchImpl: FetchLike = fetch as FetchLike, now = new Date(), opts: { replaceSbom?: boolean } = {}) {
   const [p] = await db.select().from(craProducts).where(eq(craProducts.id, productId));
   if (!p?.harborRef) throw new Error("Produkt nemá nastavený obraz v Harboru");
   const s = await stored(db);
@@ -60,7 +74,7 @@ export async function syncHarborProduct(db: Db, config: Config, productId: strin
     if (!res.ok) throw new Error(`Harbor HTTP ${res.status}`);
     return (await res.json()) as Record<string, unknown>;
   };
-  type State = { digest?: string | null; scannedAt?: string | null; syncedAt?: string; error?: string | null; vulns?: number; fixable?: number };
+  type State = NonNullable<typeof p.harborState>;
   let state: State;
   try {
     const art = await get(`${base}?with_scan_overview=true`);
@@ -100,14 +114,50 @@ export async function syncHarborProduct(db: Db, config: Config, productId: strin
     const prev = await db.select({ id: craFindings.id, ref: craFindings.componentRef, vulnId: craFindings.vulnId }).from(craFindings).where(and(eq(craFindings.productId, p.id), eq(craFindings.source, "harbor"), eq(craFindings.gone, false)));
     const goneIds = prev.filter((x) => !seen.has(`${x.ref}|${x.vulnId}`)).map((x) => x.id);
     if (goneIds.length) await db.update(craFindings).set({ gone: true, updatedAt: now }).where(inArray(craFindings.id, goneIds));
-    state = { digest: typeof art.digest === "string" ? art.digest : null, scannedAt: ov?.end_time ?? null, syncedAt: now.toISOString(), error: ov?.scan_status && ov.scan_status !== "Success" ? `Sken v Harboru: ${ov.scan_status}` : null, vulns: list.length, fixable: list.filter((x) => x.fixedVersion).length };
+    const { sbomImported, ...sbom } = await harborSbom(db, p, `${base}/additions/sbom`, fetchImpl, headers, tls, opts.replaceSbom === true);
+    state = { digest: typeof art.digest === "string" ? art.digest : null, scannedAt: ov?.end_time ?? null, syncedAt: now.toISOString(), error: ov?.scan_status && ov.scan_status !== "Success" ? `Sken v Harboru: ${ov.scan_status}` : null, vulns: list.length, fixable: list.filter((x) => x.fixedVersion).length, ...sbom };
     await db.update(craProducts).set({ harborState: state }).where(eq(craProducts.id, p.id));
-    return { ...state, gone: goneIds.length };
+    return { ...state, gone: goneIds.length, sbomImported: sbomImported ?? false };
   } catch (e) {
     state = { ...(p.harborState ?? {}), syncedAt: now.toISOString(), error: (e as Error).message.slice(0, 500) };
     await db.update(craProducts).set({ harborState: state }).where(eq(craProducts.id, p.id));
     throw e;
   }
+}
+
+/**
+ * SBOM obrazu z Harboru (v1.110, Harbor ≥ 2.11 – „Generate SBOM“ / automaticky při push): komponenty produktu
+ * se nahradí, pokud produkt komponenty nemá nebo je má z Harboru; ručně nahraný SBOM se nepřepíše bez `replace`.
+ * Chybějící SBOM (starší Harbor, SBOM nevygenerován) nálezy neruší – jen se nezapíše.
+ */
+async function harborSbom(db: Db, p: typeof craProducts.$inferSelect, url: string, fetchImpl: FetchLike, headers: Record<string, string>, tls: unknown, replace: boolean) {
+  const prev = p.harborState ?? {};
+  let res: Awaited<ReturnType<FetchLike>>;
+  try {
+    res = await fetchImpl(url, { method: "GET", headers, tls } as never);
+  } catch {
+    return { sbomComponents: prev.sbomComponents ?? null, sbomStatus: "error" as const };
+  }
+  if (res.status === 404) return { sbomComponents: prev.sbomComponents ?? null, sbomStatus: "missing" as const };
+  if (!res.ok) return { sbomComponents: prev.sbomComponents ?? null, sbomStatus: "error" as const };
+  const doc = harborSbomDoc(await res.json().catch(() => null));
+  if (!doc) return { sbomComponents: prev.sbomComponents ?? null, sbomStatus: "missing" as const };
+  let parsed: ReturnType<typeof parseSbom>;
+  try {
+    parsed = parseSbom(JSON.stringify(doc));
+  } catch {
+    return { sbomComponents: prev.sbomComponents ?? null, sbomStatus: "error" as const };
+  }
+  if (!parsed.components.length) return { sbomComponents: prev.sbomComponents ?? null, sbomStatus: "missing" as const };
+  const [cnt] = await db.select({ n: sql<number>`count(*)::int` }).from(craComponents).where(eq(craComponents.productId, p.id));
+  const manual = (cnt?.n ?? 0) > 0 && !prev.sbomFromHarbor;
+  if (manual && !replace) return { sbomComponents: parsed.components.length, sbomStatus: "manual" as const, sbomFromHarbor: false };
+  await db.transaction(async (tx) => {
+    await tx.delete(craComponents).where(eq(craComponents.productId, p.id));
+    for (let i = 0; i < parsed.components.length; i += 500) await tx.insert(craComponents).values(parsed.components.slice(i, i + 500).map((x) => ({ ...x, name: x.name.slice(0, 300), productId: p.id })));
+  });
+  await matchProducts(db, [p.id]);
+  return { sbomComponents: parsed.components.length, sbomStatus: "imported" as const, sbomFromHarbor: true, sbomImported: true };
 }
 
 /** Plánovač: produkty s obrazem v Harboru, u kterých od posledního načtení uplynulo `autoSyncHours`. */

@@ -6,7 +6,7 @@ import { askConfirm } from "@/components/ui/overlay";
 import { Button, ErrorBox, Input, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { QUESTIONNAIRE_ANSWER_TEXT, QUESTIONNAIRE_FILE_EXTENSIONS, QUESTIONNAIRE_PUBLIC_TEXT, type PublicQuestionnaireDto, type QuestionnaireAnswers, type QuestionnaireAnswerValue } from "@contix/shared";
+import { QUESTIONNAIRE_ANSWER_TEXT, QUESTIONNAIRE_FILE_EXTENSIONS, QUESTIONNAIRE_PUBLIC_TEXT, staffCertFileKey, type PublicQuestionnaireDto, type QuestionnaireAnswers, type QuestionnaireStaffCert, type QuestionnaireAnswerValue } from "@contix/shared";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
 import { CheckCircle2, Paperclip, ShieldCheck, X } from "lucide-react";
@@ -37,11 +37,13 @@ function Questionnaire({ token, data: initial }: { token: string; data: PublicQu
   const [answers, setAnswers] = useState<QuestionnaireAnswers>(initial.answers);
   const [who, setWho] = useState({ respondentName: initial.respondentName ?? "", respondentEmail: initial.respondentEmail ?? "", respondentRole: initial.respondentRole ?? "", generalNote: initial.generalNote ?? "" });
   const [saved, setSaved] = useState(false);
+  const [certs, setCerts] = useState<QuestionnaireStaffCert[]>(initial.staffCerts ?? []);
   useEffect(() => {
     document.documentElement.lang = data.locale;
     document.title = `${L.heading} – ${data.organization}`;
   }, [data.locale, data.organization, L.heading]);
-  const payload = () => ({ answers, respondentName: who.respondentName || null, respondentEmail: who.respondentEmail || null, respondentRole: who.respondentRole || null, generalNote: who.generalNote || null });
+  // rozepsané certifikáty bez jména pracovníka nebo názvu se neukládají
+  const payload = () => ({ answers, respondentName: who.respondentName || null, respondentEmail: who.respondentEmail || null, respondentRole: who.respondentRole || null, generalNote: who.generalNote || null, staffCerts: certs.filter((c) => c.holderName.trim() && c.name.trim()) });
   const save = useMutation({
     mutationFn: () => api.publicQuestionnaire.save(token, payload()),
     onSuccess: (d) => {
@@ -73,6 +75,18 @@ function Questionnaire({ token, data: initial }: { token: string; data: PublicQu
       onRemove={(id) => removeFile.mutate(id)}
     />
   );
+  /** Příloha certifikátu: nejdřív uložit seznam (API přijme přílohu jen k uloženému certifikátu). */
+  const certUpload = useMutation({
+    mutationFn: async (x: { id: string; file: File }) => {
+      await api.publicQuestionnaire.save(token, payload());
+      return api.publicQuestionnaire.upload(token, x.file, staffCertFileKey(x.id));
+    },
+    onSuccess: (d) => setData((cur) => ({ ...cur, files: d.files })),
+  });
+  const setCert = (id: string, patch: Partial<QuestionnaireStaffCert>) => {
+    setSaved(false);
+    setCerts((list) => list.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+  };
   const missing = useMemo(() => data.questions.filter((x) => !answers[x.key]).length, [answers, data.questions]);
   const set = (key: string, patch: Partial<{ value: QuestionnaireAnswerValue; comment: string; evidence: string }>) => {
     setSaved(false);
@@ -155,6 +169,60 @@ function Questionnaire({ token, data: initial }: { token: string; data: PublicQu
           </div>
         </section>
       ))}
+      <section className="mb-6 rounded-lg border border-slate-200 bg-white p-5" data-testid="pq-certs">
+        <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">{L.certsTitle}</h2>
+        <p className="mb-3 text-xs text-slate-500">{L.certsHint}</p>
+        {certs.length === 0 && <p className="mb-3 text-sm text-slate-500">{L.certNone}</p>}
+        <div className="space-y-3">
+          {certs.map((c, i) => {
+            const f = data.files.find((x) => x.questionKey === staffCertFileKey(c.id));
+            const ready = !!c.holderName.trim() && !!c.name.trim();
+            return (
+              <div key={c.id} className="rounded-md border border-slate-200 p-3" data-testid={`pq-cert-${i}`}>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <Input placeholder={L.certHolder} aria-label={L.certHolder} value={c.holderName} maxLength={200} onChange={(e) => setCert(c.id, { holderName: e.target.value })} />
+                  <Input placeholder={L.certName} aria-label={L.certName} value={c.name} maxLength={300} onChange={(e) => setCert(c.id, { name: e.target.value })} />
+                  <Input placeholder={L.certIssuer} aria-label={L.certIssuer} value={c.issuer} maxLength={200} onChange={(e) => setCert(c.id, { issuer: e.target.value })} />
+                  <Input placeholder={L.certId} aria-label={L.certId} value={c.credentialId} maxLength={200} onChange={(e) => setCert(c.id, { credentialId: e.target.value })} />
+                  <label className="text-xs text-slate-600">
+                    {L.certIssued}
+                    <Input type="date" aria-label={L.certIssued} value={c.issuedAt ?? ""} onChange={(e) => setCert(c.id, { issuedAt: e.target.value || null })} />
+                  </label>
+                  <label className="text-xs text-slate-600">
+                    {L.certValid}
+                    <Input type="date" aria-label={L.certValid} value={c.validUntil ?? ""} onChange={(e) => setCert(c.id, { validUntil: e.target.value || null })} />
+                  </label>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-3 text-sm">
+                  {ready && (
+                    <label className="cursor-pointer text-brand-700 hover:underline">
+                      {certUpload.isPending && certUpload.variables?.id === c.id ? L.uploading : `${L.certFile}: ${f ? f.filename : L.attach}`}
+                      <input
+                        type="file"
+                        className="sr-only"
+                        accept=".pdf,.png,.jpg,.jpeg"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) certUpload.mutate({ id: c.id, file });
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  )}
+                  <button type="button" className="ml-auto text-red-700 hover:underline" onClick={() => (setSaved(false), setCerts((list) => list.filter((x) => x.id !== c.id)))}>
+                    {L.certRemove}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {certs.length < 50 && (
+          <Button variant="secondary" className="mt-3" data-testid="pq-cert-add" onClick={() => setCerts((list) => [...list, { id: crypto.randomUUID(), holderName: "", name: "", issuer: "", credentialId: "", issuedAt: null, validUntil: null }])}>
+            {L.certAdd}
+          </Button>
+        )}
+      </section>
       <section className="mb-6 rounded-lg border border-slate-200 bg-white p-5">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">{L.respondent}</h2>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -169,7 +237,7 @@ function Questionnaire({ token, data: initial }: { token: string; data: PublicQu
         </div>
         <Textarea className="mt-3" rows={3} placeholder={L.generalNote} aria-label={L.generalNote} value={who.generalNote} onChange={(e) => setWho({ ...who, generalNote: e.target.value })} maxLength={4000} />
       </section>
-      <ErrorBox error={save.error ?? submit.error ?? upload.error ?? removeFile.error} />
+      <ErrorBox error={save.error ?? submit.error ?? upload.error ?? removeFile.error ?? certUpload.error} />
       {saved && <p className="mb-3 text-sm text-emerald-700">{L.saved}</p>}
       <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center gap-3 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur">
         <span className="text-sm text-slate-600">

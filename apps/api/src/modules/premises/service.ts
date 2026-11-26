@@ -13,7 +13,7 @@ import {
   splitLocationText,
   PHYSICAL_CONTROL_LABELS,
 } from "@contix/shared";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Db } from "../../db/client";
 import { assetDependencies, assetSources, assets, monitoringFindings, securityZones, siteMaps } from "../../db/schema";
 import { applyMonitoringFindings, type MonitoringDesired } from "../integrations/monitoringFindings";
@@ -253,7 +253,9 @@ export async function textLocations(db: Db, companyId: string): Promise<TextLoca
   const rows = await db
     .select({ id: assets.id, location: assets.location, type: assets.assetType })
     .from(assets)
-    .where(and(eq(assets.companyId, companyId), isNotNull(assets.location), inArray(assets.lifecycleStatus, [...ACTIVE])));
+    .where(and(eq(assets.companyId, companyId), isNotNull(assets.location), inArray(assets.lifecycleStatus, [...ACTIVE])))
+    // stabilní pořadí – zápis místa se přebírá od nejstaršího aktiva
+    .orderBy(asc(assets.createdAt), asc(assets.name));
   const counts = new Map<string, { text: string; n: number }>();
   for (const r of rows) {
     if (r.type === "facility" || !r.location?.trim() || pl.facilityOf(r.id)) continue;

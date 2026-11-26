@@ -557,8 +557,9 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike; config?: Config
       .post("/:id/harbor", requirePerm("cra:read"), async (c) => {
         const p = await editable(c, c.req.param("id"));
         if (!deps.config) throw new HTTPException(500, { message: "Chybí konfigurace" });
+        const body = z.object({ replaceSbom: z.boolean().optional() }).safeParse(await c.req.json().catch(() => ({}))).data;
         try {
-          const r = await syncHarborProduct(db, deps.config, p.id, deps.harborFetch);
+          const r = await syncHarborProduct(db, deps.config, p.id, deps.harborFetch, new Date(), { replaceSbom: body?.replaceSbom === true });
           await audit(db, { c, user: currentUser(c), action: "cra.harbor_synced", entityType: "cra_product", entityId: p.id, details: r });
           return c.json(r);
         } catch (e) {
@@ -734,6 +735,8 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike; config?: Config
         await db.transaction(async (tx) => {
           if (replace) await tx.delete(craComponents).where(eq(craComponents.productId, p.id));
           for (let i = 0; i < parsed.components.length; i += 500) await tx.insert(craComponents).values(parsed.components.slice(i, i + 500).map((x) => ({ ...x, name: x.name.slice(0, 300), productId: p.id })));
+          // ručně nahraný SBOM má přednost před SBOM z Harboru (v1.110)
+          if (p.harborState?.sbomFromHarbor) await tx.update(craProducts).set({ harborState: { ...p.harborState, sbomFromHarbor: false } }).where(eq(craProducts.id, p.id));
         });
         const m = await matchProducts(db, [p.id]);
         await audit(db, { c, user: currentUser(c), action: "cra.sbom_imported", entityType: "cra_product", entityId: p.id, details: { format: parsed.format, components: parsed.components.length, replace, matches: m.matches } });

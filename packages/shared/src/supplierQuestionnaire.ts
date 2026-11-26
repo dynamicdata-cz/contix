@@ -126,12 +126,41 @@ export const QuestionnaireCreateInput = z.object({
 export type QuestionnaireCreateInput = z.input<typeof QuestionnaireCreateInput>;
 
 /** Uložení rozpracovaných odpovědí (veřejně) – neúplné odpovědi jsou dovoleny. */
+/** Certifikát pracovníka dodavatele doložený v dotazníku (v1.110) – po odevzdání se zapíše do Certifikátů pracovníků. */
+const qDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .nullable()
+  .optional()
+  .transform((v) => v || null);
+export const QuestionnaireStaffCert = z
+  .object({
+    id: z.string().uuid(),
+    holderName: z.string().trim().min(1).max(200),
+    name: z.string().trim().min(1).max(300),
+    issuer: z.string().trim().max(200).default(""),
+    credentialId: z.string().trim().max(200).default(""),
+    issuedAt: z.union([qDate, z.literal("")]).transform((v) => v || null),
+    validUntil: z.union([qDate, z.literal("")]).transform((v) => v || null),
+  })
+  .refine((v) => !v.issuedAt || !v.validUntil || v.validUntil >= v.issuedAt, { message: "Platnost končí dřív, než byl certifikát vydán", path: ["validUntil"] });
+export type QuestionnaireStaffCert = z.output<typeof QuestionnaireStaffCert>;
+export const QUESTIONNAIRE_STAFF_CERTS_MAX = 50;
+/** Příloha certifikátu pracovníka se u souboru dotazníku značí questionKey „cert:<id>“. */
+export const staffCertFileKey = (id: string) => `cert:${id}`;
+
 export const QuestionnaireSaveInput = z.object({
   answers: z.record(z.string().max(60), QuestionnaireAnswer).refine((a) => Object.keys(a).length <= 100, "Příliš mnoho odpovědí"),
   respondentName: z.string().trim().max(200).optional().nullable(),
   respondentEmail: z.string().trim().max(200).optional().nullable(),
   respondentRole: z.string().trim().max(200).optional().nullable(),
   generalNote: z.string().trim().max(4000).optional().nullable(),
+  /** Bez pole = beze změny (starší klient). */
+  staffCerts: z
+    .array(QuestionnaireStaffCert)
+    .max(QUESTIONNAIRE_STAFF_CERTS_MAX)
+    .refine((a) => new Set(a.map((x) => x.id)).size === a.length, "Duplicitní certifikát")
+    .optional(),
 });
 export type QuestionnaireSaveInput = z.input<typeof QuestionnaireSaveInput>;
 
@@ -253,6 +282,8 @@ export interface QuestionnaireDto {
   /** Rozpracováno dodavatelem (uložené odpovědi před odevzdáním). */
   lastSavedAt: string | null;
   files: QuestionnaireFileDto[];
+  /** certifikáty pracovníků doložené dodavatelem (po odevzdání zapsané do Certifikátů pracovníků) */
+  staffCerts: QuestionnaireStaffCert[];
 }
 
 /** Veřejný pohled dodavatele (bez interních údajů). */
@@ -274,6 +305,7 @@ export interface PublicQuestionnaireDto {
   generalNote: string | null;
   submittedAt: string | null;
   files: QuestionnaireFileDto[];
+  staffCerts: QuestionnaireStaffCert[];
 }
 
 /** Texty veřejné stránky dotazníku (bez přihlášení se nenačítá jazykový balíček uživatele). */
@@ -303,6 +335,18 @@ export const QUESTIONNAIRE_PUBLIC_TEXT: Record<QuestionnaireLocale, Record<strin
     submitted: "Děkujeme, dotazník byl odevzdán {date}.",
     closed: "Odkaz už není platný. Obraťte se prosím na kontaktní osobu zadavatele.",
     progress: "Zodpovězeno {answered} z {total}",
+    certsTitle: "Certifikáty a školení pracovníků",
+    certsHint: "Uveďte certifikace pracovníků, kteří pro nás pracují (např. CISSP, ISO 27001 Lead Auditor, CCNA). Po odevzdání se zapíší do naší evidence a budeme hlídat jejich platnost.",
+    certHolder: "Jméno pracovníka",
+    certName: "Název certifikátu / školení",
+    certIssuer: "Vydavatel",
+    certId: "Číslo certifikátu",
+    certIssued: "Vydáno",
+    certValid: "Platné do",
+    certAdd: "Přidat certifikát",
+    certRemove: "Odebrat certifikát",
+    certFile: "Doklad (PDF nebo obrázek)",
+    certNone: "Zatím žádný certifikát.",
   },
   en: {
     attach: "Attach file",
@@ -329,5 +373,17 @@ export const QUESTIONNAIRE_PUBLIC_TEXT: Record<QuestionnaireLocale, Record<strin
     submitted: "Thank you, the questionnaire was submitted on {date}.",
     closed: "This link is no longer valid. Please contact the person who sent it to you.",
     progress: "Answered {answered} of {total}",
+    certsTitle: "Staff certificates and training",
+    certsHint: "List the certifications of staff working for us (e.g. CISSP, ISO 27001 Lead Auditor, CCNA). After submission they are recorded in our register and we track their validity.",
+    certHolder: "Staff member name",
+    certName: "Certificate / training name",
+    certIssuer: "Issuer",
+    certId: "Certificate number",
+    certIssued: "Issued",
+    certValid: "Valid until",
+    certAdd: "Add certificate",
+    certRemove: "Remove certificate",
+    certFile: "Proof (PDF or image)",
+    certNone: "No certificate yet.",
   },
 };

@@ -11822,6 +11822,114 @@ describe.skipIf(!url)("API (integrace)", () => {
     await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "", username: "", password: "", verifyTls: true, autoSyncHours: 24 } });
   });
 
+  test("Harbor SBOM (v1.110): komponenty produktu ze SBOM obrazu, ruční SBOM se bez potvrzení nepřepíše", async () => {
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "HS SBOM s.r.o." } })).body.id as string;
+    const H = { "x-company-id": CO };
+    await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "https://harbor.test", username: "robot$x", password: "pw", verifyTls: true, autoSyncHours: 24 } });
+    const p = (await admin.json("/api/cra", { method: "POST", headers: H, json: { name: "HS Aplikace", version: "1.0", harborRef: "shop/api:2.0" } })).body;
+    let sbomMode: "spdx" | "wrapped" | "none" = "spdx";
+    const spdx = { spdxVersion: "SPDX-2.3", packages: [
+      { name: "openssl", versionInfo: "3.0.11", externalRefs: [{ referenceType: "purl", referenceLocator: "pkg:deb/debian/openssl@3.0.11" }], licenseConcluded: "Apache-2.0" },
+      { name: "express", versionInfo: "4.18.2", externalRefs: [{ referenceType: "purl", referenceLocator: "pkg:npm/express@4.18.2" }] },
+    ] };
+    const fake = (async (url: string) => {
+      if (url.includes("/additions/vulnerabilities")) return Response.json({ "application/vnd.security.vulnerability.report; version=1.1": { vulnerabilities: [] } });
+      if (url.includes("/additions/sbom")) return sbomMode === "none" ? new Response("not found", { status: 404 }) : Response.json(sbomMode === "wrapped" ? { sbom_content: JSON.stringify(spdx) } : spdx);
+      return Response.json({ digest: "sha256:a", scan_overview: {} });
+    }) as any;
+    const { syncHarborProduct, harborSbomDoc } = await import("../src/modules/cra/harbor");
+    expect(harborSbomDoc({ x: { y: { bomFormat: "CycloneDX", components: [] } } })?.bomFormat).toBe("CycloneDX");
+    expect(harborSbomDoc({ a: 1 })).toBeNull();
+    // produkt bez komponent → SBOM z Harboru se načte
+    const r1 = await syncHarborProduct(db, config, p.id, fake);
+    expect([r1.sbomStatus, r1.sbomComponents, r1.sbomImported]).toEqual(["imported", 2, true]);
+    const comps = (await admin.json(`/api/cra/${p.id}/components`, { headers: H })).body as any[];
+    expect(comps.map((x) => x.purl).sort()).toEqual(["pkg:deb/debian/openssl@3.0.11", "pkg:npm/express@4.18.2"]);
+    // zabalená odpověď (jiná verze Harboru) a další načtení – komponenty z Harboru se obnoví
+    sbomMode = "wrapped";
+    expect((await syncHarborProduct(db, config, p.id, fake)).sbomStatus).toBe("imported");
+    // ručně nahraný SBOM má přednost
+    const up = await admin.json(`/api/cra/${p.id}/sbom`, { method: "POST", headers: H, json: { text: JSON.stringify({ bomFormat: "CycloneDX", components: [{ name: "vlastni", version: "1.0" }] }) } });
+    expect(up.status).toBe(200);
+    const r3 = await syncHarborProduct(db, config, p.id, fake);
+    expect([r3.sbomStatus, r3.sbomImported]).toEqual(["manual", false]);
+    expect(((await admin.json(`/api/cra/${p.id}/components`, { headers: H })).body as any[]).map((x) => x.name)).toEqual(["vlastni"]);
+    // výslovné nahrazení (tlačítko „Nahradit SBOMem z Harboru“)
+    const r5 = await syncHarborProduct(db, config, p.id, fake, new Date(), { replaceSbom: true });
+    expect(r5.sbomStatus).toBe("imported");
+    expect(((await admin.json(`/api/cra/${p.id}/components`, { headers: H })).body as any[]).length).toBe(2);
+    // Harbor bez SBOM: komponenty zůstanou, sken proběhne
+    sbomMode = "none";
+    const r6 = await syncHarborProduct(db, config, p.id, fake);
+    expect([r6.sbomStatus, r6.sbomComponents, r6.error]).toEqual(["missing", 2, null]);
+    expect(((await admin.json(`/api/cra/${p.id}`, { headers: H })).body.harborState.sbomStatus)).toBe("missing");
+    await admin.json(`/api/cra/${p.id}`, { method: "DELETE", headers: H });
+    await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "", username: "", password: "", verifyTls: true, autoSyncHours: 24 } });
+  });
+
+  test("dotazník dodavatele (v1.110): certifikáty pracovníků → Certifikáty pracovníků u dodavatele", async () => {
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "QC Certifikáty s.r.o." } })).body.id as string;
+    const H = { "x-company-id": CO };
+    const sup = (await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "QC Servis a.s.", significant: true } })).body;
+    const cr = await admin.json(`/api/suppliers/${sup.id}/questionnaires`, { method: "POST", headers: H, json: { template: "cz410", locale: "cs", sendEmail: false, validDays: 7 } });
+    expect(cr.status).toBe(201);
+    const token = (cr.body.link as string).split("/q/")[1]!;
+    const pub = browser();
+    const v = (await pub.json(`/api/public/questionnaires/${token}`)).body;
+    expect(v.staffCerts).toEqual([]);
+    const id1 = crypto.randomUUID();
+    const id2 = crypto.randomUUID();
+    const certs = [
+      { id: id1, holderName: "Jan Technik", name: "CCNA", issuer: "Cisco", credentialId: "CS-1", issuedAt: "2025-01-10", validUntil: "2028-01-10" },
+      { id: id2, holderName: "Eva Auditorka", name: "ISO 27001 Lead Auditor", issuer: "", credentialId: "", issuedAt: "", validUntil: null },
+    ];
+    // neplatné datum platnosti před vydáním
+    expect((await pub.json(`/api/public/questionnaires/${token}`, { method: "PUT", json: { answers: {}, staffCerts: [{ ...certs[0], validUntil: "2020-01-01" }] } })).status).toBe(400);
+    const sv = await pub.json(`/api/public/questionnaires/${token}`, { method: "PUT", json: { answers: {}, staffCerts: certs } });
+    expect(sv.status).toBe(200);
+    expect(sv.body.staffCerts.map((c: any) => [c.holderName, c.issuedAt])).toEqual([["Jan Technik", "2025-01-10"], ["Eva Auditorka", null]]);
+    // příloha k certifikátu – jen k uloženému; nová příloha nahradí předchozí
+    const up = (name: string, key: string) => {
+      const fd = new FormData();
+      fd.set("file", new File(["%PDF-1.4 cert"], name));
+      fd.set("questionKey", key);
+      return pub.req(`/api/public/questionnaires/${token}/files`, { method: "POST", body: fd });
+    };
+    expect((await up("x.pdf", `cert:${crypto.randomUUID()}`)).status).toBe(400);
+    expect((await up("ccna-stary.pdf", `cert:${id1}`)).status).toBe(201);
+    const f2 = (await (await up("ccna.pdf", `cert:${id1}`)).json()) as any;
+    expect(f2.files.filter((f: any) => f.questionKey === `cert:${id1}`).map((f: any) => f.filename)).toEqual(["ccna.pdf"]);
+    expect((await up("eva.pdf", `cert:${id2}`)).status).toBe(201);
+    // odebraný certifikát → jeho příloha zmizí
+    const sv2 = await pub.json(`/api/public/questionnaires/${token}`, { method: "PUT", json: { answers: {}, staffCerts: [certs[0]] } });
+    expect(sv2.body.files.some((f: any) => f.questionKey === `cert:${id2}`)).toBe(false);
+    // starší klient bez pole staffCerts seznam nemaže
+    expect((await pub.json(`/api/public/questionnaires/${token}`, { method: "PUT", json: { answers: {} } })).body.staffCerts).toHaveLength(1);
+    // odevzdání → zápis do Certifikátů pracovníků (externí držitel u dodavatele, s přílohou)
+    const answers = Object.fromEntries((v.questions as any[]).map((x) => [x.key, { value: "yes" }]));
+    const sub = await pub.json(`/api/public/questionnaires/${token}/submit`, { method: "POST", json: { answers, respondentName: "Petr Dodavatel", respondentEmail: "petr@servis.test", staffCerts: certs } });
+    expect(sub.status).toBe(200);
+    const list = (await admin.json(`/api/person-certificates?supplierId=${sup.id}`, { headers: H })).body.items as any[];
+    expect(list.map((c) => [c.holder.type, c.holder.name, c.name, c.supplier?.id]).sort()).toEqual([
+      ["external", "Eva Auditorka", "ISO 27001 Lead Auditor", sup.id],
+      ["external", "Jan Technik", "CCNA", sup.id],
+    ]);
+    const ccna = list.find((c) => c.name === "CCNA");
+    expect([ccna.validUntil, ccna.state, ccna.file?.name]).toEqual(["2028-01-10", "valid", "ccna.pdf"]);
+    expect(list.find((c) => c.name !== "CCNA").file).toBeNull();
+    // interní pohled dotazníku
+    const qs = (await admin.json(`/api/suppliers/${sup.id}/questionnaires`, { headers: H })).body as any[];
+    expect(qs[0].staffCerts).toHaveLength(2);
+    // znovuotevření a nové odevzdání stejný certifikát nezdvojí
+    const qid = qs[0].id;
+    expect((await admin.json(`/api/suppliers/${sup.id}/questionnaires/${qid}/reopen`, { method: "POST", headers: H })).status).toBe(200);
+    const sub2 = await pub.json(`/api/public/questionnaires/${token}/submit`, { method: "POST", json: { answers, respondentName: "Petr Dodavatel", respondentEmail: "petr@servis.test", staffCerts: [{ ...certs[0], validUntil: "2029-01-10" }] } });
+    expect(sub2.status).toBe(200);
+    const list2 = (await admin.json(`/api/person-certificates?supplierId=${sup.id}`, { headers: H })).body.items as any[];
+    expect(list2).toHaveLength(2);
+    expect(list2.find((c) => c.name === "CCNA").validUntil).toBe("2029-01-10");
+  });
+
   test("lokality (v1.108): převod textového umístění na strom lokalit a umístění aktiv", async () => {
     const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "TL Převod s.r.o." } })).body.id as string;
     const H = { "x-contix-company": CO };
