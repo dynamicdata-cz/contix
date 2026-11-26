@@ -1944,7 +1944,10 @@ test("lokality: budova, serverovna s fyzickou bezpečností, umístění serveru
   await page.getByTestId("loc-kind").selectOption("server_room");
   await page.getByTestId("loc-ctl-access_control").selectOption("yes");
   await page.getByTestId("loc-ctl-ups").selectOption("partial");
+  // revize UPS (v1.111) – poslední před dvěma lety → po termínu
+  await page.getByTestId("loc-rev-last-ups").fill("2024-01-15");
   await page.getByTestId("loc-save").click();
+  await expect(page.getByTestId("loc-rev-ups")).toContainText("revize po termínu");
   await expect(page.getByTestId("loc-detail")).toContainText("E2E Budova Zlín");
   await expect(page.getByTestId("loc-physical")).toContainText("Částečně");
   await page.getByTestId("loc-place").click();

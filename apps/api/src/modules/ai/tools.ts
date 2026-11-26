@@ -96,6 +96,7 @@ const OBLIGATION_NEED: Record<ObligationKind, Permission> = {
   control_test: "controls:read",
   evidence_expiry: "controls:read",
   person_cert: "awareness:read",
+  premise_revision: "assets:read",
   processing_review: "gdpr:read",
   ai_review: "aiact:read",
   cra_report: "cra:read",

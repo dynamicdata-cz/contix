@@ -258,17 +258,23 @@ export async function collectMonitor(db: Db, config: Config, m: MonitorRow, now 
     }
     case "physical_security": {
       // mezery doporučené fyzické bezpečnosti u lokalit (v1.109)
-      const { nodes } = await locationsOf(db, m.companyId);
-      const relevant = nodes.filter((n) => requiredPhysical(n.kind).length > 0);
+      const { nodes } = await locationsOf(db, m.companyId, now);
+      const relevant = nodes.filter((n) => requiredPhysical(n.kind).length > 0 || n.revisions.length > 0);
       if (!relevant.length) throw new MonitorError("V Lokalitách nejsou evidované budovy, serverovny ani datová centra.");
-      const bad = relevant.filter((n) => n.gaps.length > 0);
+      // mezery + revize po termínu (v1.111)
+      const late = (n: (typeof nodes)[number]) => n.revisions.filter((r) => r.status === "overdue");
+      const bad = relevant.filter((n) => n.gaps.length > 0 || late(n).length > 0);
       const gaps = bad.reduce((a, n) => a + n.gaps.length, 0);
+      const overdue = bad.reduce((a, n) => a + late(n).length, 0);
       return {
-        value: gaps,
+        value: gaps + overdue,
         population: relevant.length,
         exceptions: bad.length,
-        summary: `${gaps} chybějících prvků fyzické bezpečnosti v ${bad.length} z ${relevant.length} lokalit`,
-        details: top(bad, (n) => ({ ref: [...n.path.map((x) => x.name), n.name].join(" › ").slice(0, 200), detail: n.gaps.map((g) => `${PHYSICAL_CONTROL_LABELS[g.control]}${g.level === "partial" ? " (částečně)" : ""}`).join(", ") })),
+        summary: `${gaps} chybějících prvků fyzické bezpečnosti a ${overdue} revizí po termínu v ${bad.length} z ${relevant.length} lokalit`,
+        details: top(bad, (n) => ({
+          ref: [...n.path.map((x) => x.name), n.name].join(" › ").slice(0, 200),
+          detail: [...n.gaps.map((g) => `${PHYSICAL_CONTROL_LABELS[g.control]}${g.level === "partial" ? " (částečně)" : ""}`), ...late(n).map((r) => `revize ${PHYSICAL_CONTROL_LABELS[r.control]} po termínu (${r.due})`)].join(", "),
+        })),
       };
     }
     case "tls_expiry": {

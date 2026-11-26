@@ -4,6 +4,7 @@ import {
   PLACEABLE_TYPES,
   canNest,
   physicalGaps,
+  physicalRevisions,
   type FacilityKind,
   type LocationDetailDto,
   type LocationIssueDto,
@@ -70,7 +71,8 @@ function ancestry(id: string, parentOf: Map<string, string | null>): string[] | 
   return chain;
 }
 
-export async function locationsOf(db: Db, companyId: string): Promise<LocationsDto> {
+export async function locationsOf(db: Db, companyId: string, now = new Date()): Promise<LocationsDto> {
+  const today = now.toISOString().slice(0, 10);
   const pl = await loadPlacement(db, companyId);
   const { rows, byId, out, facilityOf, facilities, parentOf } = pl;
   const fids = facilities.map((f) => f.id);
@@ -144,6 +146,7 @@ export async function locationsOf(db: Db, companyId: string): Promise<LocationsD
       criticality: f.criticality,
       physical,
       gaps: physicalGaps(f.facilityKind as FacilityKind | null, physical),
+      revisions: physicalRevisions(physical, today),
       zones: zones.filter((z) => z.locationId === f.id).map((z) => ({ id: z.id, name: z.name, color: z.color })),
       assetsDirect: (direct.get(f.id) ?? []).length,
       assetsTotal: t.all,
@@ -318,6 +321,11 @@ export async function importTextLocations(db: Db, companyId: string, items: { te
 /* ---------- nálezy fyzické bezpečnosti (v1.109) ---------- */
 
 /** Lokality s mezerami doporučené fyzické bezpečnosti → nálezy monitoringu (kód premise_physical_gap). */
+const czDay = (iso: string) => {
+  const [y, m, d] = iso.split("-");
+  return `${Number(d)}. ${Number(m)}. ${y}`;
+};
+
 export async function syncPremiseFindings(db: Db, companyIds?: string[], now = new Date()) {
   const cos =
     companyIds ??
@@ -325,14 +333,31 @@ export async function syncPremiseFindings(db: Db, companyIds?: string[], now = n
       ...new Set([
         ...(await db.selectDistinct({ c: assets.companyId }).from(assets).where(eq(assets.assetType, "facility"))).map((x) => x.c),
         // společnosti s otevřenými nálezy, které už lokality nemají (smazané) – nálezy se uzavřou
-        ...(await db.selectDistinct({ c: monitoringFindings.companyId }).from(monitoringFindings).where(eq(monitoringFindings.code, "premise_physical_gap"))).map((x) => x.c),
+        ...(await db.selectDistinct({ c: monitoringFindings.companyId }).from(monitoringFindings).where(inArray(monitoringFindings.code, ["premise_physical_gap", "premise_revision_overdue"]))).map((x) => x.c),
       ]),
     ];
   const res = { opened: 0, fixed: 0, reopened: 0 };
   for (const companyId of cos) {
-    const { nodes } = await locationsOf(db, companyId);
+    const { nodes } = await locationsOf(db, companyId, now);
     const desired: MonitoringDesired[] = [];
+    const revs: MonitoringDesired[] = [];
     for (const n of nodes) {
+      // revize po termínu (v1.111) – EPS / hašení / UPS v serverovně nebo datovém centru = vysoká
+      const late = n.revisions.filter((r) => r.status === "overdue");
+      if (late.length) {
+        const tech = n.kind === "datacenter" || n.kind === "server_room";
+        const path = [...n.path.map((x) => x.name), n.name].join(" › ");
+        revs.push({
+          companyId,
+          connectionId: null,
+          assetId: n.id,
+          key: `prem-rev:${n.id}`,
+          code: "premise_revision_overdue",
+          severity: tech && late.some((r) => r.control === "fire_detection" || r.control === "fire_suppression" || r.control === "ups") ? "high" : "medium",
+          subject: path.slice(0, 500),
+          detail: `${path}: revize po termínu – ${late.map((r) => `${PHYSICAL_CONTROL_LABELS[r.control]} (do ${czDay(r.due)})`).join(", ")}.`.slice(0, 2000),
+        });
+      }
       if (!n.gaps.length) continue;
       const core = n.gaps.some((g) => g.control === "access_control" || g.control === "fire_detection");
       const tech = n.kind === "datacenter" || n.kind === "server_room";
@@ -348,10 +373,15 @@ export async function syncPremiseFindings(db: Db, companyIds?: string[], now = n
         detail: `${path}: chybí ${n.gaps.map((g) => `${PHYSICAL_CONTROL_LABELS[g.control]}${g.level === "partial" ? " (částečně)" : ""}`).join(", ")}.`,
       });
     }
-    const r = await applyMonitoringFindings(db, desired, and(eq(monitoringFindings.companyId, companyId), eq(monitoringFindings.code, "premise_physical_gap"))!, now);
-    res.opened += r.opened;
-    res.fixed += r.fixed;
-    res.reopened += r.reopened;
+    for (const [list, code] of [
+      [desired, "premise_physical_gap"],
+      [revs, "premise_revision_overdue"],
+    ] as const) {
+      const r = await applyMonitoringFindings(db, list, and(eq(monitoringFindings.companyId, companyId), eq(monitoringFindings.code, code))!, now);
+      res.opened += r.opened;
+      res.fixed += r.fixed;
+      res.reopened += r.reopened;
+    }
   }
   return res;
 }

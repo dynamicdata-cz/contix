@@ -11981,6 +11981,45 @@ describe.skipIf(!url)("API (integrace)", () => {
     void room;
   });
 
+  test("revize prvků fyzické bezpečnosti (v1.111): termíny, povinnosti, nálezy, monitor", async () => {
+    const { addMonthsIso, physicalRevisions } = await import("@contix/shared");
+    expect(addMonthsIso("2026-01-31", 1)).toBe("2026-02-28");
+    expect(addMonthsIso("2024-02-29", 12)).toBe("2025-02-28");
+    expect(physicalRevisions({ controls: { ups: "no" }, revisions: { ups: { lastAt: "2020-01-01", intervalMonths: null } } }, "2026-01-01")).toEqual([]); // prvek, který lokalita nemá, se nehlídá
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "RV Revize s.r.o." } })).body.id as string;
+    const H = { [COMPANY_HEADER]: CO };
+    const today = new Date().toISOString().slice(0, 10);
+    const soonLast = addMonthsIso(today, -12).replace(/(\d+)$/, (d) => d); // dnes před rokem → termín dnes (brzy)
+    const physical = {
+      controls: { access_control: "yes", intrusion_alarm: "yes", fire_detection: "yes", hvac: "yes", ups: "yes" },
+      revisions: { fire_detection: { lastAt: "2023-03-01", intervalMonths: null }, ups: { lastAt: soonLast, intervalMonths: null }, hvac: { lastAt: today, intervalMonths: 6 } },
+    };
+    const sr = (await admin.json("/api/premises", { method: "POST", headers: H, json: { name: "RV Serverovna", kind: "server_room", physical } })).body;
+    const node = ((await admin.json("/api/premises", { headers: H })).body.nodes as any[]).find((n) => n.id === sr.id);
+    expect(node.revisions.map((r: any) => [r.control, r.status, r.intervalMonths])).toEqual([
+      ["fire_detection", "overdue", 12],
+      ["hvac", "ok", 6],
+      ["ups", "soon", 12],
+    ]);
+    expect(node.revisions.find((r: any) => r.control === "fire_detection").due).toBe("2024-03-01");
+    // nález: EPS po termínu v serverovně = vysoká
+    const open = async () => await db.select().from(schema.monitoringFindings).where(and(eq(schema.monitoringFindings.companyId, CO), eq(schema.monitoringFindings.code, "premise_revision_overdue")));
+    const f1 = await open();
+    expect(f1.map((f) => [f.assetId, f.status, f.severity])).toEqual([[sr.id, "open", "high"]]);
+    expect(f1[0]!.detail).toContain("EPS (do 1. 3. 2024)");
+    // povinnosti: EPS po termínu i UPS brzy, s odkazem na lokalitu
+    const team = ((await admin.json("/api/notifications/team", { headers: H })).body as any[]).filter((o) => o.kind === "premise_revision");
+    expect(team.map((o) => [o.key.split(":")[2], o.urgency === "overdue"]).sort()).toEqual([["fire_detection", true], ["ups", false]]);
+    expect(team[0].link).toBe(`/assets/locations?id=${sr.id}`);
+    // monitor započítá revizi po termínu
+    const { collectMonitor } = await import("../src/modules/controls/monitors");
+    const c1 = await collectMonitor(db, config, { id: "00000000-0000-0000-0000-000000000000", companyId: CO, kind: "physical_security", params: {} } as any);
+    expect([c1.value, c1.exceptions]).toEqual([1, 1]);
+    // revize zapsaná → nález opravený
+    await admin.json(`/api/premises/${sr.id}`, { method: "PATCH", headers: H, json: { physical: { ...physical, revisions: { ...physical.revisions, fire_detection: { lastAt: today, intervalMonths: null } } } } });
+    expect((await open()).map((f) => f.status)).toEqual(["fixed"]);
+  });
+
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {
     expect(secretLeaks).toEqual([]);
     const rows = await db.execute(sql`select action, details::text as d from audit_log where details::text ~ '(passwordHash|tokenHash|[a-zA-Z]+Enc|_enc)"\s*:\s*"'`);

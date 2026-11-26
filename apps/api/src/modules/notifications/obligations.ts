@@ -6,7 +6,8 @@ import { projectGateItems } from "../projects/routes";
 import { projectWorkItems } from "../projects/team";
 import { certExpiryItems } from "../assets/certificates";
 import { auditRequestItems } from "../audits/requests";
-import { daysOverdue, mapProblems, ROOT_COMPANY_ID, EXCEPTION_LABELS, EXCEPTION_LEAD_DAYS, OBLIGATION_LABELS, type ExceptionDto, type Translate, POLICY_WORKFLOW_ACTIONS, urgencyOf, type ObligationItem, type ObligationKind, triggerDue, RISK_TRIGGER_LABELS, exerciseCode, requestCode } from "@contix/shared";
+import { daysOverdue, mapProblems, PHYSICAL_CONTROL_LABELS, ROOT_COMPANY_ID, EXCEPTION_LABELS, EXCEPTION_LEAD_DAYS, OBLIGATION_LABELS, type ExceptionDto, type Translate, POLICY_WORKFLOW_ACTIONS, urgencyOf, type ObligationItem, type ObligationKind, triggerDue, RISK_TRIGGER_LABELS, exerciseCode, requestCode } from "@contix/shared";
+import { locationsOf } from "../premises/service";
 import { vulnRemediationItems } from "../vulnerabilities/remediation";
 import { escalationChain, escalationLevel, orgSnapshot, positionOfUser } from "../org/hierarchy";
 import { nukibMeasuresItems, nukibNoticeItems } from "../regulation/registration";
@@ -72,7 +73,7 @@ export function kindsForModules(enabled: string[]): Set<ObligationKind> {
   if (m.has("isms")) k.add("isms_review").add("change");
   if (m.has("policies")) k.add("policy_review").add("doc_approval").add("doc_retention");
   if (m.has("continuity")) k.add("plan_test").add("exercise");
-  if (m.has("assets")) k.add("cert_expiry");
+  if (m.has("assets")) k.add("cert_expiry").add("premise_revision");
   if (m.has("suppliers")) k.add("contract").add("supplier_questionnaire").add("supplier_report");
   if (m.has("risks") || m.has("continuity")) k.add("assessment_cycle");
   if (m.has("controls")) k.add("control_test").add("evidence_expiry");
@@ -838,6 +839,24 @@ export async function collectObligations(db: Db, o: CollectOptions): Promise<Obl
         ...owner(null),
       });
   }
+
+  // revize prvků fyzické bezpečnosti lokalit (v1.111)
+  if (want("premise_revision"))
+    for (const companyId of o.companyIds) {
+      const { nodes } = await locationsOf(db, companyId, now);
+      for (const n of nodes)
+        for (const r of n.revisions)
+          push({
+            key: `premise_revision:${n.id}:${r.control}`,
+            kind: "premise_revision",
+            title: `${PHYSICAL_CONTROL_LABELS[r.control]} – ${n.name}`,
+            detail: t("srv.obl.premRevision", { path: [...n.path.map((x) => x.name), n.name].join(" › "), last: r.lastAt }),
+            companyId,
+            due: r.due,
+            link: `/assets/locations?id=${n.id}`,
+            ...owner(null),
+          });
+    }
 
   // další krok postupu u průvodců s garantem (v1.44, ADR-141)
   if (want("guide_step")) for (const x of await guideStepObligations(db, o.companyIds, t)) out.push(x);

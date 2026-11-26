@@ -32,6 +32,31 @@ export const PHYSICAL_CONTROL_LABELS: Record<(typeof PHYSICAL_CONTROLS)[number],
 };
 export type PhysicalLevel = (typeof PHYSICAL_LEVELS)[number];
 
+const isoDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .nullable()
+  .default(null);
+/** Doporučený interval kontroly / revize prvku v měsících (v1.111) – EPS, hašení a UPS ročně, záložní zdroj půlročně. */
+export const PHYSICAL_REVISION_MONTHS: Partial<Record<PhysicalControl, number>> = {
+  access_control: 12,
+  intrusion_alarm: 12,
+  cctv: 12,
+  fire_detection: 12,
+  fire_suppression: 12,
+  hvac: 12,
+  ups: 12,
+  generator: 6,
+  flood_detection: 12,
+};
+export const PhysicalRevision = z.object({
+  /** datum poslední revize / kontroly provozuschopnosti / zkoušky */
+  lastAt: isoDay,
+  /** interval v měsících; null = doporučený (PHYSICAL_REVISION_MONTHS) */
+  intervalMonths: z.number().int().min(1).max(120).nullable().default(null),
+});
+export type PhysicalRevision = z.infer<typeof PhysicalRevision>;
+
 export const FacilityPhysical = z.object({
   controls: z.partialRecord(z.enum(PHYSICAL_CONTROLS), z.enum(PHYSICAL_LEVELS)).default({}),
   note: z.string().trim().max(2000).default(""),
@@ -42,8 +67,51 @@ export const FacilityPhysical = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullable()
     .default(null),
+  /** Revize prvků (v1.111): poslední revize + interval → termín další, hlídaný v povinnostech a nálezech. */
+  revisions: z.partialRecord(z.enum(PHYSICAL_CONTROLS), PhysicalRevision).default({}),
 });
 export type FacilityPhysical = z.infer<typeof FacilityPhysical>;
+
+export type PhysicalRevisionStatus = "overdue" | "soon" | "ok";
+export interface PhysicalRevisionState {
+  control: PhysicalControl;
+  lastAt: string;
+  intervalMonths: number;
+  due: string;
+  status: PhysicalRevisionStatus;
+}
+/** Den + n měsíců (konec kratšího měsíce se zarovná: 31. 1. + 1 = 28./29. 2.). */
+export function addMonthsIso(day: string, months: number): string {
+  const [y, m, d] = day.split("-").map(Number) as [number, number, number];
+  const t = new Date(Date.UTC(y, m - 1 + months, 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  t.setUTCDate(Math.min(d, last));
+  return t.toISOString().slice(0, 10);
+}
+export const REVISION_SOON_DAYS = 30;
+/**
+ * Termíny revizí prvků, které lokalita má (ano / částečně) a mají zapsanou poslední revizi.
+ * Prvek bez data revize se nehlídá – evidence revizí je dobrovolná.
+ */
+export function physicalRevisions(p: Partial<FacilityPhysical> | null | undefined, today: string): PhysicalRevisionState[] {
+  const out: PhysicalRevisionState[] = [];
+  const soon = addDaysIso(today, REVISION_SOON_DAYS);
+  for (const k of PHYSICAL_CONTROLS) {
+    const r = p?.revisions?.[k];
+    const lvl = p?.controls?.[k];
+    if (!r?.lastAt || (lvl !== "yes" && lvl !== "partial")) continue;
+    const months = r.intervalMonths ?? PHYSICAL_REVISION_MONTHS[k];
+    if (!months) continue;
+    const due = addMonthsIso(r.lastAt, months);
+    out.push({ control: k, lastAt: r.lastAt, intervalMonths: months, due, status: due < today ? "overdue" : due <= soon ? "soon" : "ok" });
+  }
+  return out;
+}
+function addDaysIso(day: string, n: number): string {
+  const t = new Date(`${day}T00:00:00Z`);
+  t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+}
 
 /** Prvky, které musí mít místnost s technikou – chybějící jsou mezera (doporučení, ne povinnost vyhlášky do písmene). */
 const REQUIRED: Partial<Record<FacilityKind, PhysicalControl[]>> = {
@@ -85,6 +153,8 @@ export interface LocationNodeDto {
   criticality: string;
   physical: FacilityPhysical;
   gaps: { control: PhysicalControl; level: PhysicalLevel | null }[];
+  /** termíny revizí prvků (v1.111) */
+  revisions: PhysicalRevisionState[];
   zones: { id: string; name: string; color: string }[];
   /** Aktiva přímo v lokalitě (bez podřízených lokalit). */
   assetsDirect: number;

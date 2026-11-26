@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.111.0
+
+Revize a termíny prvků fyzické bezpečnosti lokalit (ADR-203).
+
+- **Revize u lokality**: u prvků, které lokalita má (EPS, hašení, UPS, EZS, kamery, klimatizace, záložní zdroj…), lze zapsat datum poslední revize / kontroly provozuschopnosti a interval (doporučený ročně, záložní zdroj půlročně). V detailu lokality je u prvku vidět termín další revize, oranžově před termínem a červeně po termínu.
+- **Upozornění**: termíny revizí jsou v povinnostech, upozorněních a kalendáři lhůt (30 dní předem) s odkazem přímo na lokalitu.
+- **Nálezy a monitor**: revize po termínu je nález v Nálezech (vysoká u EPS, hašení nebo UPS v serverovně či datovém centru) a započítá se do monitoru „Fyzická bezpečnost lokalit“. Po zapsání nové revize se nález sám uzavře.
+- **Oprava**: v přehledu povinností týmu chyběla platnost certifikátů osob.
+
 ## 1.110.1
 
 Opravy.

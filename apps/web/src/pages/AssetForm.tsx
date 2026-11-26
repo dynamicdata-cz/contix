@@ -111,7 +111,7 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
   const origPlace = existing.data ? toForm(existing.data).placeId : "";
   const save = useMutation({
     mutationFn: async (payload: ReturnType<typeof toPayload>) => {
-      const body = facility ? { ...payload, physical: { ...(existing.data?.physical ?? { controls: {}, note: "", reviewedAt: null }), address: f.address?.trim() ?? "" } } : payload;
+      const body = facility ? { ...payload, physical: { ...(existing.data?.physical ?? { controls: {}, note: "", reviewedAt: null, revisions: {} }), address: f.address?.trim() ?? "" } } : payload;
       const a = mode === "create" ? await api.assets.create(body) : await api.assets.update(params.assetId!, body);
       // umístění v lokalitě (v1.107.2): lokalita → nadřazená lokalita, technika → místnost / budova
       const place = f.placeId ?? "";

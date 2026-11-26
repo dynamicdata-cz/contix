@@ -4,12 +4,13 @@ import { HealthIndicator } from "@/components/health";
 import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { cn } from "@/lib/utils";
+import { cn, fmtDay } from "@/lib/utils";
 import {
   FACILITY_KINDS,
   LABELS,
   PHYSICAL_CONTROLS,
   PHYSICAL_LEVELS,
+  PHYSICAL_REVISION_MONTHS,
   recordPath,
   requiredPhysical,
   type FacilityKind,
@@ -19,6 +20,8 @@ import {
   type LocationIssueDto,
   type LocationNodeDto,
   type PhysicalLevel,
+  type PhysicalControl,
+  type PhysicalRevision,
 } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -37,11 +40,12 @@ export function LocationsPage() {
   const can = useCan();
   const write = can("assets:write");
   const q = useQuery({ queryKey: ["premises"], queryFn: api.premises.list });
-  const [sel, setSel] = useState<string | null>(null);
+  // odkaz z povinností / nálezů: /assets/locations?id=<lokalita>
+  const [sel, setSel] = useState<string | null>(() => new URLSearchParams(window.location.search).get("id"));
   const [edit, setEdit] = useState<LocationNodeDto | "new" | null>(null);
   const [newParent, setNewParent] = useState<string | null>(null);
   const d = q.data;
-  const current = sel ?? d?.nodes[0]?.id ?? null;
+  const current = (sel && d?.nodes.some((n) => n.id === sel) ? sel : null) ?? d?.nodes[0]?.id ?? null;
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
@@ -193,13 +197,25 @@ function LocationDetail({ id, write, onEdit, onAddChild }: { id: string; write: 
         <div className="grid gap-x-6 gap-y-2 p-5 sm:grid-cols-2" data-testid="loc-physical">
           {PHYSICAL_CONTROLS.map((k) => {
             const v = d.physical.controls[k];
+            const rev = d.revisions.find((r) => r.control === k);
             return (
               <div key={k} className="flex items-center justify-between gap-2 text-sm">
                 <span className={cn("text-slate-700", required.has(k) && "font-medium")}>
                   {t(`prem.ctl.${k}`)}
                   {required.has(k) && <span className="text-slate-400"> *</span>}
                 </span>
-                {v ? <Badge tone={LEVEL_TONE[v]}>{t(`prem.lvl.${v}`)}</Badge> : <span className={cn("text-xs", required.has(k) ? "text-amber-700" : "text-slate-400")}>{t("prem.lvl.unknown")}</span>}
+                <span className="flex items-center gap-2">
+                  {rev && (
+                    <span
+                      className={cn("text-xs", rev.status === "overdue" ? "font-medium text-red-700" : rev.status === "soon" ? "text-amber-700" : "text-slate-500")}
+                      title={t("prem.rev.last", { d: fmtDay(rev.lastAt), m: rev.intervalMonths })}
+                      data-testid={`loc-rev-${k}`}
+                    >
+                      {t(rev.status === "overdue" ? "prem.rev.overdue" : "prem.rev.due", { d: fmtDay(rev.due) })}
+                    </span>
+                  )}
+                  {v ? <Badge tone={LEVEL_TONE[v]}>{t(`prem.lvl.${v}`)}</Badge> : <span className={cn("text-xs", required.has(k) ? "text-amber-700" : "text-slate-400")}>{t("prem.lvl.unknown")}</span>}
+                </span>
               </div>
             );
           })}
@@ -411,7 +427,11 @@ function LocationModal({ node, parentId, nodes, onClose, onDone }: { node: Locat
     parentId: parentId,
     criticality: (node?.criticality ?? "medium") as "low" | "medium" | "high" | "critical",
   });
-  const [ph, setPh] = useState<FacilityPhysical>(node?.physical ?? { controls: {}, note: "", address: "", reviewedAt: null });
+  const [ph, setPh] = useState<FacilityPhysical>(node?.physical ?? { controls: {}, note: "", address: "", reviewedAt: null, revisions: {} });
+  const setRev = (k: PhysicalControl, patch: Partial<PhysicalRevision>) => {
+    const cur = ph.revisions?.[k] ?? { lastAt: null, intervalMonths: null };
+    setPh({ ...ph, revisions: { ...(ph.revisions ?? {}), [k]: { ...cur, ...patch } } });
+  };
   // lokalita nesmí být sama sobě nadřazená ani ležet ve své podřízené
   const blocked = new Set<string>();
   if (node) {
@@ -490,7 +510,8 @@ function LocationModal({ node, parentId, nodes, onClose, onDone }: { node: Locat
       </h3>
       <div className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
         {PHYSICAL_CONTROLS.map((k) => (
-          <label key={k} className="flex items-center justify-between gap-2 text-sm">
+          <div key={k}>
+          <label className="flex items-center justify-between gap-2 text-sm">
             <span className="text-slate-700">
               {t(`prem.ctl.${k}`)}
               {requiredPhysical(f.kind).includes(k) && <span className="text-slate-400"> *</span>}
@@ -514,6 +535,31 @@ function LocationModal({ node, parentId, nodes, onClose, onDone }: { node: Locat
               ))}
             </Select>
           </label>
+          {PHYSICAL_REVISION_MONTHS[k] && (ph.controls[k] === "yes" || ph.controls[k] === "partial") && (
+            <div className="mt-1 flex items-center justify-end gap-2 text-xs text-slate-500">
+              {t("prem.rev.lastLabel")}
+              <Input
+                type="date"
+                className="h-7 w-36 text-xs"
+                aria-label={`${t("prem.rev.lastLabel")} – ${t(`prem.ctl.${k}`)}`}
+                value={ph.revisions?.[k]?.lastAt ?? ""}
+                onChange={(e) => setRev(k, { lastAt: e.target.value || null })}
+                data-testid={`loc-rev-last-${k}`}
+              />
+              <Input
+                type="number"
+                min={1}
+                max={120}
+                className="h-7 w-16 text-xs"
+                aria-label={`${t("prem.rev.interval")} – ${t(`prem.ctl.${k}`)}`}
+                placeholder={String(PHYSICAL_REVISION_MONTHS[k])}
+                value={ph.revisions?.[k]?.intervalMonths ?? ""}
+                onChange={(e) => setRev(k, { intervalMonths: e.target.value ? Math.min(120, Math.max(1, Number(e.target.value))) : null })}
+              />
+              {t("prem.rev.months")}
+            </div>
+          )}
+          </div>
         ))}
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-[12rem_1fr]">
