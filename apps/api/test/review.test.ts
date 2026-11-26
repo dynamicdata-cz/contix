@@ -83,6 +83,8 @@ const INLINE_GUARDED = new Set([
   "modules/sectests/routes.ts POST /poll",
   "modules/sectests/routes.ts POST /result",
   "modules/controls/monitors.ts POST /result",
+  // webhook z Harboru (v1.113): token webhooku (hash v nastavení) ověřený v handleru
+  "modules/cra/routes.ts POST /webhook",
   "modules/vulnerabilities/routes.ts POST /:id/accept",
   "modules/vulnerabilities/routes.ts POST /:id/reopen"
 ]);

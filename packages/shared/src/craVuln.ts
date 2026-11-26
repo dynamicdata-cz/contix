@@ -448,6 +448,8 @@ export interface HarborSettingsDto {
   verifyTls: boolean;
   autoSyncHours: number;
   hasPassword: boolean;
+  /** webhook z Harboru je zapnutý (token se zobrazí jen při vytvoření) – v1.113 */
+  hasWebhook: boolean;
 }
 
 /** „projekt/repozitář[/další]:tag“ nebo „…@sha256:…“, volitelně s hostitelem registru na začátku. */

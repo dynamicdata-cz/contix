@@ -1,5 +1,6 @@
 import { HARBOR_DEFAULTS_KEY, parseHarborRef, parseSbom, type HarborSettingsDto, type HarborSettingsInput, type HarborVulnItem } from "@contix/shared";
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { decrypt, encrypt } from "../../auth/crypto";
 import { appSecret, type Config } from "../../config";
 import type { Db } from "../../db/client";
@@ -13,8 +14,8 @@ import { matchProducts } from "./osv";
  * skenu obrazu není, se označí jako zmizelý („gone“) a navrhne se stav VEX „opraveno“.
  * ============================================================ */
 
-type Stored = { url: string; username: string; passwordEnc: string | null; verifyTls: boolean; autoSyncHours: number };
-const DEF: Stored = { url: "", username: "", passwordEnc: null, verifyTls: true, autoSyncHours: 24 };
+type Stored = { url: string; username: string; passwordEnc: string | null; verifyTls: boolean; autoSyncHours: number; webhookHash?: string | null };
+const DEF: Stored = { url: "", username: "", passwordEnc: null, verifyTls: true, autoSyncHours: 24, webhookHash: null };
 const VULN_MIME = "application/vnd.security.vulnerability.report; version=1.1";
 
 async function stored(db: Db): Promise<Stored> {
@@ -23,11 +24,11 @@ async function stored(db: Db): Promise<Stored> {
 }
 export async function harborSettings(db: Db): Promise<HarborSettingsDto> {
   const s = await stored(db);
-  return { url: s.url, username: s.username, verifyTls: s.verifyTls, autoSyncHours: s.autoSyncHours, hasPassword: !!s.passwordEnc };
+  return { url: s.url, username: s.username, verifyTls: s.verifyTls, autoSyncHours: s.autoSyncHours, hasPassword: !!s.passwordEnc, hasWebhook: !!s.webhookHash };
 }
 export async function saveHarborSettings(db: Db, config: Config, v: Required<Omit<HarborSettingsInput, "password">> & { password?: string }) {
   const cur = await stored(db);
-  const next: Stored = { url: v.url.replace(/\/+$/, ""), username: v.username, verifyTls: v.verifyTls, autoSyncHours: v.autoSyncHours, passwordEnc: v.password ? encrypt(v.password, appSecret(config)) : v.password === "" && !v.username ? null : cur.passwordEnc };
+  const next: Stored = { url: v.url.replace(/\/+$/, ""), username: v.username, verifyTls: v.verifyTls, autoSyncHours: v.autoSyncHours, passwordEnc: v.password ? encrypt(v.password, appSecret(config)) : v.password === "" && !v.username ? null : cur.passwordEnc, webhookHash: cur.webhookHash ?? null };
   await db.insert(appSettings).values({ key: HARBOR_DEFAULTS_KEY, value: next }).onConflictDoUpdate({ target: appSettings.key, set: { value: next, updatedAt: new Date() } });
   return harborSettings(db);
 }
@@ -158,6 +159,68 @@ async function harborSbom(db: Db, p: typeof craProducts.$inferSelect, url: strin
   });
   await matchProducts(db, [p.id]);
   return { sbomComponents: parsed.components.length, sbomStatus: "imported" as const, sbomFromHarbor: true, sbomImported: true };
+}
+
+/* ---------- webhook z Harboru (v1.113, ADR-205) ---------- */
+
+const sha = (v: string) => createHash("sha256").update(v).digest("hex");
+/** Nový token webhooku (zobrazí se jednou); uloží se jen jeho hash. `null` = webhook vypnout. */
+export async function setHarborWebhook(db: Db, enable: boolean): Promise<string | null> {
+  const cur = await stored(db);
+  const token = enable ? randomBytes(32).toString("base64url") : null;
+  const next: Stored = { ...cur, webhookHash: token ? sha(token) : null };
+  await db.insert(appSettings).values({ key: HARBOR_DEFAULTS_KEY, value: next }).onConflictDoUpdate({ target: appSettings.key, set: { value: next, updatedAt: new Date() } });
+  return token;
+}
+/** Harbor posílá „Auth Header“ beze změny jako Authorization – přijme se „Bearer <token>“ i samotný token. */
+export async function verifyHarborWebhook(db: Db, authorization: string | undefined): Promise<boolean> {
+  const s = await stored(db);
+  if (!s.webhookHash || !authorization || authorization.length > 300) return false;
+  const token = authorization.replace(/^Bearer\s+/i, "").trim();
+  const a = Buffer.from(sha(token), "hex");
+  const b = Buffer.from(s.webhookHash, "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+const WEBHOOK_EVENTS = new Set(["SCANNING_COMPLETED", "harbor.scan.completed", "PUSH_ARTIFACT", "harbor.artifact.pushed"]);
+/** Obraz z události Harboru (formát Default i CloudEvents). */
+export function harborWebhookTargets(body: unknown): { event: string; project: string; repository: string; tag: string | null; digest: string | null }[] {
+  if (!body || typeof body !== "object") return [];
+  const o = body as Record<string, any>;
+  const event = String(o.type ?? "");
+  if (!WEBHOOK_EVENTS.has(event)) return [];
+  const data = (o.event_data ?? o.data) as Record<string, any> | undefined;
+  const repo = data?.repository as Record<string, any> | undefined;
+  const full = String(repo?.repo_full_name ?? (repo?.namespace && repo?.name ? `${repo.namespace}/${repo.name}` : ""));
+  const slash = full.indexOf("/");
+  if (slash < 1) return [];
+  const res = Array.isArray(data?.resources) ? (data!.resources as Record<string, any>[]) : [];
+  return res.slice(0, 50).map((r) => ({
+    event,
+    project: full.slice(0, slash),
+    repository: full.slice(slash + 1),
+    tag: typeof r.tag === "string" && !r.tag.startsWith("sha256:") ? r.tag : null,
+    digest: typeof r.digest === "string" ? r.digest : null,
+  }));
+}
+
+/** Produkty, kterých se událost týká: stejný projekt a repozitář, a tag nebo digest obrazu. */
+export async function harborWebhookProducts(db: Db, body: unknown) {
+  const targets = harborWebhookTargets(body);
+  if (!targets.length) return [];
+  const list = await db.select({ id: craProducts.id, ref: craProducts.harborRef, st: craProducts.harborState }).from(craProducts).where(isNotNull(craProducts.harborRef));
+  return list
+    .filter((p) => {
+      const r = parseHarborRef(p.ref ?? "");
+      if (!r) return false;
+      return targets.some(
+        (t) =>
+          t.project === r.project &&
+          t.repository === r.repository &&
+          (r.reference === t.tag || r.reference === t.digest || (!!t.digest && t.digest === p.st?.digest)),
+      );
+    })
+    .map((p) => p.id);
 }
 
 /** Plánovač: produkty s obrazem v Harboru, u kterých od posledního načtení uplynulo `autoSyncHours`. */

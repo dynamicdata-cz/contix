@@ -1151,6 +1151,8 @@ export const api = {
     vexUrl: (id: string, format: "openvex" | "cyclonedx") => withCompany(`/api/cra/${id}/vex?format=${format}`),
     harbor: () => request<HarborSettingsDto>("/cra/harbor"),
     saveHarbor: (d: HarborSettingsInput) => put<HarborSettingsDto>("/cra/harbor", d),
+    harborWebhook: () => post<{ token: string; path: string }>("/cra/harbor/webhook", {}),
+    harborWebhookOff: () => del("/cra/harbor/webhook"),
     harborSync: (id: string, replaceSbom = false) => post<HarborState & { gone: number; sbomImported: boolean }>(`/cra/${id}/harbor`, { replaceSbom }),
     acceptSuggestions: (id: string, findingIds?: string[]) => post<{ accepted: number }>(`/cra/${id}/vex/suggestions`, { findingIds }),
     osv: () => request<OsvStatusDto>("/cra/osv"),

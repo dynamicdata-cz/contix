@@ -66,11 +66,11 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import { currentUser, hasPerm, requireModule, requirePerm } from "../../auth/middleware";
 import { assertScope, hasPermIn, inScope, settingsFor, targetCompany } from "../../auth/scope";
-import { audit, type AppEnv } from "../../auth/service";
+import { audit, getSettings, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
 import { users, craAdvisories, craProductFiles, assets, craComponents, craFindings, craProductAssets, craProductProcesses, craProductRisks, craProductSuppliers, craProducts, craReports, orgUnits, positionHolders, positions, processes, riskAssets, risks, suppliers, vulnIntel } from "../../db/schema";
 import type { FetchLike } from "../discovery/connectors/wazuh";
-import { harborSettings, saveHarborSettings, syncHarborProduct } from "./harbor";
+import { harborSettings, harborWebhookProducts, saveHarborSettings, setHarborWebhook, syncHarborProduct, verifyHarborWebhook } from "./harbor";
 import type { Config } from "../../config";
 import { componentRefOf, getOsvSettings, matchProducts, osvRecordsFromUpload, osvStatus, startOsvRefresh, storeOsvRecords, storeOsvSettings } from "./osv";
 import { tFor, translatorFor } from "../i18n/service";
@@ -532,6 +532,17 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike; config?: Config
         await audit(db, { c, user: currentUser(c), action: "cra.harbor_settings", entityType: "settings", details: { url: r.url, username: r.username, verifyTls: r.verifyTls, autoSyncHours: r.autoSyncHours, passwordChanged: !!v.password } });
         return c.json(r);
       })
+      // webhook z Harboru (v1.113): nový token se zobrazí jednou; DELETE webhook vypne
+      .post("/harbor/webhook", requirePerm("admin:settings"), async (c) => {
+        const token = await setHarborWebhook(db, true);
+        await audit(db, { c, user: currentUser(c), action: "cra.harbor_webhook", entityType: "settings", details: { enabled: true } });
+        return c.json({ token, path: "/api/public/harbor/webhook" });
+      })
+      .delete("/harbor/webhook", requirePerm("admin:settings"), async (c) => {
+        await setHarborWebhook(db, false);
+        await audit(db, { c, user: currentUser(c), action: "cra.harbor_webhook", entityType: "settings", details: { enabled: false } });
+        return c.body(null, 204);
+      })
       .get("/nvd", requirePerm("cra:read"), async (c) => c.json(await getNvdSettings(db)))
       .put("/nvd", requirePerm("admin:settings"), zValidator("json", NvdSettingsInput), async (c) => {
         const v = await storeNvdSettings(db, c.req.valid("json"));
@@ -826,4 +837,25 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike; config?: Config
         return c.json(reportDto(r!, p.name), 201);
       })
   );
+}
+
+/**
+ * Webhook z Harboru (v1.113, ADR-205): po dokončení skenu nebo nahrání obrazu Harbor zavolá CONTIX a dotčené produkty
+ * se hned načtou. Ověření: „Auth Header“ z nastavení webhooku v Harboru = token z CONTIXu. CONTIX z Harboru dál jen čte.
+ */
+export function publicHarborWebhookRoutes(db: Db, deps: { config?: Config; harborFetch?: FetchLike } = {}) {
+  return new Hono().post("/webhook", async (c) => {
+    if (!((await getSettings(db)).enabledModules as string[]).includes("cra")) throw new HTTPException(404, { message: "Modul není zapnutý" });
+    if (!(await verifyHarborWebhook(db, c.req.header("authorization")))) throw new HTTPException(401, { message: "Neplatný token" });
+    if (!deps.config) throw new HTTPException(500, { message: "Chybí konfigurace" });
+    const body = await c.req.json().catch(() => null);
+    const ids = await harborWebhookProducts(db, body);
+    let synced = 0;
+    for (const id of ids.slice(0, 20)) {
+      const r = await syncHarborProduct(db, deps.config, id, deps.harborFetch).catch(() => null);
+      if (r) synced++;
+    }
+    await audit(db, { c: c as never, action: "cra.harbor_webhook_received", entityType: "settings", details: { event: (body as { type?: string } | null)?.type ?? null, products: ids.length, synced } });
+    return c.json({ products: ids.length, synced });
+  });
 }

@@ -118,7 +118,7 @@ import { infoServiceRoutes } from "./modules/infoservice/routes";
 import { gdprRoutes } from "./modules/gdpr/routes";
 import { aiActRoutes } from "./modules/aiact/routes";
 import { soc2Routes } from "./modules/soc2/routes";
-import { craRoutes } from "./modules/cra/routes";
+import { craRoutes, publicHarborWebhookRoutes } from "./modules/cra/routes";
 import { mcpRoutes, tokenRoutes } from "./modules/mcp/routes";
 import { publicVulnScanRoutes } from "./modules/vulnerabilities/ci";
 import { publicMonitorRoutes } from "./modules/controls/monitors";
@@ -315,6 +315,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/public/calendar", publicCalendarRoutes(db, config))
     /** Výsledky externích kontrol opatření ze skriptů – token monitoru (ADR-109). */
     .route("/public/monitors", publicMonitorRoutes(db))
+    .route("/public/harbor", publicHarborWebhookRoutes(db, { config, harborFetch: deps.fetchImpl }))
     .route("/", protectedApi);
 
   const app = new Hono<AppEnv>();
@@ -341,7 +342,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
   // Ochrana proti CSRF: změnové požadavky musí mít Origin naší aplikace (+ SameSite=Lax cookie).
   // výjimka: příjem alertů z jiných nástrojů – autentizace tokenem v hlavičce, bez cookies (ADR-052)
   const csrfMw = csrf({ origin: origins });
-  app.use("/api/*", (c, next) => (c.req.path === "/api/public/soc/ingest" || c.req.path === "/api/public/vulnerabilities/scans" || c.req.path === "/api/public/monitors/result" || c.req.path === "/api/public/hosts/inventory" || c.req.path.startsWith("/api/public/agent/v1/") ? next() : csrfMw(c, next)));
+  app.use("/api/*", (c, next) => (c.req.path === "/api/public/soc/ingest" || c.req.path === "/api/public/vulnerabilities/scans" || c.req.path === "/api/public/monitors/result" || c.req.path === "/api/public/harbor/webhook" || c.req.path === "/api/public/hosts/inventory" || c.req.path.startsWith("/api/public/agent/v1/") ? next() : csrfMw(c, next)));
   app.use("/api/*", sessionMiddleware(db));
   app.route("/api", api);
   selfRequest = (path, init) => Promise.resolve(app.request(path, init));

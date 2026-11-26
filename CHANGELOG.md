@@ -2,6 +2,13 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.113.0
+
+Webhook z Harboru (ADR-205).
+
+- **Okamžité načtení po skenu**: v CRA → Oznámení výrobců → Harbor lze zapnout webhook. CONTIX vygeneruje adresu a token, které se v Harboru vloží do nastavení webhooku projektu (Notify type HTTP, události „Scanning finished“ a volitelně „Artifact pushed“, Auth Header = token). Po dokončení skenu Harbor sám zavolá CONTIX a dotčené produkty (podle obrazu) se hned načtou – sken i SBOM. Pravidelné načítání zůstává jako záloha.
+- Token se zobrazí jen jednou a CONTIX ukládá jen jeho otisk; tlačítkem „Nový token“ ho lze kdykoli vyměnit nebo webhook vypnout. Každé přijetí se zapíše do auditního záznamu.
+
 ## 1.112.0
 
 Požadovaná kvalifikace pracovníků dodavatele (ADR-204).

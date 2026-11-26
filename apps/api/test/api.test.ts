@@ -11775,7 +11775,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     const nocfg = await admin.json(`/api/cra/${p.id}/harbor`, { method: "POST", headers: H });
     expect([nocfg.status, nocfg.body.error ?? nocfg.body.message]).toEqual([502, expect.stringContaining("Harbor není nastaven")]);
     const set = await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "https://harbor.test/", username: "robot$contix", password: "tajne-heslo", verifyTls: true, autoSyncHours: 24 } });
-    expect(set.body).toEqual({ url: "https://harbor.test", username: "robot$contix", verifyTls: true, autoSyncHours: 24, hasPassword: true });
+    expect(set.body).toEqual({ url: "https://harbor.test", username: "robot$contix", verifyTls: true, autoSyncHours: 24, hasPassword: true, hasWebhook: false });
     expect(JSON.stringify((await admin.json("/api/cra/harbor")).body)).not.toContain("tajne");
     // náhradní Harbor: první sken 2 nálezy (jeden s opravou), druhý sken (nový obraz) jen jeden
     let scan = 1;
@@ -12060,6 +12060,61 @@ describe.skipIf(!url)("API (integrace)", () => {
     await admin.json(`/api/suppliers/${sup.id}/qualification`, { method: "PUT", headers: H, json: { items: [{ name: "CCNA", min: 3 }] } });
     const team2 = ((await admin.json("/api/notifications/team", { headers: H })).body as any[]).filter((o) => o.kind === "supplier_qualification");
     expect(team2.map((o) => [o.due, o.detail])).toEqual([[today, "Požadovaná kvalifikace není splněna: platný certifikát má 2 z 3 pracovníků"]]);
+  });
+
+  test("webhook z Harboru (v1.113): token, ověření, výběr produktů podle obrazu", async () => {
+    const { harborWebhookTargets, harborWebhookProducts, syncHarborProduct } = await import("../src/modules/cra/harbor");
+    const ev = (type: string, tag: string, digest = "sha256:aaa", cloud = false) => {
+      const data = { resources: [{ digest, tag, resource_url: `harbor.test/shop/api:${tag}` }], repository: { name: "api", namespace: "shop", repo_full_name: "shop/api" } };
+      return cloud ? { specversion: "1.0", type, data } : { type, occur_at: 1, operator: "auto", event_data: data };
+    };
+    expect(harborWebhookTargets(ev("SCANNING_COMPLETED", "2.0"))).toEqual([{ event: "SCANNING_COMPLETED", project: "shop", repository: "api", tag: "2.0", digest: "sha256:aaa" }]);
+    expect(harborWebhookTargets(ev("harbor.scan.completed", "2.0", "sha256:aaa", true))[0]!.repository).toBe("api");
+    expect(harborWebhookTargets(ev("PULL_ARTIFACT", "2.0"))).toEqual([]);
+    expect(harborWebhookTargets({ type: "SCANNING_COMPLETED" })).toEqual([]);
+
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "WH Harbor s.r.o." } })).body.id as string;
+    const H = { [COMPANY_HEADER]: CO };
+    const p1 = (await admin.json("/api/cra", { method: "POST", headers: H, json: { name: "WH Shop API", version: "2.0", harborRef: "shop/api:2.0" } })).body;
+    const p2 = (await admin.json("/api/cra", { method: "POST", headers: H, json: { name: "WH Shop API 1", version: "1.0", harborRef: "harbor.test/shop/api:1.0" } })).body;
+    const p3 = (await admin.json("/api/cra", { method: "POST", headers: H, json: { name: "WH Jiný", version: "1.0", harborRef: "shop/web:2.0" } })).body;
+    expect((await harborWebhookProducts(db, ev("SCANNING_COMPLETED", "2.0"))).sort()).toEqual([p1.id]);
+    expect(await harborWebhookProducts(db, ev("SCANNING_COMPLETED", "1.0"))).toEqual([p2.id]);
+    // shoda podle digestu z posledního načtení (tag se mezitím přesunul)
+    await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "https://harbor.test", username: "", password: "", verifyTls: true, autoSyncHours: 0 } });
+    const fake = (async (url: string) =>
+      url.includes("/additions/vulnerabilities")
+        ? Response.json({ "application/vnd.security.vulnerability.report; version=1.1": { vulnerabilities: [] } })
+        : url.includes("/additions/")
+          ? new Response("", { status: 404 })
+          : Response.json({ digest: "sha256:old1", scan_overview: {} })) as any;
+    await syncHarborProduct(db, config, p2.id, fake).catch(() => null);
+    expect(await harborWebhookProducts(db, ev("SCANNING_COMPLETED", "sha256:old1", "sha256:old1"))).toEqual([p2.id]);
+
+    // webhook: bez tokenu 401; token jen jednou, uložen jen hash; „Bearer “ i bez něj
+    const pub = browser();
+    const call = (auth: string | null, body: unknown) => pub.req("/api/public/harbor/webhook", { method: "POST", headers: { "content-type": "application/json", ...(auth ? { authorization: auth } : {}) }, body: JSON.stringify(body) });
+    expect((await call("Bearer x", ev("SCANNING_COMPLETED", "2.0"))).status).toBe(401);
+    const tk = await admin.json("/api/cra/harbor/webhook", { method: "POST", json: {} });
+    expect(tk.status).toBe(200);
+    expect(tk.body.path).toBe("/api/public/harbor/webhook");
+    expect((await admin.json("/api/cra/harbor")).body.hasWebhook).toBe(true);
+    const stored = JSON.stringify((await db.select().from(schema.appSettings).where(eq(schema.appSettings.key, "cra.harbor")))[0]?.value ?? {});
+    expect(stored).not.toContain(tk.body.token);
+    expect((await call("Bearer spatny", ev("SCANNING_COMPLETED", "2.0"))).status).toBe(401);
+    await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "", username: "", password: "", verifyTls: true, autoSyncHours: 0 } }); // bez Harboru: sync selže hned, webhook odpoví
+    expect((await admin.json("/api/cra/harbor")).body.hasWebhook).toBe(true); // uložení nastavení token nesmaže
+    const ok = await call(`Bearer ${tk.body.token}`, ev("SCANNING_COMPLETED", "2.0"));
+    expect(ok.status).toBe(200);
+    expect(await ok.json()).toEqual({ products: 1, synced: 0 });
+    expect(((await (await call(tk.body.token, ev("PULL_ARTIFACT", "2.0"))).json()) as any).products).toBe(0);
+    // nový token zneplatní starý; vypnutí
+    const tk2 = (await admin.json("/api/cra/harbor/webhook", { method: "POST", json: {} })).body.token;
+    expect((await call(tk.body.token, ev("SCANNING_COMPLETED", "2.0"))).status).toBe(401);
+    expect((await call(tk2, ev("SCANNING_COMPLETED", "2.0"))).status).toBe(200);
+    expect((await admin.req("/api/cra/harbor/webhook", { method: "DELETE" })).status).toBe(204);
+    expect((await call(tk2, ev("SCANNING_COMPLETED", "2.0"))).status).toBe(401);
+    for (const p of [p1, p2, p3]) await admin.json(`/api/cra/${p.id}`, { method: "DELETE", headers: H });
   });
 
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {

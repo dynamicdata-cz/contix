@@ -1652,8 +1652,52 @@ function HarborCard() {
         )}
         {save.isSuccess && <SuccessBox>{t("cra.harbor.saved")}</SuccessBox>}
         <ErrorBox error={save.error} />
+        <HarborWebhook enabled={q.data.hasWebhook} admin={admin} />
       </div>
     </Card>
+  );
+}
+
+/** Webhook z Harboru (v1.113): token se ukáže jen jednou, pak se v Harboru vloží jako „Auth Header“. */
+function HarborWebhook({ enabled, admin }: { enabled: boolean; admin: boolean }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const [created, setCreated] = useState<{ token: string; url: string } | null>(null);
+  const done = () => qc.invalidateQueries({ queryKey: ["cra", "harbor"] });
+  const make = useMutation({ mutationFn: () => api.cra.harborWebhook(), onSuccess: (r) => (setCreated({ token: r.token, url: `${window.location.origin}${r.path}` }), done()) });
+  const off = useMutation({ mutationFn: () => api.cra.harborWebhookOff(), onSuccess: () => (setCreated(null), done()) });
+  return (
+    <div className="mt-2 border-t border-slate-100 pt-3" data-testid="cra-harbor-webhook">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium text-slate-800">{t("cra.harbor.wh.title")}</span>
+        <Badge tone={enabled ? "green" : "slate"}>{t(enabled ? "cra.harbor.wh.on" : "cra.harbor.wh.off")}</Badge>
+        {admin && (
+          <span className="ml-auto flex gap-2">
+            <Button variant="secondary" onClick={() => make.mutate()} disabled={make.isPending} data-testid="cra-harbor-wh-new">
+              {t(enabled ? "cra.harbor.wh.rotate" : "cra.harbor.wh.enable")}
+            </Button>
+            {enabled && (
+              <Button variant="secondary" onClick={() => off.mutate()} disabled={off.isPending}>
+                {t("cra.harbor.wh.disable")}
+              </Button>
+            )}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-slate-500">{t("cra.harbor.wh.sub")}</p>
+      {created && (
+        <div className="mt-2 space-y-1 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs" data-testid="cra-harbor-wh-token">
+          <div>
+            {t("cra.harbor.wh.url")}: <code className="break-all">{created.url}</code>
+          </div>
+          <div>
+            {t("cra.harbor.wh.auth")}: <code className="break-all">{created.token}</code>
+          </div>
+          <p className="text-amber-900">{t("cra.harbor.wh.once")}</p>
+        </div>
+      )}
+      <ErrorBox error={make.error ?? off.error} />
+    </div>
   );
 }
 

@@ -1539,6 +1539,10 @@ test("CRA distributor: doklady výrobce, oznámení CSAF a CPE (v1.16)", async (
   await expect(page.getByTestId("cra-advisories")).toContainText("1 shoda s produkty");
   await expect(page.getByTestId("cra-advisories").getByRole("link", { name: "Kamera E2E" })).toBeVisible();
   await expect(page.getByTestId("cra-nvd")).toContainText("Povolit dohledání v NVD");
+  // webhook z Harboru (v1.113): token se ukáže jednou
+  await page.getByTestId("cra-harbor-wh-new").click();
+  await expect(page.getByTestId("cra-harbor-wh-token")).toContainText("/api/public/harbor/webhook");
+  await expect(page.getByTestId("cra-harbor-webhook")).toContainText("zapnutý");
   await page.getByTestId("cra-advisories").getByRole("link", { name: "Kamera E2E" }).click();
   const fnd = page.getByTestId("cra-findings");
   await expect(fnd).toContainText("CVE-2026-7777");
