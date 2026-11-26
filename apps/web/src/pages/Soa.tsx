@@ -204,6 +204,7 @@ function FragmentRow({ r, showHeader, onEdit, isDecree }: { r: RequirementRow; s
                 className="inline-flex items-center gap-1 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-xs hover:border-brand-300"
               >
                 {c.code ?? c.name}
+                {c.inherited && <span className="text-[10px] text-slate-500" title={t("soa.inheritedHint")}>{t("soa.inherited")}</span>}
                 <ControlStatusBadge s={c.status} />
               </Link>
             ))}
@@ -298,7 +299,9 @@ function AssessModal({ row, onClose, framework }: { row: RequirementRow; onClose
                 <div className="flex flex-wrap gap-1.5">
                   {row.controls.map((c) => (
                     <Link key={c.id} to="/controls/$controlId" params={{ controlId: c.id }} className="inline-flex items-center gap-1 rounded border border-slate-200 px-1.5 py-0.5 text-xs">
-                      {c.code} {c.name} <ControlStatusBadge s={c.status} />
+                      {c.code} {c.name}
+                      {c.inherited && <span className="text-[10px] text-slate-500" title={t("soa.inheritedHint")}>{t("soa.inherited")}</span>}
+                      <ControlStatusBadge s={c.status} />
                     </Link>
                   ))}
                 </div>

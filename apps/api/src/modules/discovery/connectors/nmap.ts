@@ -107,6 +107,7 @@ export function parseNmapXml(xml: string, scannedAt = new Date()): DiscoveredAss
     out.push({
       sourceType: "network_scan",
       sourceRef: mac ? `mac:${mac.toLowerCase()}` : `ip:${ipv4}`,
+      matchByIp: true,
       name: hostname ?? ipv4 ?? mac!,
       assetType: guessType(osName, ports.map((p) => p.port), macEntry?.vendor),
       hostname: hostname ?? null,

@@ -1,6 +1,7 @@
 import { duplicateReasons, normalizeAssetName, normalizeMac, type AssetDuplicatePair, type DuplicateAsset } from "@contix/shared";
 import { and, count, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { Db } from "../../db/client";
+import { isIdentityIp, isSharedMac } from "../discovery/reconcile";
 import { assetDependencies, assetDuplicateDismissals, assetLinks, assetSources, assets, controlAssets, processAssets, riskAssets, type AssetRow } from "../../db/schema";
 
 /* ============================================================
@@ -42,9 +43,10 @@ export async function findDuplicates(db: Db, companyIds: string[]): Promise<Asse
   rows.forEach((r, i) => {
     const co = r.companyId;
     if (r.serialNumber?.trim()) put(`${co}|sn|${r.serialNumber.trim().toLowerCase()}`, i);
-    for (const m of r.macAddresses) if (normalizeMac(m).length === 12) put(`${co}|mac|${normalizeMac(m)}`, i);
+    // sdílené virtuální MAC (FortiClient, AnyConnect…) a link-local IP nejsou znakem duplicity (v1.103.1)
+    for (const m of r.macAddresses) if (normalizeMac(m).length === 12 && !isSharedMac(m)) put(`${co}|mac|${normalizeMac(m)}`, i);
     if (r.hostname) put(`${co}|hn|${normalizeAssetName(r.hostname)}`, i);
-    for (const ip of r.ipAddresses) put(`${co}|ip|${ip}`, i);
+    for (const ip of r.ipAddresses) if (isIdentityIp(ip)) put(`${co}|ip|${ip}`, i);
     const n = normalizeAssetName(r.name);
     if (n.length >= 3) put(`${co}|nm|${n.slice(0, 4)}`, i);
   });

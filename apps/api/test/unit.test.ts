@@ -68,7 +68,7 @@ import { describe, expect, test } from "bun:test";
 import { csvToAssets, parseCsv } from "../src/modules/discovery/connectors/csv";
 import { assertTargetsAllowed, parseNmapXml } from "../src/modules/discovery/connectors/nmap";
 import { createWazuhConnector, guessAssetType } from "../src/modules/discovery/connectors/wazuh";
-import { normalizeMac, pickMatch } from "../src/modules/discovery/reconcile";
+import { isIdentityIp, isSharedMac, normalizeMac, pickMatch } from "../src/modules/discovery/reconcile";
 import type { DiscoveredAsset } from "../src/modules/discovery/types";
 
 const item = (p: Partial<DiscoveredAsset>): DiscoveredAsset => ({
@@ -100,6 +100,31 @@ describe("reconcile", () => {
   test("no match", () => expect(pickMatch(item({ hostname: "nope" }), cands)).toBeNull());
   test("placeholder serial ignored", () =>
     expect(pickMatch(item({ serialNumber: "To Be Filled By O.E.M." }), cands)).toBeNull());
+
+  test("sdílené virtuální MAC a jiný hostname nespojí dva počítače (v1.103.1)", () => {
+    const pcs = [{ id: "pc1", serialNumber: "86176640", macAddresses: ["f4:f1:9e:03:b5:bd", "00:09:0f:aa:00:01"], hostname: "829SKOVAJSA", ipAddresses: ["10.1.1.5", "169.254.59.233"] }];
+    // FortiClient MAC je na všech počítačích stejná
+    expect(pickMatch(item({ hostname: "VM-ADM-KINCL", macAddresses: ["00:09:0F:AA:00:01", "00:15:5d:01:02:03"] }), pcs)).toBeNull();
+    // shodná fyzická MAC, ale jiné jméno → jiné zařízení
+    expect(pickMatch(item({ hostname: "VM-ADM-KINCL", macAddresses: ["f4:f1:9e:03:b5:bd"] }), pcs)).toBeNull();
+    // stejné sériové číslo (klon), jiné jméno → jiné zařízení
+    expect(pickMatch(item({ hostname: "VM-ADM-KINCL", serialNumber: "86176640" }), pcs)).toBeNull();
+    // bez jména v položce (sken) MAC stačí
+    expect(pickMatch(item({ macAddresses: ["F4-F1-9E-03-B5-BD"] }), pcs)).toEqual({ id: "pc1", reason: "mac" });
+    // lokálně spravované MAC (Wi-Fi Direct, Hyper-V) se nepárují
+    expect(pickMatch(item({ macAddresses: ["02:00:4c:4f:4f:50"] }), [{ ...pcs[0]!, macAddresses: ["02:00:4c:4f:4f:50"] }])).toBeNull();
+    expect(isSharedMac("00:09:0f:aa:00:01")).toBe(true);
+    expect(isSharedMac("f4:f1:9e:03:b5:bd")).toBe(false);
+  });
+
+  test("IP adresa jen u skenu sítě a ne link-local (v1.103.1)", () => {
+    const logger = [{ id: "log", serialNumber: null, macAddresses: [], hostname: "logger", ipAddresses: ["10.32.0.10", "fe80::250:56ff:fe8d:6f9d"] }];
+    expect(pickMatch(item({ ipAddresses: ["10.32.0.10"], matchByIp: true }), logger)).toEqual({ id: "log", reason: "ip" });
+    expect(pickMatch(item({ ipAddresses: ["10.32.0.10"] }), logger)).toBeNull();
+    expect(pickMatch(item({ ipAddresses: ["fe80::250:56ff:fe8d:6f9d"], matchByIp: true }), logger)).toBeNull();
+    expect(isIdentityIp("169.254.63.246")).toBe(false);
+    expect(isIdentityIp("10.32.0.10")).toBe(true);
+  });
 });
 
 describe("nmap", () => {

@@ -2,6 +2,16 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.103.1
+
+Opravy podle připomínek z provozu.
+
+- **Wazuh nespojuje různé počítače do jednoho aktiva**: dva agenti se sdílenou virtuální MAC adresou (FortiClient, Cisco AnyConnect, VMware, lokálně spravované adaptéry) nebo se stejným sériovým číslem (klonované virtuály) se slévali do jednoho aktiva – aktivum pak střídavě ukazovalo jméno a operační systém jiného počítače a druhý počítač v evidenci chyběl. Takové MAC adresy a link-local IP (169.254.x.x, fe80::) se k párování nepoužívají a sériové číslo ani MAC nespojí zařízení s různým jménem. Už chybně spojená aktiva se při další synchronizaci rozdělí sama: druhý agent dostane vlastní aktivum a jeho adresy se z původního odeberou.
+- **Síťový sken nezakládá duplicity**: zařízení nalezené jen podle IP adresy (bez MAC a jména, typicky za routerem) se spáruje s existujícím aktivem se stejnou adresou, např. s aktivem z Wazuhu. Dřív založené duplicity („10.32.0.10“ apod.) smažte nebo slučte v Kvalitě dat – další sken je už nezaloží.
+- **Opatření holdingu a podřízené organizace se nezdvojují**: když má podřízená organizace vlastní opatření se stejným kódem jako nadřazená (např. N-03), v plnění požadavků se ukáže jen její vlastní; opatření nadřazené organizace bez vlastní obdoby jsou označená „skupina“.
+- **Rozbalovací výběr se neořízne**: seznam (osoby, aktiva…) se otevírá nad stránkou, takže ho nezakryje rámeček karty (např. Kvalita dat → Aktiva s nálezy bez technického garanta); když pod polem není místo, otevře se nahoru.
+- Rada k opravě zranitelností Windows: `winget` jen na Windows 10/11 a Serveru 2025, na Windows Serveru 2016–2022 instalátor výrobce.
+
 ## 1.103.0
 
 Přemýšlení AI modelu podle druhu úlohy (ADR-197).

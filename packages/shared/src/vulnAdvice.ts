@@ -76,7 +76,7 @@ export function verifyCommand(family: OsFamily, pkg: string): string | null {
     case "arch":
       return `pacman -Q ${p}`;
     case "windows":
-      return `Get-Package -Name "*${p}*"   # nebo: winget list --name "${p}"`;
+      return `Get-Package -Name "*${p}*"   # Windows 10/11, Server 2025: winget list --name "${p}"`;
     default:
       return null;
   }

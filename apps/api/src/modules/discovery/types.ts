@@ -11,6 +11,8 @@ export interface DiscoveredAsset {
   companyId?: string | null;
   /** Párovat jen s aktivy této společnosti (stejný hostname u dvou zákazníků = dvě aktiva). */
   matchInCompany?: boolean;
+  /** Párovat i podle IP adresy (sken sítě – zařízení bez MAC a jména), v1.103.1. */
+  matchByIp?: boolean;
   /** false = bez shody aktivum nezakládat (`unmatched`, rozhodne správce) – agenti CONTIX, ADR-177. Výchozí true. */
   createIfMissing?: boolean;
   name: string;

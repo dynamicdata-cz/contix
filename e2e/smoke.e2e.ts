@@ -1756,7 +1756,7 @@ test("vazby záznamů: klikací čip, Kde je záznam použit, vazby produktu CRA
   await page.goto(`/cra/${p.id}`);
   const card = page.getByTestId("cra-links");
   await card.getByPlaceholder(/Hledat aktivum/).fill("E2E-VAZBY");
-  await card.getByRole("option", { name: /E2E-VAZBY-SRV/ }).click();
+  await page.getByRole("option", { name: /E2E-VAZBY-SRV/ }).click();
   await card.getByRole("button", { name: "Uložit" }).click();
   await expect(card.getByRole("link", { name: "E2E-VAZBY-SRV" })).toBeVisible();
   await page.goto(`/assets/${asset.id}?tab=governance`);
@@ -2177,7 +2177,7 @@ test("modelování hrozeb: útočná cesta, aktéři pro odvětví, threat model
   const d = page.getByRole("dialog");
   await d.getByLabel("Název", { exact: true }).fill("E2E Platební brána");
   await d.getByPlaceholder(/Hledat aktivum/).fill("E2E Platební br");
-  await d.getByRole("option", { name: /E2E Platební brána/ }).click();
+  await page.getByRole("option", { name: /E2E Platební brána/ }).click();
   await d.getByRole("button", { name: "Vytvořit" }).click();
   await expect(page.getByRole("heading", { name: "E2E Platební brána", level: 1 })).toBeVisible();
   await expect(page.getByTestId("tm-diagram").getByText("Uživatelé z internetu").first()).toBeVisible();

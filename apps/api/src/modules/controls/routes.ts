@@ -94,9 +94,27 @@ export async function loadRequirementRows(db: Db, companyId: string, fw?: Framew
   ]);
   const byReq = new Map<string, typeof links>();
   for (const l of links) byReq.set(l.requirementId, [...(byReq.get(l.requirementId) ?? []), l]);
+  // stejné opatření (stejný kód) u společnosti i u nadřazené: platí nejbližší – podřízená organizace se
+  // svým N-03 nemá vidět ještě N-03 holdingu (v1.103.1); opatření bez kódu se nezakrývají
+  const depth = new Map(lineage.map((id, i) => [id, i]));
+  for (const [req, list] of byReq) {
+    const nearest = new Map<string, number>();
+    for (const l of list) {
+      const k = l.code?.trim().toLowerCase();
+      if (k) nearest.set(k, Math.min(nearest.get(k) ?? Infinity, depth.get(l.companyId) ?? Infinity));
+    }
+    byReq.set(
+      req,
+      list.filter((l) => {
+        const k = l.code?.trim().toLowerCase();
+        return !k || (depth.get(l.companyId) ?? Infinity) === nearest.get(k);
+      }),
+    );
+  }
   const aMap = new Map(assess.map((x) => [x.a.requirementId, x]));
   // důkazy: přímo k požadavku + přes namapovaná opatření (bez duplicit)
-  const ctlIds = [...new Set(links.map((l) => l.id))];
+  const shown = [...byReq.values()].flat();
+  const ctlIds = [...new Set(shown.map((l) => l.id))];
   const [direct, viaCtl, sigCtl, sigReq] = await Promise.all([
     db
       .select({ requirementId: evidenceRequirements.requirementId, evidenceId: evidence.id })
@@ -110,7 +128,7 @@ export async function loadRequirementRows(db: Db, companyId: string, fw?: Framew
   const evByReq = new Map<string, Set<string>>();
   const addEv = (req: string, ev: string) => (evByReq.get(req) ?? evByReq.set(req, new Set()).get(req)!).add(ev);
   for (const d of direct) addEv(d.requirementId, d.evidenceId);
-  for (const l of links) for (const v of viaCtl) if (v.controlId === l.id) addEv(l.requirementId, v.evidenceId);
+  for (const l of shown) for (const v of viaCtl) if (v.controlId === l.id) addEv(l.requirementId, v.evidenceId);
   // SOC 2: volitelné kategorie mimo rozsah zprávy jsou bez výslovného posouzení neaplikovatelné
   const st = reqs.some((r) => r.framework === "soc2" || r.framework === "cis8") ? await settingsFor(db, null, companyId) : null;
   const soc2Scope = new Set<string>(st?.soc2Scope ?? []);

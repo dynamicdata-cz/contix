@@ -6,7 +6,8 @@
 import { cn } from "@/lib/utils";
 import { useT } from "@/lib/i18n";
 import { Check, ChevronDown, X } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 
 export interface ComboOption {
   id: string;
@@ -106,14 +107,60 @@ function useCombo({ options, emptyLabel, onQuery, filterLocal, onCreate, createT
   return { open, setOpen, q, setQ, active, setActive, list, choose, onKeyDown };
 }
 
-function Popup({ id, list, active, setActive, choose, selected, loading, noneText }: { id: string; list: ComboOption[]; active: number; setActive: (i: number) => void; choose: (i: number) => void; selected: Set<string>; loading?: boolean; noneText: string }) {
+/** Klik do rozbaleného seznamu (je mimo pole – v `document.body`) se nepočítá jako klik mimo. */
+const inPopup = (t: EventTarget | null) => !!(t as Element | null)?.closest?.("[data-combo-popup]");
+
+/**
+ * Poloha seznamu u pole (v1.103.1): seznam se vykreslí do `document.body` s pevnou polohou, aby ho neořízl
+ * rámeček s `overflow: hidden` (sbalitelné karty, tabulky). Když pod polem není místo, otevře se nahoru.
+ */
+function usePopupStyle(anchor: RefObject<HTMLElement | null>): CSSProperties | null {
+  const [st, setSt] = useState<CSSProperties | null>(null);
+  useLayoutEffect(() => {
+    let raf = 0;
+    const place = () => {
+      const el = anchor.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const below = window.innerHeight - r.bottom - 8;
+      const above = r.top - 8;
+      const up = below < 200 && above > below;
+      const maxHeight = Math.max(120, Math.min(320, (up ? above : below) - 4));
+      setSt({
+        position: "fixed",
+        left: Math.max(8, r.left),
+        minWidth: r.width,
+        maxWidth: Math.min(512, window.innerWidth - Math.max(8, r.left) - 8),
+        maxHeight,
+        ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }),
+      });
+    };
+    const onMove = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(place);
+    };
+    place();
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
+    };
+  }, [anchor]);
+  return st;
+}
+
+function Popup({ id, anchor, list, active, setActive, choose, selected, loading, noneText }: { id: string; anchor: RefObject<HTMLElement | null>; list: ComboOption[]; active: number; setActive: (i: number) => void; choose: (i: number) => void; selected: Set<string>; loading?: boolean; noneText: string }) {
   const ref = useRef<HTMLUListElement>(null);
+  const style = usePopupStyle(anchor);
   useEffect(() => {
     ref.current?.querySelector(`[data-i="${active}"]`)?.scrollIntoView({ block: "nearest" });
   }, [active]);
   let lastGroup: string | undefined;
-  return (
-    <ul ref={ref} id={id} role="listbox" className="absolute z-40 mt-1 max-h-80 w-max min-w-full max-w-[min(32rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg">
+  if (!style) return null;
+  return createPortal(
+    <ul ref={ref} id={id} role="listbox" data-combo-popup style={style} className="z-[60] w-max overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-sm shadow-lg">
       {loading && <li className="px-3 py-2 text-slate-500">…</li>}
       {!loading && list.length === 0 && <li className="px-3 py-2 text-slate-500">{noneText}</li>}
       {list.map((o, i) => {
@@ -152,7 +199,8 @@ function Popup({ id, list, active, setActive, choose, selected, loading, noneTex
           </li>
         );
       })}
-    </ul>
+    </ul>,
+    document.body,
   );
 }
 
@@ -170,7 +218,7 @@ export function Combobox({ value, onChange, ...p }: ListProps & { value: string 
   // klik mimo zavře
   useEffect(() => {
     if (!c.open) return;
-    const h = (e: MouseEvent) => !wrap.current?.contains(e.target as Node) && (c.setOpen(false), c.setQ(""));
+    const h = (e: MouseEvent) => !wrap.current?.contains(e.target as Node) && !inPopup(e.target) && (c.setOpen(false), c.setQ(""));
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [c.open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -200,7 +248,7 @@ export function Combobox({ value, onChange, ...p }: ListProps & { value: string 
         autoComplete="off"
       />
       <ChevronDown size={16} className="ctx-edit-only pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
-      {c.open && <Popup id={`${id}-list`} list={c.list} active={c.active} setActive={c.setActive} choose={c.choose} selected={new Set(value ? [value] : [])} loading={p.loading} noneText={p.noneText ?? t("combo.none")} />}
+      {c.open && <Popup id={`${id}-list`} anchor={wrap} list={c.list} active={c.active} setActive={c.setActive} choose={c.choose} selected={new Set(value ? [value] : [])} loading={p.loading} noneText={p.noneText ?? t("combo.none")} />}
     </div>
   );
 }
@@ -224,7 +272,7 @@ export function ComboMulti({
   });
   useEffect(() => {
     if (!c.open) return;
-    const h = (e: MouseEvent) => !wrap.current?.contains(e.target as Node) && (c.setOpen(false), c.setQ(""));
+    const h = (e: MouseEvent) => !wrap.current?.contains(e.target as Node) && !inPopup(e.target) && (c.setOpen(false), c.setQ(""));
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [c.open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -277,7 +325,7 @@ export function ComboMulti({
             autoComplete="off"
           />
           <ChevronDown size={16} className="ctx-edit-only pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden />
-          {c.open && <Popup id={`${id}-list`} list={c.list} active={c.active} setActive={c.setActive} choose={c.choose} selected={new Set()} loading={p.loading} noneText={p.noneText ?? t("combo.none")} />}
+          {c.open && <Popup id={`${id}-list`} anchor={wrap} list={c.list} active={c.active} setActive={c.setActive} choose={c.choose} selected={new Set()} loading={p.loading} noneText={p.noneText ?? t("combo.none")} />}
         </div>
       )}
     </div>
@@ -315,7 +363,7 @@ export function SuggestInput({
   useEffect(() => setActive(-1), [value]);
   useEffect(() => {
     if (!open) return;
-    const h = (e: MouseEvent) => !wrap.current?.contains(e.target as Node) && setOpen(false);
+    const h = (e: MouseEvent) => !wrap.current?.contains(e.target as Node) && !inPopup(e.target) && setOpen(false);
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [open]);
@@ -363,7 +411,7 @@ export function SuggestInput({
         }}
         autoComplete="off"
       />
-      {open && list.length > 0 && <Popup id={`${id}-list`} list={list} active={active} setActive={setActive} choose={choose} selected={new Set()} noneText="" />}
+      {open && list.length > 0 && <Popup id={`${id}-list`} anchor={wrap} list={list} active={active} setActive={setActive} choose={choose} selected={new Set()} noneText="" />}
     </div>
   );
 }

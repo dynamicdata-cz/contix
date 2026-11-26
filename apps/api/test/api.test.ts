@@ -2298,6 +2298,15 @@ describe.skipIf(!url)("API (integrace)", () => {
     const row = reqA.find((r) => r.id === "cz410:6/a");
     expect(row.controls.find((x: any) => x.name === "Skupinová politika zálohování").inherited).toBe(true);
     expect(row.derivedCompliance).not.toBe("not_assessed");
+    // stejný kód u holdingu i u dceřiné: dceřiná vidí jen své opatření, ne obě (v1.103.1)
+    const gN = await admin.json("/api/controls", { method: "POST", json: { code: "N-03", name: "Řízení změn skupiny", status: "planned", requirementIds: ["cz410:3/2/a"] }, headers: H(root) });
+    const aN = await ua.json("/api/controls", { method: "POST", json: { code: "N-03", name: "Řízení změn A", status: "implemented", effectiveness: "effective", requirementIds: ["cz410:3/2/a"] } });
+    expect(aN.body.companyId).toBe(a.body.id);
+    const rowN = ((await ua.json("/api/controls/requirements?framework=cz410")).body as any[]).find((r) => r.id === "cz410:3/2/a");
+    expect(rowN.controls.filter((x: any) => x.code === "N-03").map((x: any) => x.id)).toEqual([aN.body.id]);
+    // společnost bez vlastního N-03 dál vidí skupinové
+    const rowNb = ((await admin.json("/api/controls/requirements?framework=cz410", { headers: H(b.body.id) })).body as any[]).find((r: any) => r.id === "cz410:3/2/a");
+    expect(rowNb.controls.filter((x: any) => x.code === "N-03").map((x: any) => [x.id, x.inherited])).toEqual([[gN.body.id, true]]);
     await ua.json("/api/controls/assessments", { method: "PUT", json: { requirementId: "cz410:3/2/a", applicable: true, compliance: "partial" } });
     const reqB = (await admin.json("/api/controls/requirements?framework=cz410", { headers: H(b.body.id) })).body as any[];
     expect(reqB.find((r: any) => r.id === "cz410:3/2/a").manualCompliance).toBeNull(); // posouzení A se B netýká
@@ -11616,5 +11625,29 @@ describe.skipIf(!url)("API (integrace)", () => {
       expect(actions).toContain(a);
     await admin.json("/api/auth/logout", { method: "POST" });
     expect((await admin.req("/api/assets")).status).toBe(401);
+  });
+
+  test("párování objevených zařízení (v1.103.1): dva agenti s FortiClient MAC, oprava dřívějšího spojení, sken podle IP", async () => {
+    const { ingestDiscovered } = await import("../src/modules/discovery/ingest");
+    const base = { sourceType: "wazuh" as const, assetType: "workstation" as const, connectionId: null };
+    const a1 = await ingestDiscovered(db, { ...base, sourceRef: "pair-001", name: "PAIR-SKOVAJSA", hostname: "PAIR-SKOVAJSA", macAddresses: ["f4:f1:9e:aa:00:01", "00:09:0f:aa:00:01"], ipAddresses: ["10.177.93.5"], osName: "Windows 11" });
+    const a2 = await ingestDiscovered(db, { ...base, sourceRef: "pair-002", name: "PAIR-KINCL", hostname: "PAIR-KINCL", macAddresses: ["00:09:0f:aa:00:01"], ipAddresses: ["10.177.93.6"], osName: "Windows Server 2022" });
+    expect(a1.action).toBe("created");
+    expect(a2.action).toBe("created");
+    const id1 = (a1 as any).assetId;
+    // dřívější chybné spojení: zdroj agenta 002 ukazuje na aktivum agenta 001
+    await db.update(schema.assetSources).set({ assetId: id1 }).where(eq(schema.assetSources.sourceRef, "pair-002"));
+    await db.update(schema.assets).set({ hostname: "PAIR-KINCL", osName: "Windows Server 2022", ipAddresses: ["10.177.93.5", "10.177.93.6"] }).where(eq(schema.assets.id, id1));
+    const fix = await ingestDiscovered(db, { ...base, sourceRef: "pair-002", name: "PAIR-KINCL", hostname: "PAIR-KINCL", macAddresses: ["00:09:0f:aa:00:01"], ipAddresses: ["10.177.93.6"], osName: "Windows Server 2022" });
+    expect((fix as any).assetId).not.toBe(id1);
+    const [own] = await db.select().from(schema.assets).where(eq(schema.assets.id, id1));
+    expect(own!.ipAddresses).toEqual(["10.177.93.5"]);
+    await ingestDiscovered(db, { ...base, sourceRef: "pair-001", name: "PAIR-SKOVAJSA", hostname: "PAIR-SKOVAJSA", macAddresses: ["f4:f1:9e:aa:00:01"], ipAddresses: ["10.177.93.5"], osName: "Windows 11" });
+    const [own2] = await db.select().from(schema.assets).where(eq(schema.assets.id, id1));
+    expect([own2!.hostname, own2!.osName]).toEqual(["PAIR-SKOVAJSA", "Windows 11"]);
+    // sken sítě bez MAC a jména: adresa známého aktiva nezaloží duplicitu
+    const scan = await ingestDiscovered(db, { sourceType: "network_scan", sourceRef: "ip:10.177.93.5", name: "10.177.93.5", assetType: "other", ipAddresses: ["10.177.93.5"], matchByIp: true });
+    expect(scan).toMatchObject({ action: "updated", assetId: id1, reason: "ip" });
+    await db.delete(schema.assets).where(inArray(schema.assets.id, [id1, (fix as any).assetId, (a2 as any).assetId]));
   });
 });
