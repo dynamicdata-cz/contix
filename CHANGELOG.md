@@ -2,6 +2,16 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.105.0
+
+Certifikáty a osvědčení osob (ADR-199).
+
+- **Nová záložka Školení → Certifikáty a osvědčení**: externí certifikace (CCNA, CISSP, ISO 27001 Lead Auditor), osvědčení ze školení, oprávnění a licence. Držitelem je uživatel CONTIXu, osoba z personální evidence (zaměstnanec, externista) nebo externí pracovník dodavatele bez účtu.
+- **Soubor certifikátu** (PDF, PNG, JPG do 10 MB) se ukládá k záznamu a stahuje se jen jako příloha.
+- **Platnost**: filtr platné / brzy vyprší (do 60 dnů) / po platnosti / bez omezení; před koncem platnosti přijde upozornění (nová povinnost „Platnost certifikátu osoby“ v přehledu povinností, e-mailu i Teams). Držitel s účtem ji vidí i v Moje práce.
+- **Započtení kurzu**: osvědčení uživatele může splnit kurz z plánu školení – zapíše se do přehledu absolvování (§ 10 odst. 5 vyhl. 409/2025); se změnou nebo smazáním certifikátu se záznam upraví či smaže.
+- **Detail dodavatele** ukazuje certifikáty jeho pracovníků.
+
 ## 1.104.0
 
 Lokality – budovy, patra, místnosti a datová centra (ADR-198).

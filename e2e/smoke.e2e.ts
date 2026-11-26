@@ -1958,6 +1958,25 @@ test("lokality: budova, serverovna s fyzickou bezpečností, umístění serveru
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("certifikáty osob: externí pracovník dodavatele se souborem, filtr platnosti (v1.105)", async () => {
+  await page.goto("/awareness?tab=certs");
+  await expect(page.getByTestId("pc-card")).toBeVisible();
+  await page.getByTestId("pc-new").click();
+  await page.getByTestId("pc-mode-external").click();
+  await page.getByTestId("pc-holder-name").fill("E2E Jan Technik");
+  await page.getByTestId("pc-name").fill("E2E Fortinet NSE4");
+  await page.getByTestId("pc-valid").fill("2026-01-31");
+  await page.getByTestId("pc-file").setInputFiles({ name: "nse4.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4 e2e") });
+  await page.getByTestId("pc-save").click();
+  await expect(page.getByTestId("pc-table")).toContainText("E2E Jan Technik");
+  await expect(page.getByTestId("pc-table")).toContainText("Externí osoba");
+  await page.getByTestId("pc-filter-expired").click();
+  await expect(page.getByTestId("pc-table")).toContainText("E2E Fortinet NSE4");
+  await page.getByTestId("pc-filter-valid").click();
+  await expect(page.getByTestId("pc-card")).not.toContainText("E2E Fortinet NSE4");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("tento týden a kalendář lhůt s exportem .ics (v1.98)", async () => {
   await page.goto("/");
   await expect(page.getByTestId("week-card")).toBeVisible();

@@ -101,6 +101,7 @@ import { methodologyLoader, methodologyRoutes } from "./modules/methodologies/ro
 import { frameworkLoader, frameworkRoutes } from "./modules/frameworks/routes";
 import { policyRoutes } from "./modules/policies/routes";
 import { awarenessRoutes } from "./modules/awareness/routes";
+import { personCertRoutes } from "./modules/awareness/certificates";
 import { notificationRoutes } from "./modules/notifications/routes";
 import { cycleRoutes } from "./modules/cycles/routes";
 import { alertRoutes } from "./modules/alerts/routes";
@@ -248,6 +249,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/methodologies", methodologyRoutes(db))
     .route("/policies", policyRoutes(db, config))
     .route("/awareness", awarenessRoutes(db))
+    .route("/person-certificates", personCertRoutes(db))
     .route("/notifications", notificationRoutes(deps))
     .route("/cycles", cycleRoutes(db))
     .route("/alerts", alertRoutes(deps))

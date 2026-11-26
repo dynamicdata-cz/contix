@@ -17,7 +17,8 @@ import { aiNextReview } from "../aiact/routes";
 import { reportDto } from "../cra/routes";
 import { getSettings } from "../../auth/service";
 import type { Db } from "../../db/client";
-import { infoFeedItems, infoItemReviews, accessReviewItems, accessReviews, legalActs, legalChanges, legalReviews, legalTasks, legalVersions, assessmentCycles, policies, policyEvents, policyVersions, trainingCourses, auditFindings, audits, changes, continuityPlans, incidents, planTests, positionHolders, positions, risks, riskTreatmentActions, supplierContracts, suppliers, controlTests, controls, evidence, processingActivities, dpias, aiSystems, craProducts, craReports, supplierQuestionnaires, supplierReports, tasks, exercises, users, secTestFindings, assets } from "../../db/schema";
+import { infoFeedItems, infoItemReviews, accessReviewItems, accessReviews, legalActs, legalChanges, legalReviews, legalTasks, legalVersions, assessmentCycles, policies, policyEvents, policyVersions, trainingCourses, auditFindings, audits, changes, continuityPlans, incidents, planTests, positionHolders, positions, risks, riskTreatmentActions, supplierContracts, suppliers, controlTests, controls, evidence, processingActivities, dpias, aiSystems, craProducts, craReports, supplierQuestionnaires, supplierReports, tasks, exercises, users, secTestFindings, assets, personCertificates } from "../../db/schema";
+import { certDtos } from "../awareness/certificates";
 import { loadAudits, loadFindings } from "../audits/routes";
 import { cycleStatus } from "../cycles/routes";
 import { loadCourses } from "../awareness/routes";
@@ -75,6 +76,7 @@ export function kindsForModules(enabled: string[]): Set<ObligationKind> {
   if (m.has("suppliers")) k.add("contract").add("supplier_questionnaire").add("supplier_report");
   if (m.has("risks") || m.has("continuity")) k.add("assessment_cycle");
   if (m.has("controls")) k.add("control_test").add("evidence_expiry");
+  if (m.has("awareness")) k.add("person_cert");
   if (m.has("gdpr")) k.add("processing_review");
   if (m.has("aiact")) k.add("ai_review");
   if (m.has("cra")) k.add("cra_report").add("cra_support");
@@ -818,6 +820,25 @@ export async function collectObligations(db: Db, o: CollectOptions): Promise<Obl
       });
   }
 
+  // platnost certifikátů a osvědčení osob (v1.105, ADR-199)
+  if (want("person_cert")) {
+    const rows = await db
+      .select()
+      .from(personCertificates)
+      .where(and(inArray(personCertificates.companyId, ids), isNotNull(personCertificates.validUntil)));
+    for (const x of await certDtos(db, rows))
+      push({
+        key: `person_cert:${x.id}`,
+        kind: "person_cert",
+        title: `${x.name} – ${x.holder.name}`,
+        detail: t("srv.obl.personCert", { holder: [x.holder.name, x.supplier?.name].filter(Boolean).join(", ") }),
+        companyId: x.companyId,
+        due: x.validUntil,
+        link: "/awareness?tab=certs",
+        ...owner(null),
+      });
+  }
+
   // další krok postupu u průvodců s garantem (v1.44, ADR-141)
   if (want("guide_step")) for (const x of await guideStepObligations(db, o.companyIds, t)) out.push(x);
   if (want("nukib_notice"))
@@ -1008,6 +1029,13 @@ export async function personalObligations(db: Db, userId: string, leadDays: numb
     }
   }
   if (enabled.includes("awareness")) {
+    // vlastní certifikáty před vypršením (v1.105)
+    const mineCerts = await db.select().from(personCertificates).where(and(eq(personCertificates.userId, userId), isNotNull(personCertificates.validUntil)));
+    for (const x of await certDtos(db, mineCerts)) {
+      const urgency = urgencyOf(x.validUntil, leadDays, now);
+      if (!includeLater && urgency === "later") continue;
+      out.push({ key: `person_cert:${x.id}`, kind: "person_cert", title: x.name, detail: t("srv.obl.personCert", { holder: x.holder.name }), companyId: x.companyId, due: x.validUntil, urgency, link: "/awareness?tab=certs", ownerPositionId: null, ownerName: null });
+    }
     for (const c of await loadCourses(db, eq(trainingCourses.active, true))) {
       const me = c.people.find((p) => p.userId === userId);
       if (!me || me.state === "ok") continue;

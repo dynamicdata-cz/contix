@@ -1,6 +1,7 @@
 import { askConfirm } from "@/components/ui/overlay";
 import { EditActions, FormView } from "@/components/detailView";
 import { ProcessGuide } from "@/components/processGuide";
+import { PersonCertsCard } from "@/components/personCerts";
 import { useT } from "@/lib/i18n";
 import { TransferButton } from "@/components/transfer";
 import { AudienceEditor } from "@/components/audience";
@@ -53,7 +54,7 @@ export function AwarenessPage() {
   const t = useT();
   const can = useCan();
   const group = useGroupView();
-  const [tab, setTab] = useState<"plan" | "log">("plan");
+  const [tab, setTab] = useState<"plan" | "log" | "certs">(() => (new URLSearchParams(window.location.search).get("tab") === "certs" ? "certs" : "plan"));
   const list = useQuery({ queryKey: ["awareness"], queryFn: api.awareness.list });
   const year = new Date().getFullYear();
   const [from, setFrom] = useState(`${year}-01-01`);
@@ -89,14 +90,17 @@ export function AwarenessPage() {
           [
             ["plan", t("awr.planSkoleni")],
             ["log", t("awr.prehledAbsolvovani10Odst5")],
+            ["certs", t("pc.title")],
           ] as const
         ).map(([k, l]) => (
-          <button key={k} onClick={() => setTab(k)} className={cn("-mb-px border-b-2 px-4 py-2 text-sm", tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600")}>
+          <button key={k} onClick={() => setTab(k)} data-testid={`awr-tab-${k}`} className={cn("-mb-px border-b-2 px-4 py-2 text-sm", tab === k ? "border-brand-600 font-medium text-brand-700" : "border-transparent text-slate-600")}>
             {l}
           </button>
         ))}
       </div>
-      {tab === "plan" ? (
+      {tab === "certs" ? (
+        <PersonCertsCard />
+      ) : tab === "plan" ? (
         <Card className="overflow-hidden">
           {(list.data ?? []).length === 0 ? (
             <EmptyState>{list.isLoading ? t("common.loading") : t("awr.zatimZadnaSkoleniZalozteVstupni")}</EmptyState>

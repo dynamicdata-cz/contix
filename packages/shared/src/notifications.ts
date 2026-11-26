@@ -50,6 +50,8 @@ export const OBLIGATION_KINDS = [
   "nukib_notice",
   // v1.88 (ADR-183): výpadek nebo varování zdroje dat (agent, koncentrátor, sběrač, Wazuh, konektory, nespárované servery)
   "data_source",
+  // v1.105 (ADR-199): platnost certifikátu / osvědčení osoby
+  "person_cert",
 ] as const;
 export type ObligationKind = (typeof OBLIGATION_KINDS)[number];
 
@@ -92,6 +94,7 @@ export const OBLIGATION_LABELS: Record<ObligationKind, string> = {
   assessment_cycle: "Pravidelné hodnocení rizik / BIA",
   control_test: "Test opatření",
   evidence_expiry: "Platnost důkazu",
+  person_cert: "Platnost certifikátu osoby",
   processing_review: "Přezkum činnosti zpracování (GDPR)",
   ai_review: "Přezkum AI systému a FRIA (AI Act)",
   cra_report: "Hlášení zranitelnosti / incidentu produktu (CRA čl. 14)",

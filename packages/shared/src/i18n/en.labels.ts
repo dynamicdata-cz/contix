@@ -947,6 +947,7 @@ export const EN_LABELS: Record<string, string> = {
   "lbl:Platební instituce (včetně vyňatých podle PSD2)": "Payment institutions (incl. exempted under PSD2)",
   "lbl:Platnost IOC musí být od dneška nejvýše na rok.": "IOC validity must be from today and at most one year.",
   "lbl:Platnost důkazu": "Evidence validity",
+  "lbl:Platnost certifikátu osoby": "Personal certificate validity",
   "lbl:Platnost potlačení musí být od dneška nejvýše na rok.": "A suppression must be valid from today for at most one year.",
   "lbl:Platnost zprávy brzy skončí.": "The report expires soon.",
   "lbl:Platnost zprávy dodavatele (SOC 2, ISO 27001)": "Validity of a supplier assurance report (SOC 2, ISO 27001)",

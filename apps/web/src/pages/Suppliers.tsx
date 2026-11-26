@@ -13,6 +13,7 @@ import { TasksCard } from "@/components/tasks";
 import { useCzDecree } from "@/lib/regime";
 import { QuestionnairesCard } from "@/components/supplierQuestionnaires";
 import { SupplierReportsCard } from "@/components/supplierReports";
+import { PersonCertsCard } from "@/components/personCerts";
 import { AresLookup } from "@/components/ares";
 import { RegulationCard } from "@/components/regulation";
 import { useT } from "@/lib/i18n";
@@ -555,6 +556,7 @@ function SupplierEditor({ s }: { s: SupplierDetail | null }) {
         </Card>
         <QuestionnairesCard supplier={s} edit={edit} />
         <SupplierReportsCard supplierId={s.id} edit={can("suppliers:write")} />
+        {mod("awareness") && can("awareness:read") && <PersonCertsCard supplierId={s.id} title={t("pc.supplierTitle")} />}
       </>
       )}
       {s && !editing && tab === "regulation" && (

@@ -11658,6 +11658,61 @@ describe.skipIf(!url)("API (integrace)", () => {
     await db.delete(schema.assets).where(sql`name like 'LOC %' or name like 'LOC-%'`);
   });
 
+  test("certifikáty osob (v1.105): uživatel se započtením kurzu, osoba z evidence, externí pracovník dodavatele, soubor, platnost, upozornění", async () => {
+    const H = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
+    const adminId = ((await admin.json("/api/admin/users")).body as any[]).find((u) => u.email === "admin@test.cz").id;
+    const course = (await admin.json("/api/awareness", { method: "POST", headers: H, json: { title: "PC Školení síťové bezpečnosti", form: "external", kind: "professional" } })).body;
+    const sup = (await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "PC Servisní firma" } })).body;
+    const [person] = await db.insert(schema.iamPeople).values({ companyId: "00000000-0000-4000-8000-000000000001", firstName: "Pavla", lastName: "Certová", kind: "contractor" }).returning();
+    const soon = new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10);
+    // uživatel: CCNA započtená jako absolvování kurzu
+    const u = await admin.json("/api/person-certificates", { method: "POST", headers: H, json: { userId: adminId, name: "PC CCNA", issuer: "Cisco", issuedAt: "2026-01-10", validUntil: "2029-01-10", courseId: course.id } });
+    expect(u.status).toBe(201);
+    expect([u.body.holder.type, u.body.state, u.body.course.title]).toEqual(["user", "valid", "PC Školení síťové bezpečnosti"]);
+    const recs = (await admin.json(`/api/awareness/${course.id}/records`, { headers: H })).body as any[];
+    expect(recs.some((r) => r.completedAt === "2026-01-10")).toBe(true);
+    // osoba z evidence, brzy vyprší
+    const p = await admin.json("/api/person-certificates", { method: "POST", headers: H, json: { personId: person!.id, name: "PC Revizní technik", kind: "license", validUntil: soon } });
+    expect([p.body.holder.name, p.body.state]).toEqual(["Pavla Certová", "expiring"]);
+    // externí pracovník dodavatele, po platnosti
+    const e = await admin.json("/api/person-certificates", { method: "POST", headers: H, json: { holderName: "Jan Externí", supplierId: sup.id, name: "PC Fortinet NSE4", validUntil: "2025-06-30" } });
+    expect([e.body.supplier.name, e.body.state]).toEqual(["PC Servisní firma", "expired"]);
+    // nevalidní: dva držitelé, kurz u externí osoby, platnost před vydáním
+    expect((await admin.json("/api/person-certificates", { method: "POST", headers: H, json: { userId: adminId, holderName: "X", name: "PC chyba" } })).status).toBe(400);
+    expect((await admin.json("/api/person-certificates", { method: "POST", headers: H, json: { holderName: "X", name: "PC chyba", courseId: course.id } })).status).toBe(400);
+    expect((await admin.json("/api/person-certificates", { method: "POST", headers: H, json: { holderName: "X", name: "PC chyba", issuedAt: "2026-02-01", validUntil: "2026-01-01" } })).status).toBe(400);
+    // soubor: PDF projde, EXE ne
+    const fd = new FormData();
+    fd.append("file", new File(["%PDF-1.4 test"], "ccna.pdf", { type: "application/pdf" }));
+    const up = await admin.req(`/api/person-certificates/${u.body.id}/file`, { method: "POST", body: fd, headers: H });
+    expect(up.status).toBe(200);
+    expect(((await up.json()) as any).file.name).toBe("ccna.pdf");
+    const dl = await admin.req(`/api/person-certificates/${u.body.id}/file`, { headers: H });
+    expect([dl.status, dl.headers.get("content-type"), await dl.text()]).toEqual([200, "application/pdf", "%PDF-1.4 test"]);
+    const bad = new FormData();
+    bad.append("file", new File(["MZ"], "x.exe"));
+    expect((await admin.req(`/api/person-certificates/${u.body.id}/file`, { method: "POST", body: bad, headers: H })).status).toBe(400);
+    // seznam: filtr dodavatele a počty podle stavu
+    const bySup = (await admin.json(`/api/person-certificates?supplierId=${sup.id}`, { headers: H })).body;
+    expect(bySup.items.map((x: any) => x.name)).toEqual(["PC Fortinet NSE4"]);
+    const all = (await admin.json("/api/person-certificates?q=PC ", { headers: H })).body;
+    expect(all.items.length).toBe(3);
+    expect(all.items.every((x: any) => !("fileContent" in x))).toBe(true);
+    // upozornění na konec platnosti
+    const { collectObligations } = await import("../src/modules/notifications/obligations");
+    const obl = await collectObligations(db, { companyIds: ["00000000-0000-4000-8000-000000000001"], leadDays: 30, kinds: new Set(["person_cert"]), config });
+    expect(obl.filter((o) => o.title.startsWith("PC ")).map((o) => [o.title, o.urgency]).sort()).toEqual([
+      ["PC Fortinet NSE4 – Jan Externí", "overdue"],
+      ["PC Revizní technik – Pavla Certová", "soon"],
+    ]);
+    // zrušení kurzu u certifikátu smaže započtené absolvování; smazání certifikátu taky
+    await admin.json(`/api/person-certificates/${u.body.id}`, { method: "PUT", headers: H, json: { userId: adminId, name: "PC CCNA", validUntil: "2029-01-10" } });
+    expect(((await admin.json(`/api/awareness/${course.id}/records`, { headers: H })).body as any[]).length).toBe(0);
+    for (const x of [u, p, e]) expect((await admin.req(`/api/person-certificates/${x.body.id}`, { method: "DELETE", headers: H })).status).toBe(204);
+    await admin.json(`/api/awareness/${course.id}`, { method: "DELETE", headers: H });
+    await db.delete(schema.iamPeople).where(eq(schema.iamPeople.id, person!.id));
+  });
+
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {
     expect(secretLeaks).toEqual([]);
     const rows = await db.execute(sql`select action, details::text as d from audit_log where details::text ~ '(passwordHash|tokenHash|[a-zA-Z]+Enc|_enc)"\s*:\s*"'`);

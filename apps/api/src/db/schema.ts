@@ -2757,6 +2757,37 @@ export const trainingSessionParticipants = pgTable(
   (t) => [primaryKey({ columns: [t.sessionId, t.userId] })],
 );
 
+/** Certifikáty a osvědčení osob (v1.105, ADR-199) – uživatel, osoba z evidence nebo externí pracovník dodavatele. */
+export const personCertificates = pgTable(
+  "person_certificates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    personId: uuid("person_id").references((): AnyPgColumn => iamPeople.id, { onDelete: "cascade" }),
+    holderName: varchar("holder_name", { length: 200 }),
+    supplierId: uuid("supplier_id").references((): AnyPgColumn => suppliers.id, { onDelete: "set null" }),
+    name: varchar("name", { length: 300 }).notNull(),
+    kind: varchar("kind", { length: 20 }).notNull().default("certification"),
+    issuer: varchar("issuer", { length: 200 }).notNull().default(""),
+    credentialId: varchar("credential_id", { length: 200 }).notNull().default(""),
+    issuedAt: date("issued_at"),
+    validUntil: date("valid_until"),
+    courseId: uuid("course_id").references(() => trainingCourses.id, { onDelete: "set null" }),
+    /** Absolvování kurzu zapsané z tohoto osvědčení – smaže se s ním. */
+    trainingRecordId: uuid("training_record_id").references(() => trainingRecords.id, { onDelete: "set null" }),
+    note: text("note").notNull().default(""),
+    fileName: varchar("file_name", { length: 255 }),
+    fileMime: varchar("file_mime", { length: 100 }),
+    fileSize: integer("file_size"),
+    fileSha256: varchar("file_sha256", { length: 64 }),
+    fileContent: bytea("file_content"),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("person_certificates_company_idx").on(t.companyId), index("person_certificates_valid_idx").on(t.validUntil), index("person_certificates_user_idx").on(t.userId)],
+);
+
 /* ================================================================
  * Odeslaná upozornění (deduplikace e-mailů / Teams)
  * ================================================================ */
