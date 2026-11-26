@@ -47,6 +47,10 @@ export const AssetClass = z.enum(ASSET_CLASSES);
 export type AssetClass = z.infer<typeof AssetClass>;
 
 const PRIMARY_TYPES = new Set<AssetType>(["information_asset", "business_service", "business_process"]);
+/** Typy bez technických údajů (IP, MAC, OS): informace, služby, procesy, lidé, dodavatelé, prostory (v1.108). */
+export const NON_TECHNICAL_ASSET_TYPES = new Set<string>(["facility", "information_asset", "business_service", "business_process", "personnel", "supplier"]);
+export const isTechnicalAsset = (t: string) => !NON_TECHNICAL_ASSET_TYPES.has(t);
+
 /** Výchozí třída podle typu (lze u aktiva ručně změnit). */
 export const defaultAssetClass = (t: AssetType): AssetClass => (PRIMARY_TYPES.has(t) ? "primary" : "supporting");
 

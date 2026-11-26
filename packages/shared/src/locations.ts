@@ -124,3 +124,39 @@ export type LocationAssetsInput = z.input<typeof LocationAssetsInput>;
 
 /** Typy techniky, u kterých je umístění očekávané (jinak „bez umístění“). */
 export const PLACEABLE_TYPES = ["server", "network_device", "security_device", "storage", "rack", "iot_ot", "printer"] as const;
+
+/* ---------- převod textového umístění na lokality (v1.108) ---------- */
+
+export interface TextLocationDto {
+  /** Text z pole „Umístění“ aktiv (bez vlastní lokality). */
+  text: string;
+  assets: number;
+  /** Navržená cesta lokalit (rozdělení podle „›“, „>“ nebo „/“). */
+  path: string[];
+  /** Existující lokalita se stejnou cestou / názvem, pokud je. */
+  matchId: string | null;
+}
+
+export const TextLocationImport = z.object({
+  items: z
+    .array(
+      z.object({
+        text: z.string().trim().min(1).max(255),
+        /** Cílová existující lokalita; null = založit podle cesty. */
+        locationId: z.string().uuid().nullable().default(null),
+        /** Druh nejhlubší nově založené lokality (vyšší úrovně: budova, patro). */
+        kind: z.enum(FACILITY_KINDS).default("room"),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+export type TextLocationImport = z.input<typeof TextLocationImport>;
+
+/** „Budova A › 2. patro / Serverovna“ → ["Budova A", "2. patro", "Serverovna"]. */
+export const splitLocationText = (text: string) =>
+  text
+    .split(/\s*(?:›|>|\/|\|)\s*/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .slice(0, 5);

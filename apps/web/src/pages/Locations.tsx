@@ -104,7 +104,8 @@ export function LocationsPage() {
           )}
         </div>
       )}
-      {d && d.issues.length > 0 && <IssuesCard issues={d.issues} />}
+      {write && d && <TextLocationsCard nodes={d.nodes} />}
+      {d && d.issues.length > 0 && <IssuesCard issues={d.issues} nodes={d.nodes} write={write} />}
       {edit && (
         <LocationModal
           node={edit === "new" ? null : edit}
@@ -273,11 +274,20 @@ function Stat({ label, value }: { label: string; value: number }) {
   );
 }
 
-function IssuesCard({ issues }: { issues: LocationIssueDto[] }) {
+function IssuesCard({ issues, nodes, write }: { issues: LocationIssueDto[]; nodes: LocationNodeDto[]; write: boolean }) {
   const t = useT();
+  const qc = useQueryClient();
+  const done = () => {
+    qc.invalidateQueries({ queryKey: ["premises"] });
+    qc.invalidateQueries({ queryKey: ["asset"] });
+  };
+  // rychlá náprava přímo z kontroly (v1.108): umístit, odebrat nesmyslnou vazbu
+  const place = useMutation({ mutationFn: (x: { loc: string; asset: string }) => api.premises.place(x.loc, [x.asset]), onSuccess: done });
+  const unlink = useMutation({ mutationFn: (x: { from: string; to: string }) => api.assets.removeDependency(x.from, x.to), onSuccess: done });
   return (
     <Card>
       <CardHeader title={t("prem.issues", { n: issues.length })} subtitle={t("prem.issuesSub")} />
+      <ErrorBox error={place.error ?? unlink.error} />
       <ul className="divide-y divide-slate-100" data-testid="loc-issues">
         {issues.map((i, k) => (
           <li key={`${i.code}:${i.assetId}:${k}`} className="flex flex-wrap items-center gap-2 px-5 py-2 text-sm">
@@ -287,13 +297,107 @@ function IssuesCard({ issues }: { issues: LocationIssueDto[] }) {
             </Link>
             <span className="text-slate-600">{t(`prem.issue.${i.code}`)}</span>
             {i.related.map((r) => (
-              <Link key={r.id} to={recordPath("asset", r.id)} className="text-slate-500 hover:underline">
-                {r.name}
-              </Link>
+              <span key={r.id} className="inline-flex items-center gap-1">
+                <Link to={recordPath("asset", r.id)} className="text-slate-500 hover:underline">
+                  {r.name}
+                </Link>
+                {write && i.code === "located_in_non_container" && (
+                  <button type="button" className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-red-700" onClick={() => unlink.mutate({ from: i.assetId, to: r.id })} aria-label={t("prem.unlink", { name: r.name })}>
+                    <X size={13} />
+                  </button>
+                )}
+              </span>
             ))}
+            {write && (i.code === "critical_unplaced" || i.code === "multiple_locations") && nodes.length > 0 && (
+              <Select
+                className="ml-auto w-56"
+                value=""
+                onChange={(e) => e.target.value && place.mutate({ loc: e.target.value, asset: i.assetId })}
+                aria-label={t("prem.placeQuick", { name: i.assetName })}
+                data-testid="loc-issue-place"
+              >
+                <option value="">{i.code === "multiple_locations" ? t("prem.keepOne") : t("prem.placeQuickPh")}</option>
+                {nodes
+                  .filter((n) => i.code !== "multiple_locations" || i.related.some((r) => r.id === n.id))
+                  .map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {"\u00a0\u00a0".repeat(n.depth)}
+                      {n.name}
+                    </option>
+                  ))}
+              </Select>
+            )}
           </li>
         ))}
       </ul>
+    </Card>
+  );
+}
+
+/** Převod textového pole „Umístění“ na lokality (v1.108). */
+function TextLocationsCard({ nodes }: { nodes: LocationNodeDto[] }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["premises", "text"], queryFn: api.premises.textLocations });
+  const [choice, setChoice] = useState<Record<string, string>>({});
+  const [kind, setKind] = useState<Record<string, FacilityKind>>({});
+  const run = useMutation({
+    mutationFn: () => {
+      const items = (q.data ?? [])
+        .map((x) => ({ x, c: choice[x.text] ?? (x.matchId ? x.matchId : "new") }))
+        .filter(({ c }) => c !== "skip")
+        .map(({ x, c }) => ({ text: x.text, locationId: c === "new" ? null : c, kind: kind[x.text] ?? "room" }));
+      return api.premises.importTextLocations({ items });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["premises"] });
+      setChoice({});
+    },
+  });
+  if (!q.data?.length) return null;
+  return (
+    <Card data-testid="loc-text">
+      <CardHeader title={t("prem.text.title", { n: q.data.length })} subtitle={t("prem.text.sub")} />
+      <ul className="divide-y divide-slate-100">
+        {q.data.map((x) => {
+          const c = choice[x.text] ?? (x.matchId ? x.matchId : "new");
+          return (
+            <li key={x.text} className="flex flex-wrap items-center gap-2 px-5 py-2 text-sm">
+              <span className="min-w-0 flex-1">
+                <span className="font-medium text-slate-900">{x.text}</span>
+                <span className="ml-2 text-xs text-slate-500">{t("prem.text.assets", { n: x.assets })}</span>
+                {c === "new" && <span className="ml-2 text-xs text-slate-500">→ {x.path.join(" › ")}</span>}
+              </span>
+              <Select className="w-60" value={c} onChange={(e) => setChoice({ ...choice, [x.text]: e.target.value })} aria-label={t("prem.text.target", { text: x.text })} data-testid="loc-text-target">
+                <option value="new">{t("prem.text.create")}</option>
+                <option value="skip">{t("prem.text.skip")}</option>
+                {nodes.map((n) => (
+                  <option key={n.id} value={n.id}>
+                    {"\u00a0\u00a0".repeat(n.depth)}
+                    {n.name}
+                  </option>
+                ))}
+              </Select>
+              {c === "new" && (
+                <Select className="w-44" value={kind[x.text] ?? "room"} onChange={(e) => setKind({ ...kind, [x.text]: e.target.value as FacilityKind })} aria-label={t("prem.f.kind")}>
+                  {FACILITY_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {t(`prem.kind.${k}`)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="flex items-center gap-3 border-t border-slate-100 px-5 py-3">
+        <Button onClick={() => run.mutate()} disabled={run.isPending} data-testid="loc-text-run">
+          {t("prem.text.run")}
+        </Button>
+        {run.data && <span className="text-sm text-emerald-800">{t("prem.text.done", { created: run.data.created, placed: run.data.placed })}</span>}
+        <ErrorBox error={run.error ?? q.error} />
+      </div>
     </Card>
   );
 }

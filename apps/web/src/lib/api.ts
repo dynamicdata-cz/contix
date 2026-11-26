@@ -560,6 +560,8 @@ import type {
   ZoneFlowControlInput,
   LocationsDto,
   LocationDetailDto,
+  TextLocationDto,
+  TextLocationImport,
   PersonCertDto,
   HarborSettingsDto,
   HarborSettingsInput,
@@ -2054,6 +2056,8 @@ export const api = {
     place: (id: string, assetIds: string[]) => post<LocationDetailDto>(`/premises/${id}/assets`, { assetIds }),
     unplace: (id: string, assetId: string) => del<LocationDetailDto>(`/premises/${id}/assets/${assetId}`),
     setMaps: (id: string, mapIds: string[]) => put<LocationDetailDto>(`/premises/${id}/maps`, { mapIds }),
+    textLocations: () => request<TextLocationDto[]>("/premises/text-locations"),
+    importTextLocations: (d: TextLocationImport) => post<{ created: number; placed: number }>("/premises/text-locations", d),
   },
   integrations: {
     /** Mapa propojení (v1.86): zóny, uzly, spojení, stavy a pokrytí serverů. */

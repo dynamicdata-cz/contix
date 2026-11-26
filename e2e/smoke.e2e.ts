@@ -1968,6 +1968,9 @@ test("objekt ve formuláři aktiva: druh lokality, nadřazená lokalita, bez IP 
   await page.getByRole("button", { name: "Uložit" }).click();
   await expect(page).toHaveURL(/\/assets\/[0-9a-f-]{36}$/);
   const bld = page.url().split("/").pop()!;
+  // detail budovy: karta Umístění místo technických údajů (v1.108)
+  await expect(page.getByTestId("asset-place-card")).toBeVisible();
+  await expect(page.getByTestId("asset-tech-card")).toHaveCount(0);
   await page.goto("/assets/new");
   await page.getByLabel("Název *").fill("E2E Serverovna Brno");
   await page.getByLabel("Typ aktiva").selectOption("facility");

@@ -9,10 +9,12 @@ import {
   type LocationIssueDto,
   type LocationNodeDto,
   type LocationsDto,
+  type TextLocationDto,
+  splitLocationText,
 } from "@contix/shared";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Db } from "../../db/client";
-import { assetDependencies, assets, securityZones, siteMaps } from "../../db/schema";
+import { assetDependencies, assetSources, assets, securityZones, siteMaps } from "../../db/schema";
 
 /* Lokality (v1.104, ADR-198): strom budov, pater a místností z aktiv typu facility a vazeb „umístěno v“. */
 
@@ -238,3 +240,73 @@ export async function locationPathOf(db: Db, companyId: string, assetId: string)
   return path;
 }
 
+
+/* ---------- převod textového umístění na lokality (v1.108) ---------- */
+
+const norm = (v: string) => v.trim().toLowerCase().replace(/\s+/g, " ");
+
+/** Texty z pole „Umístění“ u aktiv bez vlastní lokality, s návrhem cesty a shodou s existující lokalitou. */
+export async function textLocations(db: Db, companyId: string): Promise<TextLocationDto[]> {
+  const pl = await loadPlacement(db, companyId);
+  const rows = await db
+    .select({ id: assets.id, location: assets.location, type: assets.assetType })
+    .from(assets)
+    .where(and(eq(assets.companyId, companyId), isNotNull(assets.location), inArray(assets.lifecycleStatus, [...ACTIVE])));
+  const counts = new Map<string, { text: string; n: number }>();
+  for (const r of rows) {
+    if (r.type === "facility" || !r.location?.trim() || pl.facilityOf(r.id)) continue;
+    const k = norm(r.location);
+    const c = counts.get(k) ?? { text: r.location.trim(), n: 0 };
+    c.n++;
+    counts.set(k, c);
+  }
+  const fullPath = new Map(pl.facilities.map((f) => [f.id, norm([...(ancestry(f.id, pl.parentOf) ?? []).map((x) => pl.byId.get(x)!.name), f.name].join(" / "))]));
+  const byName = new Map(pl.facilities.map((f) => [norm(f.name), f.id]));
+  return [...counts.values()]
+    .map(({ text, n }) => {
+      const path = splitLocationText(text);
+      const p = norm(path.join(" / "));
+      const matchId = [...fullPath].find(([, v]) => v === p)?.[0] ?? (path.length === 1 ? (byName.get(norm(path[0]!)) ?? null) : null);
+      return { text, assets: n, path, matchId };
+    })
+    .sort((a, b) => b.assets - a.assets || a.text.localeCompare(b.text, "cs"));
+}
+
+/** Založí chybějící lokality podle cesty (znovu použije existující se stejným názvem pod stejným rodičem) a umístí do nich aktiva s daným textem. */
+export async function importTextLocations(db: Db, companyId: string, items: { text: string; locationId: string | null; kind: FacilityKind }[]) {
+  let created = 0;
+  let placed = 0;
+  for (const it of items) {
+    let target = it.locationId;
+    if (!target) {
+      const path = splitLocationText(it.text);
+      let parent: string | null = null;
+      for (let i = 0; i < path.length; i++) {
+        const pl = await loadPlacement(db, companyId);
+        const existing = pl.facilities.find((f) => norm(f.name) === norm(path[i]!) && (pl.parentOf.get(f.id) ?? null) === parent);
+        if (existing) {
+          parent = existing.id;
+          continue;
+        }
+        const kind: FacilityKind = i === path.length - 1 ? it.kind : i === 0 ? "building" : "floor";
+        const [r] = await db.insert(assets).values({ companyId, name: path[i]!.slice(0, 255), assetType: "facility", assetClass: "supporting", facilityKind: kind }).returning({ id: assets.id });
+        await db.insert(assetSources).values({ assetId: r!.id, sourceType: "manual", sourceRef: r!.id });
+        if (parent) await placeAsset(db, r!.id, parent);
+        created++;
+        parent = r!.id;
+      }
+      target = parent;
+    }
+    if (!target) continue;
+    const pl = await loadPlacement(db, companyId);
+    const ids = (
+      await db
+        .select({ id: assets.id, location: assets.location, type: assets.assetType })
+        .from(assets)
+        .where(and(eq(assets.companyId, companyId), isNotNull(assets.location)))
+    ).filter((r) => r.type !== "facility" && norm(r.location ?? "") === norm(it.text) && !pl.facilityOf(r.id));
+    for (const r of ids) await placeAsset(db, r.id, target);
+    placed += ids.length;
+  }
+  return { created, placed };
+}

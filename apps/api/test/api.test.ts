@@ -11822,6 +11822,29 @@ describe.skipIf(!url)("API (integrace)", () => {
     await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "", username: "", password: "", verifyTls: true, autoSyncHours: 24 } });
   });
 
+  test("lokality (v1.108): převod textového umístění na strom lokalit a umístění aktiv", async () => {
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "TL Převod s.r.o." } })).body.id as string;
+    const H = { "x-contix-company": CO };
+    const mk = async (name: string, location: string) => (await admin.json("/api/assets", { method: "POST", headers: H, json: { name, assetType: "server", location } })).body;
+    const a1 = await mk("TL-SRV1", "Budova A › 2. patro › Serverovna");
+    const a2 = await mk("TL-SRV2", "budova a › 2. patro › serverovna");
+    const a3 = await mk("TL-SW1", "Sklad");
+    const list = (await admin.json("/api/premises/text-locations", { headers: H })).body as any[];
+    expect(list.map((x) => [x.assets, x.path])).toEqual([[2, ["Budova A", "2. patro", "Serverovna"]], [1, ["Sklad"]]]);
+    const r = await admin.json("/api/premises/text-locations", { method: "POST", headers: H, json: { items: [{ text: list[0].text, kind: "server_room" }, { text: "Sklad", kind: "technical_room" }] } });
+    expect(r.body).toEqual({ created: 4, placed: 3 });
+    expect((await admin.json(`/api/assets/${a2.id}`, { headers: H })).body.locationPath.map((p: any) => p.name)).toEqual(["Budova A", "2. patro", "Serverovna"]);
+    const tree = (await admin.json("/api/premises", { headers: H })).body;
+    expect(tree.nodes.map((n: any) => [n.name, n.kind, n.depth])).toEqual([["Budova A", "building", 0], ["2. patro", "floor", 1], ["Serverovna", "server_room", 2], ["Sklad", "technical_room", 0]]);
+    expect((await admin.json("/api/premises/text-locations", { headers: H })).body).toEqual([]);
+    // znovu stejný text u nového aktiva → najde existující cestu, nic nového nezaloží
+    const a4 = await mk("TL-SRV3", "Budova A > 2. patro > Serverovna");
+    const again = (await admin.json("/api/premises/text-locations", { headers: H })).body as any[];
+    expect(again[0].matchId).toBe(tree.nodes[2].id);
+    expect((await admin.json("/api/premises/text-locations", { method: "POST", headers: H, json: { items: [{ text: again[0].text, locationId: again[0].matchId }] } })).body).toEqual({ created: 0, placed: 1 });
+    void a1; void a3; void a4;
+  });
+
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {
     expect(secretLeaks).toEqual([]);
     const rows = await db.execute(sql`select action, details::text as d from audit_log where details::text ~ '(passwordHash|tokenHash|[a-zA-Z]+Enc|_enc)"\s*:\s*"'`);

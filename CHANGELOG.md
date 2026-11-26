@@ -2,6 +2,14 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.108.0
+
+Lokality – dotažení (navazuje na ADR-198).
+
+- **Detail budovy a dalších netechnických aktiv** (informace, služby, procesy, lidé, dodavatelé): místo prázdných technických údajů (IP, MAC, OS) karta Umístění – cesta v lokalitách, druh, adresa a souhrn fyzické bezpečnosti.
+- **Rychlá náprava v Kontrole vazeb**: kritickou techniku bez umístění lze rovnou umístit do lokality, u aktiva na více místech ponechat jedno, nesmyslnou vazbu „umístěno v“ odebrat jedním kliknutím.
+- **Převod textového umístění**: aktiva s umístěním zapsaným textem („Budova A › 2. patro › Serverovna“) se převedou na lokality – chybějící se založí podle cesty (budova, patro, místnost), existující se znovu použijí a aktiva se do nich umístí.
+
 ## 1.107.2
 
 - **Objekt / prostory ve formuláři aktiva**: místo technických údajů (IP, MAC, OS) se ukáže karta Lokalita – druh (budova, patro, serverovna…), nadřazená lokalita a adresa. Technické údaje se neukazují ani u informačních aktiv, služeb, procesů, lidí a dodavatelů.

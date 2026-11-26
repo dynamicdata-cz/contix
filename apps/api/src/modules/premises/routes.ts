@@ -1,4 +1,4 @@
-import { LocationAssetsInput, LocationInput, LocationPatch } from "@contix/shared";
+import { LocationAssetsInput, LocationInput, LocationPatch, TextLocationImport } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, eq, inArray } from "drizzle-orm";
 import { Hono, type Context } from "hono";
@@ -9,7 +9,7 @@ import { hasPermIn, targetCompany } from "../../auth/scope";
 import { audit, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
 import { assetSources, assets, siteMaps } from "../../db/schema";
-import { isWithin, locationDetail, locationsOf, placeAsset } from "./service";
+import { importTextLocations, isWithin, locationDetail, locationsOf, placeAsset, textLocations } from "./service";
 
 /* Lokality – /api/locations (v1.104, ADR-198). Vše v aktivní společnosti. */
 
@@ -34,6 +34,16 @@ export function premiseRoutes(db: Db) {
   return new Hono<AppEnv>()
     .use(requireModule(db, "assets"))
     .get("/", requirePerm("assets:read"), async (c) => c.json(await locationsOf(db, co(c))))
+    /** Texty z pole „Umístění“ aktiv k převodu na lokality (v1.108). */
+    .get("/text-locations", requirePerm("assets:read"), async (c) => c.json(await textLocations(db, co(c))))
+    .post("/text-locations", requirePerm("assets:write"), zValidator("json", TextLocationImport), async (c) => {
+      const companyId = co(c, true);
+      const items = c.req.valid("json").items;
+      for (const it of items) if (it.locationId) await facility(companyId, it.locationId);
+      const r = await importTextLocations(db, companyId, items);
+      await audit(db, { c, user: currentUser(c), action: "location.text_imported", entityType: "company", entityId: companyId, details: { items: items.length, ...r } });
+      return c.json(r);
+    })
     .get("/:id", requirePerm("assets:read"), zValidator("param", Id), async (c) => {
       const d = await locationDetail(db, co(c), c.req.param("id"));
       if (!d) throw new HTTPException(404, { message: "Lokalita nenalezena" });

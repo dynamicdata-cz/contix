@@ -22,7 +22,7 @@ import { AssetMapsCard } from "@/pages/SiteMaps";
 import { useCan, useModule } from "@/lib/auth";
 import { AssetScaCard } from "./Sca";
 import { cn, fmtDate } from "@/lib/utils";
-import { ASSET_GRAPH_LABELS, hostKeyOfAsset, LABELS, recordPath, type HealthStatus, type AssetClass, type LinkedAssetDto, type SourceType } from "@contix/shared";
+import { ASSET_GRAPH_LABELS, hostKeyOfAsset, isTechnicalAsset, LABELS, recordPath, type HealthStatus, type AssetClass, type LinkedAssetDto, type SourceType } from "@contix/shared";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowDownRight, ArrowUpRight, Link2, Network, Pencil, Plus, Radar, Trash2, X } from "lucide-react";
@@ -57,6 +57,7 @@ export function AssetDetailPage() {
   if (!a) return <p className="text-slate-500">{t("common.loading")}</p>;
 
   const isPrimary = a.assetClass === "primary";
+  const tech = isTechnicalAsset(a.assetType);
   const vulnTotal = a.vulnCritical + a.vulnHigh + a.vulnMedium + a.vulnLow;
   const links = isPrimary ? a.supportedBy : a.supports;
   const eff = a.effectiveCia;
@@ -167,15 +168,19 @@ export function AssetDetailPage() {
 
           <HostInventoryCard assetId={a.id} />
 
-          <Card>
-            <CardHeader title={t("ast.technickeUdaje")} subtitle={t("ast.doplnujiSeAutomatickyZKonektoru")} />
+          <Card data-testid={tech ? "asset-tech-card" : "asset-place-card"}>
+            <CardHeader title={tech ? t("ast.technickeUdaje") : t("prem.detailTitle")} subtitle={tech ? t("ast.doplnujiSeAutomatickyZKonektoru") : undefined} />
             <dl className="grid gap-x-8 gap-y-4 p-5 sm:grid-cols-2">
-              <Item label={t("ast.hostname")}>{a.hostname}</Item>
-              <Item label={t("ast.fqdn")}>{a.fqdn && a.fqdn !== a.hostname ? a.fqdn : null}</Item>
-              <Item label={t("ast.ipAdresy")}>{a.ipAddresses.length ? <AddrList items={a.ipAddresses} ip /> : null}</Item>
-              <Item label={t("zn.assetZone")}>
-                <AssetZoneSelect assetId={a.id} zoneId={a.zoneId ?? null} manual={!!a.zoneManual} />
-              </Item>
+              {tech && (
+                <>
+                  <Item label={t("ast.hostname")}>{a.hostname}</Item>
+                  <Item label={t("ast.fqdn")}>{a.fqdn && a.fqdn !== a.hostname ? a.fqdn : null}</Item>
+                  <Item label={t("ast.ipAdresy")}>{a.ipAddresses.length ? <AddrList items={a.ipAddresses} ip /> : null}</Item>
+                  <Item label={t("zn.assetZone")}>
+                    <AssetZoneSelect assetId={a.id} zoneId={a.zoneId ?? null} manual={!!a.zoneManual} />
+                  </Item>
+                </>
+              )}
               <Item label={t("prem.assetLocation")}>
                 {a.locationPath?.length ? (
                   <span className="flex flex-wrap items-center gap-1" data-testid="asset-location">
@@ -201,13 +206,26 @@ export function AssetDetailPage() {
                   </Link>
                 </Item>
               )}
-              <Item label={t("ast.macAdresy")}>{a.macAddresses.length ? <AddrList items={a.macAddresses} /> : null}</Item>
-              <Item label={t("ast.operacniSystem")}>{osLabel(a.osName, a.osVersion)}</Item>
-              <Item label={t("ast.vyrobceModel")}>{[a.manufacturer, a.model].filter(Boolean).join(" ")}</Item>
-              <Item label={t("ast.serioveCislo")}>{a.serialNumber}</Item>
-              <Item label={t("ast.poprveNaposledyVideno")}>
-                {fmtDate(a.firstSeenAt)} / {fmtDate(a.lastSeenAt)}
-              </Item>
+              {a.assetType === "facility" && a.physical?.address && <Item label={t("prem.f.address")}>{a.physical.address}</Item>}
+              {a.assetType === "facility" && (
+                <Item label={t("prem.physical")}>
+                  <Link to="/assets/locations" className="hover:underline">
+                    {t("prem.physicalSummary", { n: Object.values(a.physical?.controls ?? {}).filter((v) => v === "yes").length })}
+                  </Link>
+                </Item>
+              )}
+              {tech && (
+                <>
+                  <Item label={t("ast.macAdresy")}>{a.macAddresses.length ? <AddrList items={a.macAddresses} /> : null}</Item>
+                  <Item label={t("ast.operacniSystem")}>{osLabel(a.osName, a.osVersion)}</Item>
+                  <Item label={t("ast.vyrobceModel")}>{[a.manufacturer, a.model].filter(Boolean).join(" ")}</Item>
+                  <Item label={t("ast.serioveCislo")}>{a.serialNumber}</Item>
+                  <Item label={t("ast.poprveNaposledyVideno")}>
+                    {fmtDate(a.firstSeenAt)} / {fmtDate(a.lastSeenAt)}
+                  </Item>
+                </>
+              )}
+              {!tech && a.location && <Item label={t("ast.umisteni")}>{a.location}</Item>}
             </dl>
             {a.description && <p className="border-t border-slate-100 px-5 py-4 text-sm text-slate-700">{a.description}</p>}
           </Card>

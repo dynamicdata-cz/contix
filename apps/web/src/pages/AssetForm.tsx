@@ -15,6 +15,7 @@ import {
   LABELS,
   LIFECYCLE_STATUSES,
   FACILITY_KINDS,
+  isTechnicalAsset,
   type AssetDto,
   type AssetType,
   type FacilityKind,
@@ -34,8 +35,7 @@ const EMPTY: FormState = {
   facilityKind: "building", address: "", placeId: "",
 };
 
-/** Typy bez technických údajů (IP, MAC, OS) – informace, služby, procesy, lidé, dodavatelé, prostory (v1.107.2). */
-const NON_TECHNICAL = new Set<string>(["facility", "information_asset", "business_service", "business_process", "personnel", "supplier"]);
+
 
 const toForm = (a: AssetDto & { locationPath?: { id: string; assetType: string }[] }): FormState => ({
   ...EMPTY,
@@ -107,7 +107,7 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
   const locations = useQuery({ queryKey: ["assets", "locations"], queryFn: api.assets.locations, staleTime: 60_000 });
   const premises = useQuery({ queryKey: ["premises"], queryFn: api.premises.list, staleTime: 60_000 });
   const facility = f.assetType === "facility";
-  const technical = !NON_TECHNICAL.has(f.assetType ?? "");
+  const technical = isTechnicalAsset(f.assetType ?? "");
   const origPlace = existing.data ? toForm(existing.data).placeId : "";
   const save = useMutation({
     mutationFn: async (payload: ReturnType<typeof toPayload>) => {
