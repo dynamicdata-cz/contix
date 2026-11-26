@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.107.0
+
+Harbor a opravy zranitelností komponent v CRA (ADR-201).
+
+- **Oprava u každého nálezu produktu**: nejnižší verze s opravou (z rozsahů OSV nebo ze skenu Harboru), příkaz pro aktualizaci podle ekosystému (npm, pip, Maven, Go, Cargo, NuGet, Composer, Bundler, apt, apk, dnf) s tlačítkem Kopírovat a odkazy na opravu a oznámení (FIX / ADVISORY záznamu OSV, odkazy skeneru, vždy i záznam na osv.dev). Do příkazu se dostanou jen bezpečné znaky.
+- **Harbor**: v detailu produktu lze zadat obraz („projekt/repozitář:tag“). CONTIX načte výsledek skenu obrazu (Trivy v Harboru) – nálezy s opravenou verzí a odkazy – ručně tlačítkem nebo automaticky (výchozí jednou denně). Nastavení v CRA → Oznámení výrobců: adresa Harboru a robotický účet jen pro čtení (heslo se ukládá šifrovaně).
+- **Opravené nálezy se uzavřou samy**: co v novém skenu obrazu (nebo po novém SBOM) už není, je „zmizelé“ a CONTIX navrhne stav VEX **Opraveno**; u známé opravy navrhne **Zasaženo** s popisem akce („Aktualizovat X na verzi Y“). Návrhy lze přijmout jednotlivě nebo všechny najednou a pak exportovat OpenVEX / CycloneDX VEX.
+- Oprava občas selhávajícího testu odkazu na kalendář (náhodný token).
+
 ## 1.106.0
 
 Utlumení historických zranitelností (ADR-200).

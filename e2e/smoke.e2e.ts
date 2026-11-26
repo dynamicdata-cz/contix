@@ -1991,6 +1991,18 @@ test("historické zranitelnosti: náhled kritérií a pravidlo utlumení (v1.106
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("CRA: nastavení Harboru a obraz produktu (v1.107)", async () => {
+  await page.goto("/cra");
+  const headers = { origin: new URL(page.url()).origin };
+  const p = await (await page.request.post("/api/cra", { data: { name: "E2E Harbor aplikace", harborRef: "shop/e2e-web:1.0" }, headers })).json();
+  await page.goto(`/cra/${p.id}`);
+  await expect(page.getByTestId("cra-harbor-ref")).toHaveValue("shop/e2e-web:1.0");
+  await expect(page.getByTestId("cra-harbor-state")).toContainText("shop/e2e-web:1.0");
+  await expect(page.getByTestId("cra-harbor-state")).toContainText("zatím nenačteno");
+  await expect(page.getByTestId("cra-harbor-sync")).toBeVisible();
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("tento týden a kalendář lhůt s exportem .ics (v1.98)", async () => {
   await page.goto("/");
   await expect(page.getByTestId("week-card")).toBeVisible();

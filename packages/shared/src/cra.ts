@@ -1,3 +1,4 @@
+import { parseHarborRef } from "./craVuln";
 import { z } from "zod";
 import { patchOf } from "./zutil";
 import { CPE_RE, type CraProductFileDto, type CraSupplyCheckItem } from "./craSupply";
@@ -469,6 +470,15 @@ export const CraProductInput = z.object({
   cpe: z.string().trim().max(500).regex(CPE_RE, "CPE 2.3, např. cpe:2.3:h:vyrobce:produkt:1.0").nullable().optional().or(z.literal("").transform(() => null)),
   memberStates: z.array(z.string().trim().length(2).toUpperCase()).max(40).default([]),
   ownerPositionId: z.string().uuid().nullable().optional(),
+  /** Obraz v registru Harbor (v1.107): „projekt/repozitář:tag“ nebo „…@sha256:…“. */
+  harborRef: z
+    .string()
+    .trim()
+    .max(500)
+    .refine((v) => !v || parseHarborRef(v) !== null, "Zadejte obraz jako projekt/repozitář:tag")
+    .nullable()
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v || null)),
 });
 export type CraProductInput = z.input<typeof CraProductInput>;
 export const CraProductPatch = patchOf(CraProductInput.omit({ companyId: true }));
@@ -564,6 +574,9 @@ export interface CraProductDto {
   cvdPolicyUrl: string | null;
   manufacturerName: string | null;
   cpe: string | null;
+  /** Obraz v Harboru a stav posledního načtení skenu (v1.107). */
+  harborRef: string | null;
+  harborState: { digest?: string | null; scannedAt?: string | null; syncedAt?: string; error?: string | null; vulns?: number; fixable?: number };
   memberStates: string[];
   ownerPositionId: string | null;
   ownerPositionName: string | null;

@@ -62,6 +62,8 @@ export interface OsvRecord {
   modified: string | null;
   withdrawn: boolean;
   affected: OsvAffected[];
+  /** Odkazy záznamu (oprava, oznámení, balíček) – v1.107. */
+  references?: { type: string; url: string }[];
 }
 
 /** Záznam OSV (schema 1.x) → kompaktní podoba pro uložení. Ekosystém bez přípony verze („Debian:12“ → „Debian“). */
@@ -100,6 +102,11 @@ export function parseOsvRecord(text: string): OsvRecord | null {
     modified: typeof j.modified === "string" ? j.modified : null,
     withdrawn: typeof j.withdrawn === "string",
     affected,
+    references: (Array.isArray(j.references) ? (j.references as Record<string, unknown>[]) : [])
+      .filter((r) => typeof r.url === "string" && /^https?:\/\//.test(r.url as string) && ["FIX", "ADVISORY", "PACKAGE", "WEB", "REPORT"].includes(String(r.type)))
+      .sort((a, b) => REF_ORDER.indexOf(String(a.type)) - REF_ORDER.indexOf(String(b.type)))
+      .slice(0, 12)
+      .map((r) => ({ type: String(r.type), url: String(r.url).slice(0, 500) })),
   };
 }
 
@@ -134,6 +141,93 @@ export function compareVersions(a: string, b: string): number {
     return x < y ? -1 : 1;
   }
   return 0;
+}
+
+const REF_ORDER = ["FIX", "ADVISORY", "PACKAGE", "REPORT", "WEB"];
+
+/**
+ * Nejnižší verze s opravou pro zasaženou verzi (v1.107): událost `fixed` rozsahu, do kterého verze patří.
+ * `null` = oprava není známa (jen `last_affected` / `limit` nebo výčet verzí).
+ */
+export function osvFixedVersion(list: OsvAffected[], version: string | null): string | null {
+  if (!version) return null;
+  let best: string | null = null;
+  for (const a of list)
+    for (const r of a.ranges) {
+      let introduced: string | null = null;
+      for (const ev of r.events) {
+        if (ev.introduced !== undefined) introduced = ev.introduced;
+        else if (introduced !== null && ev.fixed !== undefined) {
+          const inside = (introduced === "0" || compareVersions(version, introduced) >= 0) && compareVersions(version, ev.fixed) < 0;
+          if (inside && (!best || compareVersions(ev.fixed, best) < 0)) best = ev.fixed;
+          introduced = null;
+        } else if (ev.last_affected !== undefined || ev.limit !== undefined) introduced = null;
+      }
+    }
+  return best;
+}
+
+/** Ekosystém komponenty z purl („pkg:npm/…“ → npm) – pro příkaz aktualizace. */
+export function purlType(ref: string | null | undefined): string | null {
+  const m = ref?.match(/^pkg:([a-z0-9.+-]+)\//i);
+  return m ? m[1]!.toLowerCase() : null;
+}
+
+/**
+ * Příkaz / postup aktualizace na opravenou verzi podle ekosystému (v1.107). U balíčků operačního systému
+ * v obrazu kontejneru je oprava nové sestavení obrazu na aktualizovaném základu (Harbor pak nález uzavře).
+ */
+export function craUpgradeCommand(ecosystem: string | null, name: string, fixed: string | null): string | null {
+  if (!fixed || !ecosystem) return null;
+  // do příkazu jen bezpečné znaky (název a verze pocházejí z cizích dat – SBOM, Harbor)
+  if (!/^[\w.@/+:~-]{1,200}$/.test(name) || !/^[\w.+:~-]{1,100}$/.test(fixed)) return null;
+  const e = ecosystem.toLowerCase();
+  const n = name.includes("/") && e === "maven" ? name.replace("/", ":") : name;
+  switch (e) {
+    case "npm":
+      return `npm install ${name}@${fixed}`;
+    case "pypi":
+      return `pip install "${name}>=${fixed}"`;
+    case "maven":
+      return `${n}:${fixed}  (pom.xml / build.gradle – zvyšte verzi závislosti)`;
+    case "golang":
+    case "go":
+      return `go get ${name}@v${fixed.replace(/^v/, "")} && go mod tidy`;
+    case "cargo":
+    case "crates.io":
+      return `cargo update -p ${name} --precise ${fixed}`;
+    case "nuget":
+      return `dotnet add package ${name} --version ${fixed}`;
+    case "gem":
+    case "rubygems":
+      return `bundle update ${name}  (Gemfile: '${name}', '>= ${fixed}')`;
+    case "composer":
+    case "packagist":
+      return `composer require ${name}:^${fixed}`;
+    case "deb":
+    case "debian":
+    case "ubuntu":
+      return `apt-get update && apt-get install --only-upgrade ${name}  (v Dockerfile, pak nové sestavení obrazu; opraveno ve ${fixed})`;
+    case "apk":
+    case "alpine":
+      return `apk upgrade --no-cache ${name}  (v Dockerfile, pak nové sestavení obrazu; opraveno ve ${fixed})`;
+    case "rpm":
+    case "redhat":
+    case "rocky":
+    case "almalinux":
+      return `dnf upgrade -y ${name}  (v Dockerfile, pak nové sestavení obrazu; opraveno ve ${fixed})`;
+    default:
+      return null;
+  }
+}
+
+/** Návrh stavu VEX z dat (v1.107): komponenta zmizela / aktualizována → „opraveno“; známá oprava → „zasaženo“ s akcí. */
+export function vexSuggestion(f: { status: VexStatus; gone: boolean; fixedVersion: string | null; componentName: string | null; source: string }): { status: VexStatus; actionStatement: string } | null {
+  if (f.gone && (f.status === "under_investigation" || f.status === "affected"))
+    return { status: "fixed", actionStatement: f.fixedVersion ? `Komponenta aktualizována (oprava ve verzi ${f.fixedVersion}); v aktuální verzi produktu nález není.` : "V aktuální verzi produktu (SBOM / obraz) nález není." };
+  if (!f.gone && f.status === "under_investigation" && f.fixedVersion && (f.source === "osv" || f.source === "harbor"))
+    return { status: "affected", actionStatement: `Aktualizovat ${f.componentName ?? "komponentu"} na verzi ${f.fixedVersion} nebo novější.` };
+  return null;
 }
 
 /** Je verze zasažena záznamem OSV (výčet verzí, rozsahy introduced / fixed / last_affected / limit)? */
@@ -271,7 +365,7 @@ export interface CraFindingDto {
   cves: string[];
   summary: string | null;
   severity: string | null;
-  source: "osv" | "manual" | "csaf" | "nvd";
+  source: "osv" | "manual" | "csaf" | "nvd" | "harbor";
   status: VexStatus;
   /** Stav podle oznámení výrobce (CSAF) – vlastní hodnocení `status` ho může přepsat (v1.16). */
   vendorStatus: VexStatus | null;
@@ -285,6 +379,12 @@ export interface CraFindingDto {
   riskId: string | null;
   firstSeen: string;
   updatedAt: string;
+  /** Oprava (v1.107): nejnižší verze s opravou, příkaz aktualizace a odkazy (oprava, oznámení, záznam OSV / Harbor). */
+  fixedVersion: string | null;
+  upgradeCommand: string | null;
+  fixLinks: string[];
+  /** Návrh stavu VEX z dat – přijetím se nastaví stav a popis akce. */
+  suggestion: { status: VexStatus; actionStatement: string } | null;
 }
 
 export const VEX_LABELS = {
@@ -311,4 +411,60 @@ export interface CraLinksDto {
   suppliers: { id: string; name: string }[];
   processes: { id: string; label: string }[];
   risks: { id: string; label: string }[];
+}
+
+/* ---------------- Harbor (v1.107, ADR-201) ---------------- */
+
+export const HARBOR_DEFAULTS_KEY = "cra.harbor";
+
+export const HarborSettingsInput = z.object({
+  url: z.union([z.literal(""), z.string().trim().url().max(500)]).default(""),
+  username: z.string().trim().max(200).default(""),
+  /** Prázdné = ponechat uložené heslo. */
+  password: z.string().max(500).optional(),
+  verifyTls: z.boolean().default(true),
+  /** Automatické načítání výsledků skenu obrazů (hodiny, 0 = jen ručně). */
+  autoSyncHours: z.number().int().min(0).max(168).default(24),
+});
+export type HarborSettingsInput = z.input<typeof HarborSettingsInput>;
+export interface HarborSettingsDto {
+  url: string;
+  username: string;
+  verifyTls: boolean;
+  autoSyncHours: number;
+  hasPassword: boolean;
+}
+
+/** „projekt/repozitář[/další]:tag“ nebo „…@sha256:…“, volitelně s hostitelem registru na začátku. */
+export function parseHarborRef(ref: string): { project: string; repository: string; reference: string } | null {
+  let v = ref.trim();
+  if (!v || v.length > 500 || /\s/.test(v)) return null;
+  const first = v.split("/")[0]!;
+  if (v.split("/").length > 2 && (first.includes(".") || first.includes(":"))) v = v.slice(first.length + 1);
+  let reference = "latest";
+  const at = v.indexOf("@");
+  if (at > 0) {
+    reference = v.slice(at + 1);
+    v = v.slice(0, at);
+  } else {
+    const colon = v.lastIndexOf(":");
+    if (colon > v.lastIndexOf("/")) {
+      reference = v.slice(colon + 1);
+      v = v.slice(0, colon);
+    }
+  }
+  const parts = v.split("/");
+  if (parts.length < 2 || parts.some((x) => !/^[a-z0-9][a-z0-9._-]*$/i.test(x))) return null;
+  if (!/^[\w.:-]{1,200}$/.test(reference)) return null;
+  return { project: parts[0]!, repository: parts.slice(1).join("/"), reference };
+}
+
+export interface HarborVulnItem {
+  id: string;
+  package: string;
+  version: string;
+  fix_version?: string;
+  severity?: string;
+  description?: string;
+  links?: string[];
 }

@@ -53,6 +53,10 @@ import {
   type CraProductFileDto,
   type CraSupplyCheckState,
   type CsafAdvisory,
+  craUpgradeCommand,
+  HarborSettingsInput,
+  purlType,
+  vexSuggestion,
 } from "@contix/shared";
 import { createHash } from "node:crypto";
 import { zValidator } from "@hono/zod-validator";
@@ -66,6 +70,8 @@ import { audit, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
 import { users, craAdvisories, craProductFiles, assets, craComponents, craFindings, craProductAssets, craProductProcesses, craProductRisks, craProductSuppliers, craProducts, craReports, orgUnits, positionHolders, positions, processes, riskAssets, risks, suppliers, vulnIntel } from "../../db/schema";
 import type { FetchLike } from "../discovery/connectors/wazuh";
+import { harborSettings, saveHarborSettings, syncHarborProduct } from "./harbor";
+import type { Config } from "../../config";
 import { componentRefOf, getOsvSettings, matchProducts, osvRecordsFromUpload, osvStatus, startOsvRefresh, storeOsvRecords, storeOsvSettings } from "./osv";
 import { tFor, translatorFor } from "../i18n/service";
 import { docxResponse, htmlToDocx } from "../documents/docx";
@@ -121,7 +127,12 @@ export function reportDto(r: ReportRow, productName: string, now = new Date()): 
   };
 }
 
-export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
+/** Komponenta nálezu z Harboru: „harbor:<ekosystém>:<balíček>@<verze>“ → název balíčku (v1.107). */
+const harborPkg = (ref: string) => (ref.startsWith("harbor:") ? (ref.slice(7).split(":").slice(1).join(":").split("@")[0] ?? null) : null);
+/** Ekosystém pro příkaz aktualizace: purl komponenty, jinak z odkazu Harboru. */
+const fixEcosystem = (r: { componentRef: string }, purl: string | null) => purlType(purl ?? r.componentRef) ?? (r.componentRef.startsWith("harbor:") ? r.componentRef.slice(7).split(":")[0]! : null);
+
+export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike; config?: Config; harborFetch?: FetchLike } = {}) {
   async function canEdit(c: Ctx, p: { ownerPositionId: string | null }) {
     if (hasPerm(c, "cra:write")) return true;
     if (!p.ownerPositionId) return false;
@@ -150,8 +161,8 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
         id: r.id,
         productId: r.productId,
         componentRef: r.componentRef,
-        componentName: comp?.name ?? extName(r),
-        componentVersion: comp?.version ?? null,
+        componentName: comp?.name ?? extName(r) ?? harborPkg(r.componentRef),
+        componentVersion: comp?.version ?? (r.source === "harbor" ? r.componentRef.split("@").slice(1).join("@") || null : null),
         vulnId: r.vulnId,
         aliases: r.aliases,
         cves: cv,
@@ -169,6 +180,10 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
         epss: cv.reduce<number | null>((m, x) => (im.get(x)?.epss != null ? Math.max(m ?? 0, im.get(x)!.epss!) : m), null),
         firstSeen: r.createdAt.toISOString(),
         updatedAt: r.updatedAt.toISOString(),
+        fixedVersion: r.fixedVersion ?? null,
+        upgradeCommand: craUpgradeCommand(fixEcosystem(r, comp?.purl ?? null), comp?.name ?? harborPkg(r.componentRef) ?? "", r.fixedVersion ?? null),
+        fixLinks: r.fixLinks ?? [],
+        suggestion: vexSuggestion({ status: r.status as VexStatus, gone: r.gone, fixedVersion: r.fixedVersion ?? null, componentName: comp?.name ?? harborPkg(r.componentRef), source: r.source }),
       };
     });
   }
@@ -228,6 +243,8 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
         cvdPolicyUrl: p.cvdPolicyUrl,
         manufacturerName: p.manufacturerName,
         cpe: p.cpe,
+        harborRef: p.harborRef ?? null,
+        harborState: p.harborState ?? {},
         memberStates: p.memberStates,
         ownerPositionId: p.ownerPositionId,
         ownerPositionName: ownerName,
@@ -507,6 +524,14 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
         await audit(db, { c, user: currentUser(c), action: "cra.advisory_deleted", entityType: "cra_advisory", entityId: a.id, details: { trackingId: a.trackingId } });
         return c.json({ ok: true });
       })
+      .get("/harbor", requirePerm("cra:read"), async (c) => c.json(await harborSettings(db)))
+      .put("/harbor", requirePerm("admin:settings"), zValidator("json", HarborSettingsInput), async (c) => {
+        if (!deps.config) throw new HTTPException(500, { message: "Chybí konfigurace" });
+        const v = c.req.valid("json");
+        const r = await saveHarborSettings(db, deps.config, v);
+        await audit(db, { c, user: currentUser(c), action: "cra.harbor_settings", entityType: "settings", details: { url: r.url, username: r.username, verifyTls: r.verifyTls, autoSyncHours: r.autoSyncHours, passwordChanged: !!v.password } });
+        return c.json(r);
+      })
       .get("/nvd", requirePerm("cra:read"), async (c) => c.json(await getNvdSettings(db)))
       .put("/nvd", requirePerm("admin:settings"), zValidator("json", NvdSettingsInput), async (c) => {
         const v = await storeNvdSettings(db, c.req.valid("json"));
@@ -526,6 +551,28 @@ export function craRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
         if (["cpe", "name", "version", "manufacturerName"].some((k) => k in set)) await matchAdvisories(db, { productIds: [cur.id] });
         await audit(db, { c, user: currentUser(c), action: "cra.product_updated", entityType: "cra_product", entityId: cur.id, details: set });
         return c.json(await one(c, cur.id));
+      })
+      /* ---------- Harbor a návrhy VEX (v1.107, ADR-201) ---------- */
+      /** Načte sken obrazu z Harboru do nálezů produktu (opravená verze, odkazy; zmizelé nálezy). */
+      .post("/:id/harbor", requirePerm("cra:read"), async (c) => {
+        const p = await editable(c, c.req.param("id"));
+        if (!deps.config) throw new HTTPException(500, { message: "Chybí konfigurace" });
+        try {
+          const r = await syncHarborProduct(db, deps.config, p.id, deps.harborFetch);
+          await audit(db, { c, user: currentUser(c), action: "cra.harbor_synced", entityType: "cra_product", entityId: p.id, details: r });
+          return c.json(r);
+        } catch (e) {
+          throw new HTTPException(502, { message: (e as Error).message });
+        }
+      })
+      /** Přijetí návrhů stavu VEX (všech, nebo vybraných nálezů). */
+      .post("/:id/vex/suggestions", requirePerm("cra:read"), zValidator("json", z.object({ findingIds: z.array(z.string().uuid()).max(5000).optional() })), async (c) => {
+        const p = await editable(c, c.req.param("id"));
+        const ids = c.req.valid("json").findingIds;
+        const list = (await findingsOf(and(eq(craFindings.productId, p.id), ids ? inArray(craFindings.id, ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]) : undefined))).filter((f) => f.suggestion);
+        for (const f of list) await db.update(craFindings).set({ status: f.suggestion!.status, actionStatement: f.suggestion!.actionStatement, justification: null, updatedAt: new Date() }).where(eq(craFindings.id, f.id));
+        await audit(db, { c, user: currentUser(c), action: "cra.vex_suggestions_accepted", entityType: "cra_product", entityId: p.id, details: { count: list.length } });
+        return c.json({ accepted: list.length });
       })
       .delete("/:id", requirePerm("cra:write"), async (c) => {
         const cur = await row(c, c.req.param("id"));

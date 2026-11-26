@@ -11555,7 +11555,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     const list = (await admin.json("/api/calendar/feeds")).body as any[];
     expect(list.find((f) => f.id === cr.body.feed.id).lastUsedAt).not.toBeNull();
     expect(JSON.stringify(list)).not.toContain("cal_"); // token se znovu nezobrazí
-    expect((await anon.req(path.replace(/cal_./, "cal_X"))).status).toBe(404);
+    expect((await anon.req(path.replace(/cal_(.)/, (_m, ch: string) => `cal_${ch === "X" ? "Y" : "X"}`))).status).toBe(404);
     expect((await anon.req("/api/public/calendar/nic.ics")).status).toBe(404);
     // cizí společnost, ke které nemám přístup
     expect((await admin.json("/api/calendar/feeds", { method: "POST", json: { companyId: "00000000-0000-4000-8000-0000000000ff" } })).status).toBe(400);
@@ -11764,6 +11764,62 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect((await st())["CVE-2098-770004"]).toBe("open");
     await db.delete(schema.assets).where(inArray(schema.assets.id, [off!.id, on!.id]));
     await db.delete(schema.vulnIntel).where(eq(schema.vulnIntel.cveId, "CVE-2098-770002"));
+  });
+
+  test("CRA – opravy a Harbor (v1.107): sken obrazu, opravená verze, příkaz, odkazy, zmizelé nálezy, návrhy VEX", async () => {
+    const H = { "x-contix-company": "00000000-0000-4000-8000-000000000001" };
+    const p = (await admin.json("/api/cra", { method: "POST", headers: H, json: { name: "HB Aplikace", version: "1.0", harborRef: "shop/web:1.0" } })).body;
+    expect(p.harborRef).toBe("shop/web:1.0");
+    expect((await admin.json("/api/cra", { method: "POST", headers: H, json: { name: "HB chyba", harborRef: "jen nazev" } })).status).toBe(400);
+    // bez nastaveného Harboru – srozumitelná chyba
+    const nocfg = await admin.json(`/api/cra/${p.id}/harbor`, { method: "POST", headers: H });
+    expect([nocfg.status, nocfg.body.error ?? nocfg.body.message]).toEqual([502, expect.stringContaining("Harbor není nastaven")]);
+    const set = await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "https://harbor.test/", username: "robot$contix", password: "tajne-heslo", verifyTls: true, autoSyncHours: 24 } });
+    expect(set.body).toEqual({ url: "https://harbor.test", username: "robot$contix", verifyTls: true, autoSyncHours: 24, hasPassword: true });
+    expect(JSON.stringify((await admin.json("/api/cra/harbor")).body)).not.toContain("tajne");
+    // náhradní Harbor: první sken 2 nálezy (jeden s opravou), druhý sken (nový obraz) jen jeden
+    let scan = 1;
+    const calls: { url: string; auth: string | null }[] = [];
+    const fake = (async (url: string, init?: RequestInit) => {
+      calls.push({ url, auth: (init?.headers as Record<string, string>)?.authorization ?? null });
+      if (url.includes("/additions/vulnerabilities"))
+        return Response.json({
+          "application/vnd.security.vulnerability.report; version=1.1": {
+            vulnerabilities: [
+              { id: "CVE-2098-1001", package: "openssl", version: "3.0.11-1~deb12u1", fix_version: "3.0.11-1~deb12u2", severity: "High", description: "OpenSSL", links: ["https://security-tracker.debian.org/tracker/CVE-2098-1001", "javascript:alert(1)"], type: "debian" },
+              ...(scan === 1 ? [{ id: "CVE-2098-1002", package: "lodash", version: "4.17.20", fix_version: "", severity: "Medium", purl: "pkg:npm/lodash@4.17.20" }] : []),
+            ],
+          },
+        });
+      return Response.json({ digest: `sha256:${scan}`, scan_overview: { "application/vnd.security.vulnerability.report; version=1.1": { scan_status: "Success", end_time: "2026-11-26T10:00:00Z" } } });
+    }) as any;
+    const { syncHarborProduct } = await import("../src/modules/cra/harbor");
+    const r1 = await syncHarborProduct(db, config, p.id, fake);
+    expect([r1.vulns, r1.fixable, r1.gone]).toEqual([2, 1, 0]);
+    expect(calls[0]!.url).toBe("https://harbor.test/api/v2.0/projects/shop/repositories/web/artifacts/1.0?with_scan_overview=true");
+    expect(calls[0]!.auth).toBe(`Basic ${Buffer.from("robot$contix:tajne-heslo").toString("base64")}`);
+    const f1 = (await admin.json(`/api/cra/${p.id}/findings`, { headers: H })).body as any[];
+    const ssl = f1.find((f) => f.vulnId === "CVE-2098-1001");
+    expect([ssl.source, ssl.componentName, ssl.componentVersion, ssl.fixedVersion]).toEqual(["harbor", "openssl", "3.0.11-1~deb12u1", "3.0.11-1~deb12u2"]);
+    expect(ssl.upgradeCommand).toContain("apt-get install --only-upgrade openssl");
+    expect(ssl.fixLinks).toEqual(["https://security-tracker.debian.org/tracker/CVE-2098-1001"]);
+    expect(ssl.suggestion).toEqual({ status: "affected", actionStatement: "Aktualizovat openssl na verzi 3.0.11-1~deb12u2 nebo novější." });
+    expect(f1.find((f) => f.vulnId === "CVE-2098-1002").suggestion).toBeNull();
+    // nový obraz: lodash zmizel → návrh „opraveno“
+    scan = 2;
+    const r2 = await syncHarborProduct(db, config, p.id, fake);
+    expect([r2.vulns, r2.gone]).toEqual([1, 1]);
+    const lod = ((await admin.json(`/api/cra/${p.id}/findings`, { headers: H })).body as any[]).find((f) => f.vulnId === "CVE-2098-1002");
+    expect([lod.gone, lod.suggestion.status]).toEqual([true, "fixed"]);
+    const acc = await admin.json(`/api/cra/${p.id}/vex/suggestions`, { method: "POST", headers: H, json: {} });
+    expect(acc.body.accepted).toBe(2);
+    const f3 = (await admin.json(`/api/cra/${p.id}/findings`, { headers: H })).body as any[];
+    expect(f3.map((f) => [f.vulnId, f.status]).sort()).toEqual([["CVE-2098-1001", "affected"], ["CVE-2098-1002", "fixed"]]);
+    expect(f3.every((f) => f.suggestion === null)).toBe(true);
+    const prod = (await admin.json(`/api/cra/${p.id}`, { headers: H })).body;
+    expect([prod.harborState.digest, prod.harborState.vulns]).toEqual(["sha256:2", 1]);
+    await admin.json(`/api/cra/${p.id}`, { method: "DELETE", headers: H });
+    await admin.json("/api/cra/harbor", { method: "PUT", json: { url: "", username: "", password: "", verifyTls: true, autoSyncHours: 24 } });
   });
 
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {

@@ -263,7 +263,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/gdpr", gdprRoutes(db))
     .route("/aiact", aiActRoutes(db))
     .route("/soc2", soc2Routes(db))
-    .route("/cra", craRoutes(db, { fetchImpl: deps.infoFetch ?? deps.intelFetch }))
+    .route("/cra", craRoutes(db, { fetchImpl: deps.infoFetch ?? deps.intelFetch, config, harborFetch: deps.fetchImpl }))
     .route("/identity", identityRoutes(db, config))
     .route("/legislation/infoservice", infoServiceRoutes(db, config, { fetchImpl: deps.infoFetch ?? deps.intelFetch, aiFetch: deps.fetchImpl, pdfText: deps.pdfText }))
     .route("/legislation", legislationRoutes(db, config, { fetchImpl: deps.esbirkaFetch }))

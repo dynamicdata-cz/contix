@@ -1,4 +1,5 @@
 import { sweepDangling } from "../quality/dangling";
+import { autoHarborSync } from "../cra/harbor";
 import { closeResolvedSourceTasks } from "../findings/sourceTasks";
 import { processDefectDojo } from "../vulnerabilities/defectdojo";
 import { autoNetboxSync } from "../connections/netbox";
@@ -593,6 +594,8 @@ export function startNotificationScheduler(db: Db, config: Config, intervalMs = 
       void processDefectDojo(db, config);
       // offline databáze OSV pro komponenty produktů (CRA, ADR-093) jednou denně – na pozadí
       if (((await getSettings(db)).enabledModules as string[]).includes("cra")) void maybeRefreshOsv(db).catch((e) => console.error("OSV:", (e as Error).message));
+      // výsledky skenů obrazů z Harboru pro produkty CRA (v1.107) – podle intervalu, na pozadí
+      if (((await getSettings(db)).enabledModules as string[]).includes("cra")) void autoHarborSync(db, config).catch((e) => console.error("Harbor:", (e as Error).message));
       // automatická synchronizace aktiv a zranitelností z Wazuhu (běží na pozadí, nečeká se na ni)
       await autoWazuhSync(db, config).catch((e) => {
         error = `Wazuh synchronizace: ${(e as Error).message}`;

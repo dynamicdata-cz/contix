@@ -12,7 +12,7 @@ import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field,
 import { api } from "@/lib/api";
 import { useCan, useModule } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
-import { cn, fmtDay } from "@/lib/utils";
+import { cn, fmtDate, fmtDay } from "@/lib/utils";
 import {
   CRA_DOC_INFO_FIELDS,
   CRA_DOC_INFO_LABELS,
@@ -54,7 +54,7 @@ import {
 } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
-import { AlertTriangle, Copy, Download, ExternalLink, FileText, FileUp, Plus, Search, Trash2 } from "lucide-react";
+import { AlertTriangle, Copy, Download, ExternalLink, FileText, FileUp, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 const catTone: Record<CraCategory, Tone> = { default: "slate", important_1: "blue", important_2: "violet", critical: "red" };
@@ -457,6 +457,7 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
     cvdPolicyUrl: p?.cvdPolicyUrl ?? "",
     manufacturerName: p?.manufacturerName ?? "",
     cpe: p?.cpe ?? "",
+    harborRef: p?.harborRef ?? "",
     memberStates: (p?.memberStates ?? []).join(", "),
     ownerPositionId: p?.ownerPositionId ?? null,
   });
@@ -488,6 +489,7 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
     cvdPolicyUrl: n(f.cvdPolicyUrl),
     manufacturerName: n(f.manufacturerName),
     cpe: n(f.cpe),
+    harborRef: n(f.harborRef),
     memberStates: splitList(f.memberStates).map((x) => x.toUpperCase()).filter((x) => x.length === 2),
     ownerPositionId: f.ownerPositionId,
   });
@@ -608,6 +610,9 @@ function ProductEditor({ p }: { p: CraProductDto | null }) {
                 <Input value={f.manufacturerName} onChange={(e) => set("manufacturerName", e.target.value)} />
               </Field>
             )}
+            <Field label={t("cra.harbor.ref")} hint={t("cra.harbor.refHint")}>
+              <Input value={f.harborRef} onChange={(e) => set("harborRef", e.target.value)} placeholder="projekt/aplikace:1.4.2" className="font-mono" data-testid="cra-harbor-ref" />
+            </Field>
             <Field label={t("cra.cpe")} hint={t("cra.cpeHint")}>
               <Input value={f.cpe} onChange={(e) => set("cpe", e.target.value)} placeholder="cpe:2.3:h:vyrobce:produkt:1.0" className="font-mono" />
             </Field>
@@ -881,6 +886,9 @@ function FindingsCard({ p, onReport }: { p: CraProductDto; onReport: (x: { title
   const match = useMutation({ mutationFn: () => api.cra.match(p.id), onSuccess: refresh });
   const nvdCfg = useQuery({ queryKey: ["cra", "nvd"], queryFn: () => api.cra.nvd() });
   const nvd = useMutation({ mutationFn: () => api.cra.nvdLookup(p.id), onSuccess: refresh });
+  const harbor = useMutation({ mutationFn: () => api.cra.harborSync(p.id), onSuccess: refresh });
+  const acceptAll = useMutation({ mutationFn: () => api.cra.acceptSuggestions(p.id), onSuccess: refresh });
+  const suggested = (q.data ?? []).filter((f) => f.suggestion).length;
   const add = useMutation({ mutationFn: () => api.cra.addFinding(p.id, nf), onSuccess: () => (setNf({ vulnId: "", componentRef: "" }), refresh()) });
   const rows = (q.data ?? []).filter((f) => showGone || !f.gone);
   const refs = (comps.data ?? []).map((c) => c.purl || `${c.name}@${c.version ?? ""}`);
@@ -894,6 +902,16 @@ function FindingsCard({ p, onReport }: { p: CraProductDto; onReport: (x: { title
             {p.canEdit && p.componentCount > 0 && (
               <Button variant="secondary" disabled={match.isPending} onClick={() => match.mutate()}>
                 {t("cra.vex.match")}
+              </Button>
+            )}
+            {p.canEdit && p.harborRef && (
+              <Button variant="secondary" disabled={harbor.isPending} onClick={() => harbor.mutate()} data-testid="cra-harbor-sync">
+                <RefreshCw size={14} /> {harbor.isPending ? t("cra.harbor.running") : t("cra.harbor.sync")}
+              </Button>
+            )}
+            {p.canEdit && suggested > 0 && (
+              <Button variant="secondary" disabled={acceptAll.isPending} onClick={() => acceptAll.mutate()} data-testid="cra-accept-suggestions">
+                {t("cra.fix.acceptAll", { n: suggested })}
               </Button>
             )}
             {p.canEdit && p.cpe && nvdCfg.data?.enabled && (
@@ -912,10 +930,19 @@ function FindingsCard({ p, onReport }: { p: CraProductDto; onReport: (x: { title
       />
       <div className="space-y-3 p-5 pt-0">
         {match.data && <SuccessBox>{t("cra.vex.matched", { n: match.data.matches })}</SuccessBox>}
+        {p.harborRef && (
+          <p className="text-xs text-slate-500" data-testid="cra-harbor-state">
+            {t("cra.harbor.state", { ref: p.harborRef })}
+            {p.harborState.syncedAt ? ` · ${t("cra.harbor.synced", { d: fmtDate(p.harborState.syncedAt), n: p.harborState.vulns ?? 0, fix: p.harborState.fixable ?? 0 })}` : ` · ${t("cra.harbor.never")}`}
+            {p.harborState.error && <span className="ml-1 text-red-700">· {p.harborState.error}</span>}
+          </p>
+        )}
+        {harbor.data && <SuccessBox>{t("cra.harbor.done", { n: harbor.data.vulns ?? 0, fix: harbor.data.fixable ?? 0, gone: harbor.data.gone })}</SuccessBox>}
+        {acceptAll.data && <SuccessBox>{t("cra.fix.accepted", { n: acceptAll.data.accepted })}</SuccessBox>}
         {nvd.data && <SuccessBox>{t(nvd.data.truncated ? "cra.nvd.doneTruncated" : "cra.nvd.done", { n: nvd.data.found, total: nvd.data.total })}</SuccessBox>}
         {p.advisoryCount > 0 && <p className="text-xs text-slate-500">{t("cra.adv.usedBy", { n: p.advisoryCount })}</p>}
         {p.componentCount === 0 && !p.cpe && p.advisoryCount === 0 && <p className="text-sm text-amber-800">{t("cra.vex.noSource")}</p>}
-        <ErrorBox error={match.error ?? add.error ?? nvd.error} />
+        <ErrorBox error={match.error ?? add.error ?? nvd.error ?? harbor.error ?? acceptAll.error} />
         {!rows.length ? (
           <p className="text-sm text-slate-500">{t("cra.vex.none")}</p>
         ) : (
@@ -946,6 +973,67 @@ function FindingsCard({ p, onReport }: { p: CraProductDto; onReport: (x: { title
         )}
       </div>
     </Card>
+  );
+}
+
+/** Oprava nálezu (v1.107): opravená verze, příkaz aktualizace, odkazy a návrh stavu VEX. */
+function FixInfo({ f, edit }: { f: CraFindingDto; edit: boolean }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const accept = useMutation({
+    mutationFn: () => api.cra.acceptSuggestions(f.productId, [f.id]),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cra", "findings", f.productId] });
+      qc.invalidateQueries({ queryKey: ["cra", "detail", f.productId] });
+    },
+  });
+  if (!f.fixedVersion && !f.fixLinks.length && !f.suggestion) return null;
+  const host = (u: string) => {
+    try {
+      return new URL(u).hostname.replace(/^www\./, "");
+    } catch {
+      return u;
+    }
+  };
+  return (
+    <div className="mt-2 space-y-1 rounded-md bg-slate-50 px-3 py-2 text-xs" data-testid="cra-fix">
+      {f.fixedVersion ? (
+        <div className="font-medium text-emerald-800">{t("cra.fix.fixedIn", { v: f.fixedVersion })}</div>
+      ) : (
+        <div className="text-slate-500">{t("cra.fix.unknown")}</div>
+      )}
+      {f.upgradeCommand && (
+        <div className="flex items-center gap-2">
+          <code className="min-w-0 flex-1 truncate rounded bg-white px-2 py-1 font-mono text-[11px] text-slate-800 ring-1 ring-slate-200" title={f.upgradeCommand}>
+            {f.upgradeCommand}
+          </code>
+          <button type="button" className="rounded p-1 text-slate-500 hover:bg-white hover:text-slate-800" onClick={() => void navigator.clipboard?.writeText(f.upgradeCommand!)} aria-label={t("cra.fix.copy")}>
+            <Copy size={13} />
+          </button>
+        </div>
+      )}
+      {f.fixLinks.length > 0 && (
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+          {f.fixLinks.slice(0, 5).map((u) => (
+            <a key={u} href={u} target="_blank" rel="noreferrer noopener" className="text-brand-700 hover:underline">
+              {host(u)}
+            </a>
+          ))}
+        </div>
+      )}
+      {f.suggestion && (
+        <div className="flex flex-wrap items-center gap-2 text-amber-900">
+          <span>
+            {t("cra.fix.suggest", { status: t.lbl(VEX_LABELS.status[f.suggestion.status]) })} – {f.suggestion.actionStatement}
+          </span>
+          {edit && (
+            <Button variant="secondary" className="px-2 py-0.5 text-xs" disabled={accept.isPending} onClick={() => accept.mutate()}>
+              {t("cra.fix.accept")}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -994,6 +1082,7 @@ function FindingRow({ f, edit, onReport }: { f: CraFindingDto; edit: boolean; on
         {f.source === "manual" && <Badge tone="slate">{t("cra.vex.manual")}</Badge>}
         {f.source === "csaf" && <Badge tone="blue">{t("cra.vex.fromVendor")}</Badge>}
         {f.source === "nvd" && <Badge tone="slate">NVD</Badge>}
+        {f.source === "harbor" && <Badge tone="blue">Harbor</Badge>}
         {f.vendorStatus && f.vendorStatus !== f.status && <span className="text-xs text-amber-800">{t("cra.vex.vendorSays", { status: t.lbl(VEX_LABELS.status[f.vendorStatus]) })}</span>}
         {f.gone && <Badge tone="slate">{t("cra.vex.gone")}</Badge>}
         <span className="ml-auto flex flex-wrap items-center gap-2">
@@ -1018,6 +1107,7 @@ function FindingRow({ f, edit, onReport }: { f: CraFindingDto; edit: boolean; on
         </span>
       </div>
       {f.summary && <div className="mt-0.5 text-xs text-slate-600">{f.summary}</div>}
+      <FixInfo f={f} edit={edit} />
       <fieldset disabled={!edit} className="mt-2 grid gap-2 sm:grid-cols-[11rem_1fr]">
         <Select value={v.status} onChange={(e) => setV({ ...v, status: e.target.value as VexStatus })} aria-label={t("cra.vex.status")}>
           {VEX_STATUSES.map((s) => (
@@ -1508,7 +1598,52 @@ function AdvisoriesTab() {
         </div>
       </Card>
       <NvdCard />
+      <HarborCard />
     </div>
+  );
+}
+
+function HarborCard() {
+  const t = useT();
+  const can = useCan();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["cra", "harbor"], queryFn: () => api.cra.harbor() });
+  const [f, setF] = useState<{ url: string; username: string; password: string; verifyTls: boolean; autoSyncHours: number } | null>(null);
+  useEffect(() => {
+    if (q.data && !f) setF({ url: q.data.url, username: q.data.username, password: "", verifyTls: q.data.verifyTls, autoSyncHours: q.data.autoSyncHours });
+  }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const save = useMutation({ mutationFn: () => api.cra.saveHarbor({ ...f!, password: f!.password || undefined }), onSuccess: (d) => (qc.setQueryData(["cra", "harbor"], d), setF((x) => (x ? { ...x, password: "" } : x))) });
+  if (!q.data || !f) return <ErrorBox error={q.error} />;
+  const admin = can("admin:settings");
+  return (
+    <Card data-testid="cra-harbor">
+      <CardHeader title={t("cra.harbor.title")} />
+      <div className="space-y-3 p-5 pt-0 text-sm">
+        <p className="text-slate-700">{t("cra.harbor.sub")}</p>
+        <fieldset disabled={!admin} className="grid gap-3 sm:grid-cols-2">
+          <Field label={t("cra.harbor.url")}>
+            <Input value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} placeholder="https://harbor.firma.cz" data-testid="cra-harbor-url" />
+          </Field>
+          <Field label={t("cra.harbor.user")} hint={t("cra.harbor.userHint")}>
+            <Input value={f.username} onChange={(e) => setF({ ...f, username: e.target.value })} placeholder="robot$contix" />
+          </Field>
+          <Field label={t("cra.harbor.password")} hint={q.data.hasPassword ? t("cra.harbor.passwordKeep") : undefined}>
+            <Input type="password" autoComplete="new-password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+          </Field>
+          <Field label={t("cra.harbor.auto")} hint={t("cra.harbor.autoHint")}>
+            <Input type="number" min={0} max={168} value={f.autoSyncHours} onChange={(e) => setF({ ...f, autoSyncHours: Number(e.target.value) || 0 })} />
+          </Field>
+          <Checkbox checked={f.verifyTls} onChange={(v) => setF({ ...f, verifyTls: v })} label={t("cra.harbor.verifyTls")} />
+        </fieldset>
+        {admin && (
+          <Button onClick={() => save.mutate()} disabled={save.isPending} data-testid="cra-harbor-save">
+            {t("cra.save")}
+          </Button>
+        )}
+        {save.isSuccess && <SuccessBox>{t("cra.harbor.saved")}</SuccessBox>}
+        <ErrorBox error={save.error} />
+      </div>
+    </Card>
   );
 }
 

@@ -4197,3 +4197,29 @@ describe("lokality (v1.104, ADR-198)", () => {
     expect(canNest("other", "building")).toBe(true);
   });
 });
+
+describe("CRA – opravy (v1.107, ADR-201)", () => {
+  test("opravená verze z rozsahů OSV, příkaz aktualizace, odkaz na obraz Harboru, návrh VEX", async () => {
+    const { osvFixedVersion, craUpgradeCommand, parseHarborRef, vexSuggestion, parseOsvRecord } = await import("@contix/shared");
+    const aff: any[] = [{ ecosystem: "npm", name: "lodash", versions: [], ranges: [{ type: "SEMVER", events: [{ introduced: "0" }, { fixed: "4.17.21" }, { introduced: "5.0.0" }, { fixed: "5.0.3" }] }] }];
+    expect(osvFixedVersion(aff, "4.17.20")).toBe("4.17.21");
+    expect(osvFixedVersion(aff, "5.0.1")).toBe("5.0.3");
+    expect(osvFixedVersion(aff, "4.17.21")).toBeNull();
+    expect(osvFixedVersion([{ ecosystem: "npm", name: "x", versions: [], ranges: [{ type: "SEMVER", events: [{ introduced: "1.0" }, { last_affected: "1.5" }] }] }], "1.2")).toBeNull();
+    expect(craUpgradeCommand("npm", "lodash", "4.17.21")).toBe("npm install lodash@4.17.21");
+    expect(craUpgradeCommand("pypi", "django", "4.2.8")).toBe('pip install "django>=4.2.8"');
+    expect(craUpgradeCommand("npm", "x; rm -rf /", "1.0")).toBeNull();
+    expect(craUpgradeCommand("npm", "lodash", "1.0 && curl evil")).toBeNull();
+    expect(craUpgradeCommand("unknown", "a", "1")).toBeNull();
+    expect(parseHarborRef("shop/web:1.4.2")).toEqual({ project: "shop", repository: "web", reference: "1.4.2" });
+    expect(parseHarborRef("harbor.firma.cz/shop/team/web@sha256:abc")).toEqual({ project: "shop", repository: "team/web", reference: "sha256:abc" });
+    expect(parseHarborRef("shop/web")).toEqual({ project: "shop", repository: "web", reference: "latest" });
+    expect(parseHarborRef("web")).toBeNull();
+    expect(parseHarborRef("shop/web:1 0")).toBeNull();
+    expect(vexSuggestion({ status: "under_investigation", gone: true, fixedVersion: null, componentName: "x", source: "osv" })?.status).toBe("fixed");
+    expect(vexSuggestion({ status: "not_affected", gone: true, fixedVersion: null, componentName: "x", source: "osv" })).toBeNull();
+    expect(vexSuggestion({ status: "under_investigation", gone: false, fixedVersion: "2.0", componentName: "x", source: "manual" })).toBeNull();
+    const rec = parseOsvRecord(JSON.stringify({ id: "GHSA-1", affected: [{ package: { ecosystem: "npm", name: "a" }, ranges: [] }], references: [{ type: "WEB", url: "https://w" }, { type: "FIX", url: "https://fix" }, { type: "FIX", url: "javascript:x" }] }));
+    expect(rec!.references).toEqual([{ type: "FIX", url: "https://fix" }, { type: "WEB", url: "https://w" }]);
+  });
+});

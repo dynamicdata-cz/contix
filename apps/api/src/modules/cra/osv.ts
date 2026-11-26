@@ -1,4 +1,4 @@
-import { OSV_DEFAULTS, OSV_ECOSYSTEMS, osvAffects, parseOsvRecord, purlToOsv, type OsvAffected, type OsvRecord, type OsvSettings, type OsvStatusDto } from "@contix/shared";
+import { OSV_DEFAULTS, OSV_ECOSYSTEMS, osvAffects, osvFixedVersion, parseOsvRecord, purlToOsv, type OsvAffected, type OsvRecord, type OsvSettings, type OsvStatusDto } from "@contix/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Unzip, UnzipInflate, strFromU8 } from "fflate";
 import type { Db } from "../../db/client";
@@ -43,10 +43,10 @@ export async function storeOsvRecords(db: Db, records: OsvRecord[]) {
     await db.transaction(async (tx) => {
       await tx
         .insert(osvRecords)
-        .values(part.map((r) => ({ id: r.id, aliases: r.aliases, summary: r.summary, severity: r.severity, modified: r.modified ? new Date(r.modified) : null, withdrawn: r.withdrawn, affected: r.affected, ecosystems: [...new Set(r.affected.map((a) => a.ecosystem))] })))
+        .values(part.map((r) => ({ id: r.id, aliases: r.aliases, summary: r.summary, severity: r.severity, modified: r.modified ? new Date(r.modified) : null, withdrawn: r.withdrawn, affected: r.affected, ecosystems: [...new Set(r.affected.map((a) => a.ecosystem))], references: r.references ?? [] })))
         .onConflictDoUpdate({
           target: osvRecords.id,
-          set: { aliases: sql`excluded.aliases`, summary: sql`excluded.summary`, severity: sql`excluded.severity`, modified: sql`excluded.modified`, withdrawn: sql`excluded.withdrawn`, affected: sql`excluded.affected`, ecosystems: sql`excluded.ecosystems` },
+          set: { aliases: sql`excluded.aliases`, summary: sql`excluded.summary`, severity: sql`excluded.severity`, modified: sql`excluded.modified`, withdrawn: sql`excluded.withdrawn`, affected: sql`excluded.affected`, ecosystems: sql`excluded.ecosystems`, references: sql`excluded.references` },
         });
       await tx.delete(osvPackages).where(inArray(osvPackages.osvId, part.map((r) => r.id)));
       const pk = new Map<string, { osvId: string; ecosystem: string; name: string }>();
@@ -114,7 +114,7 @@ export async function matchProducts(db: Db, productIds?: string[]) {
   for (const p of products) {
     const comps = await db.select().from(craComponents).where(eq(craComponents.productId, p.id));
     const keys = comps.map((c) => ({ c, o: purlToOsv(c.purl, c.version) })).filter((x) => x.o?.version) as { c: (typeof comps)[number]; o: NonNullable<ReturnType<typeof purlToOsv>> }[];
-    const matches = new Map<string, { ref: string; rec: typeof osvRecords.$inferSelect }>();
+    const matches = new Map<string, { ref: string; rec: typeof osvRecords.$inferSelect; fixed: string | null }>();
     if (keys.length) {
       const names = [...new Set(keys.map((k) => k.o.name))];
       const pk = await db.select().from(osvPackages).where(inArray(osvPackages.name, names));
@@ -126,16 +126,19 @@ export async function matchProducts(db: Db, productIds?: string[]) {
           const rec = byId.get(x.osvId);
           if (!rec) continue;
           const aff = (rec.affected as OsvAffected[]).filter((a) => a.ecosystem === k.o.ecosystem && a.name === k.o.name);
-          if (aff.some((a) => osvAffects(a, k.o.version))) matches.set(`${componentRefOf(k.c)}|${rec.id}`, { ref: componentRefOf(k.c), rec });
+          if (aff.some((a) => osvAffects(a, k.o.version))) matches.set(`${componentRefOf(k.c)}|${rec.id}`, { ref: componentRefOf(k.c), rec, fixed: osvFixedVersion(aff, k.o.version) });
         }
       }
     }
     const now = new Date();
-    for (const { ref, rec } of matches.values()) {
+    for (const { ref, rec, fixed } of matches.values()) {
+      // odkazy na opravu: FIX / ADVISORY ze záznamu, vždy i záznam OSV (v1.107)
+      const links = [...(rec.references ?? []).map((r) => r.url), `https://osv.dev/vulnerability/${encodeURIComponent(rec.id)}`].slice(0, 12);
+      const fix = { fixedVersion: fixed?.slice(0, 255) ?? null, fixLinks: links };
       await db
         .insert(craFindings)
-        .values({ companyId: p.companyId, productId: p.id, componentRef: ref.slice(0, 500), vulnId: rec.id, aliases: rec.aliases, summary: rec.summary, severity: rec.severity, source: "osv" })
-        .onConflictDoUpdate({ target: [craFindings.productId, craFindings.componentRef, craFindings.vulnId], set: { aliases: rec.aliases, summary: rec.summary, severity: rec.severity, gone: false, updatedAt: now } });
+        .values({ companyId: p.companyId, productId: p.id, componentRef: ref.slice(0, 500), vulnId: rec.id, aliases: rec.aliases, summary: rec.summary, severity: rec.severity, source: "osv", ...fix })
+        .onConflictDoUpdate({ target: [craFindings.productId, craFindings.componentRef, craFindings.vulnId], set: { aliases: rec.aliases, summary: rec.summary, severity: rec.severity, gone: false, updatedAt: now, ...fix } });
     }
     // shody, které už neplatí (komponenta odebrána, jiná verze, záznam opraven / stažen)
     const keep = [...matches.keys()];

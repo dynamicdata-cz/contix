@@ -3742,6 +3742,9 @@ export const craProducts = pgTable(
     supplyChecks: jsonb("supply_checks").$type<Record<string, unknown>>().notNull().default({}),
     /** Doplňující údaje pro prohlášení o shodě a informace pro uživatele (v1.30, ADR-127). */
     docInfo: jsonb("doc_info").$type<Record<string, unknown>>().notNull().default({}),
+    /** Obraz v registru Harbor (v1.107, ADR-201): „projekt/repozitář:tag“ nebo „…@sha256:…“; stav posledního načtení. */
+    harborRef: varchar("harbor_ref", { length: 500 }),
+    harborState: jsonb("harbor_state").$type<{ digest?: string | null; scannedAt?: string | null; syncedAt?: string; error?: string | null; vulns?: number; fixable?: number }>().notNull().default({}),
     ...timestamps,
   },
   (t) => [index("cra_products_company_idx").on(t.companyId)],
@@ -4038,6 +4041,8 @@ export const osvRecords = pgTable("osv_records", {
   withdrawn: boolean("withdrawn").notNull().default(false),
   affected: jsonb("affected").$type<unknown[]>().notNull().default([]),
   ecosystems: text("ecosystems").array().notNull().default(sql`'{}'::text[]`),
+  /** Odkazy záznamu – oprava, oznámení (v1.107). */
+  references: jsonb("references").$type<{ type: string; url: string }[]>().notNull().default([]),
 });
 
 /** Index balíčků pro párování (ekosystém + název → záznam). */
@@ -4079,6 +4084,9 @@ export const craFindings = pgTable(
     gone: boolean("gone").notNull().default(false),
     /** Riziko založené z nálezu (v1.05, ADR-101). */
     riskId: uuid("risk_id").references(() => risks.id, { onDelete: "set null" }),
+    /** Oprava (v1.107, ADR-201): nejnižší opravená verze a odkazy na opravu / oznámení. */
+    fixedVersion: varchar("fixed_version", { length: 255 }),
+    fixLinks: text("fix_links").array().notNull().default(sql`'{}'::text[]`),
     ...timestamps,
   },
   (t) => [uniqueIndex("cra_findings_uq").on(t.productId, t.componentRef, t.vulnId), index("cra_findings_company_idx").on(t.companyId)],
