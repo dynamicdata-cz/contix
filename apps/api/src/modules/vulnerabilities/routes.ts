@@ -1,4 +1,4 @@
-import { AcceptVulnInput, VULN_PRIORITIES, VULN_SCANNERS, VulnScanImportOptions, VulnTriageInput, VulnMetricsQuery, type VulnScanDto, type VulnScanStats, type VulnScanner, VulnIntelSettingsInput, VulnListQuery, vulnPriority, type VulnFixPlanItem, type VulnPriority, type VulnSummaryDto } from "@contix/shared";
+import { AcceptVulnInput, VulnBulkSuppressInput, VulnSuppressRuleInput, type VulnStatus, type VulnSuppressRuleDto, VULN_PRIORITIES, VULN_SCANNERS, VulnScanImportOptions, VulnTriageInput, VulnMetricsQuery, type VulnScanDto, type VulnScanStats, type VulnScanner, VulnIntelSettingsInput, VulnListQuery, vulnPriority, type VulnFixPlanItem, type VulnPriority, type VulnSummaryDto } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, count, desc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { Hono, type Context } from "hono";
@@ -7,7 +7,9 @@ import { currentUser, hasPerm, requireModule, requirePerm } from "../../auth/mid
 import { audit, type AppEnv } from "../../auth/service";
 import { assertScope, hasPermIn, inScope, targetCompany } from "../../auth/scope";
 import type { Db } from "../../db/client";
-import { assets, assetVulnerabilities, users, vulnIntel, vulnScans } from "../../db/schema";
+import { assets, assetVulnerabilities, users, vulnIntel, vulnScans, vulnSuppressionRules } from "../../db/schema";
+import { applySuppressionRules, staleConditions, suppressMatching, suppressedByRule } from "./suppression";
+import { z } from "zod";
 import { createHash } from "node:crypto";
 import { detectScanner, parseScan } from "./parsers";
 import { uploadScan } from "./scans";
@@ -220,6 +222,9 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
         if (q.scanId) where.push(eq(assetVulnerabilities.scanId, q.scanId));
         if (q.scanner) where.push(q.scanner === "wazuh" ? eq(assetVulnerabilities.sourceType, "wazuh") : eq(assetVulnerabilities.scanner, q.scanner));
         if (q.verified) where.push(eq(assetVulnerabilities.verified, true));
+        // historické nálezy (v1.106) – stejná kritéria jako hromadné utlumení
+        if (q.olderThanDays || q.assetOfflineDays || q.maxSeverity)
+          where.push(...staleConditions({ olderThanDays: q.olderThanDays ?? null, assetOfflineDays: q.assetOfflineDays ?? null, maxSeverity: q.maxSeverity ?? null, wazuhOnly: false, keepKev: false }));
         const sla = await getVulnSla(db);
         if (q.overdue) where.push(vulnOverdueSql(sla));
         const cond = where.length ? and(...where) : undefined;
@@ -267,6 +272,8 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
               exposed: assetVulnerabilities.exposed,
               duplicateOfId: assetVulnerabilities.duplicateOfId,
               triageReason: assetVulnerabilities.triageReason,
+              suppressedUntil: assetVulnerabilities.suppressedUntil,
+              suppressRuleId: assetVulnerabilities.suppressRuleId,
             })
             .from(assetVulnerabilities)
             .innerJoin(assets, eq(assets.id, assetVulnerabilities.assetId))
@@ -446,17 +453,20 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
         }
         const now = new Date();
         const by = { triagedBy: me.id, triagedAt: now };
-        const active = ["open", "accepted"] as const;
-        const [set, from] =
+        const active: VulnStatus[] = ["open", "accepted"];
+        type Patch = Partial<typeof assetVulnerabilities.$inferInsert>;
+        const [set, from]: [Patch, VulnStatus[]] =
           input.action === "verify"
             ? [{ verified: true, ...by }, active]
             : input.action === "unverify"
               ? [{ verified: false, ...by }, active]
               : input.action === "reopen"
-                ? [{ status: "open" as const, duplicateOfId: null, triageReason: null, ...by }, ["false_positive", "out_of_scope", "duplicate"] as const]
-                : input.action === "duplicate"
-                  ? [{ status: "duplicate" as const, duplicateOfId: input.duplicateOfId!, triageReason: input.reason || null, ...by }, active]
-                  : [{ status: input.action, triageReason: input.reason!, ...by }, active];
+                ? [{ status: "open", duplicateOfId: null, triageReason: null, suppressedUntil: null, suppressRuleId: null, ...by }, ["false_positive", "out_of_scope", "duplicate", "suppressed"]]
+                : input.action === "suppress"
+                  ? [{ status: "suppressed", triageReason: input.reason!, suppressedUntil: input.until ?? null, suppressRuleId: null, ...by }, ["open"]]
+                  : input.action === "duplicate"
+                    ? [{ status: "duplicate", duplicateOfId: input.duplicateOfId!, triageReason: input.reason || null, ...by }, active]
+                    : [{ status: input.action, triageReason: input.reason!, ...by }, active];
         const changed = await db
           .update(assetVulnerabilities)
           .set(set)
@@ -472,6 +482,66 @@ export function vulnerabilityRoutes(db: Db, intelFetch?: FetchLike) {
           details: { action: input.action, reason: input.reason, changed: changed.length, cves: [...new Set(rows.map((r) => r.cveId))].slice(0, 20) },
         });
         return c.json({ changed: changed.length });
+      })
+
+      /* ---------- utlumení historických zranitelností (v1.106, ADR-200) ---------- */
+      /** Hromadné utlumení všech otevřených nálezů podle kritérií v aktivní společnosti (`dryRun` = jen počet). */
+      .post("/suppress", requirePerm("assets:write"), zValidator("json", VulnBulkSuppressInput), async (c) => {
+        const v = c.req.valid("json");
+        const companyId = targetCompany(c, null, "assets:write");
+        const n = await suppressMatching(db, { companyIds: [companyId], criteria: v.criteria, reason: v.reason, until: v.until, userId: currentUser(c).id, dryRun: v.dryRun });
+        if (!v.dryRun) {
+          await recomputeHealth(db);
+          await audit(db, { c, user: currentUser(c), action: "vulnerability.bulk_suppressed", entityType: "company", entityId: companyId, details: { criteria: v.criteria, reason: v.reason, until: v.until, count: n } });
+        }
+        return c.json({ count: n, dryRun: v.dryRun });
+      })
+      .get("/suppression-rules", requirePerm("assets:read"), async (c) => {
+        const rows = await db
+          .select({ r: vulnSuppressionRules, by: users.displayName })
+          .from(vulnSuppressionRules)
+          .leftJoin(users, eq(users.id, vulnSuppressionRules.createdById))
+          .where(inScope(c, vulnSuppressionRules.companyId))
+          .orderBy(asc(vulnSuppressionRules.name));
+        const cnt = await suppressedByRule(db, rows.map((x) => x.r.id));
+        return c.json(
+          rows.map(({ r, by }) => ({ id: r.id, companyId: r.companyId, name: r.name, criteria: r.criteria, reason: r.reason, active: r.active, suppressed: cnt.get(r.id) ?? 0, lastAppliedAt: r.lastAppliedAt?.toISOString() ?? null, createdByName: by }) satisfies VulnSuppressRuleDto),
+        );
+      })
+      .post("/suppression-rules", requirePerm("assets:write"), zValidator("json", VulnSuppressRuleInput), async (c) => {
+        const v = c.req.valid("json");
+        const companyId = targetCompany(c, null, "assets:write");
+        const [r] = await db.insert(vulnSuppressionRules).values({ ...v, companyId, createdById: currentUser(c).id }).returning();
+        const res = await applySuppressionRules(db, [companyId]);
+        await recomputeHealth(db);
+        await audit(db, { c, user: currentUser(c), action: "vulnerability.suppression_rule_created", entityType: "company", entityId: companyId, details: { name: v.name, criteria: v.criteria, suppressed: res.suppressed } });
+        return c.json({ id: r!.id, ...res }, 201);
+      })
+      .put("/suppression-rules/:id", requirePerm("assets:write"), zValidator("param", z.object({ id: z.string().uuid() })), zValidator("json", VulnSuppressRuleInput), async (c) => {
+        const [cur] = await db.select().from(vulnSuppressionRules).where(eq(vulnSuppressionRules.id, c.req.param("id")));
+        assertScope(c, cur?.companyId, "Pravidlo nenalezeno");
+        if (!hasPermIn(c, "assets:write", cur!.companyId)) throw new HTTPException(403, { message: "Nedostatečná oprávnění" });
+        const v = c.req.valid("json");
+        await db.update(vulnSuppressionRules).set({ ...v, updatedAt: new Date() }).where(eq(vulnSuppressionRules.id, cur!.id));
+        const res = await applySuppressionRules(db, [cur!.companyId]);
+        await recomputeHealth(db);
+        await audit(db, { c, user: currentUser(c), action: "vulnerability.suppression_rule_updated", entityType: "company", entityId: cur!.companyId, details: { name: v.name, active: v.active, ...res } });
+        return c.json(res);
+      })
+      .delete("/suppression-rules/:id", requirePerm("assets:write"), zValidator("param", z.object({ id: z.string().uuid() })), async (c) => {
+        const [cur] = await db.select().from(vulnSuppressionRules).where(eq(vulnSuppressionRules.id, c.req.param("id")));
+        assertScope(c, cur?.companyId, "Pravidlo nenalezeno");
+        if (!hasPermIn(c, "assets:write", cur!.companyId)) throw new HTTPException(403, { message: "Nedostatečná oprávnění" });
+        // smazané pravidlo vrátí své nálezy mezi otevřené
+        const r = await db
+          .update(assetVulnerabilities)
+          .set({ status: "open", suppressRuleId: null, suppressedUntil: null, triageReason: null })
+          .where(and(eq(assetVulnerabilities.suppressRuleId, cur!.id), eq(assetVulnerabilities.status, "suppressed")))
+          .returning({ id: assetVulnerabilities.id });
+        await db.delete(vulnSuppressionRules).where(eq(vulnSuppressionRules.id, cur!.id));
+        await recomputeHealth(db);
+        await audit(db, { c, user: currentUser(c), action: "vulnerability.suppression_rule_deleted", entityType: "company", entityId: cur!.companyId, details: { name: cur!.name, released: r.length } });
+        return c.json({ released: r.length });
       })
 
       /** Výjimka – akceptace rizika (např. kompenzační opatření, nelze aktualizovat). */

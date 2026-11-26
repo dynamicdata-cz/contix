@@ -36,7 +36,7 @@ export interface ScanFinding {
 }
 
 /** Stavy triáže (DefectDojo): ruční rozhodnutí, která reimport nepřepíše. */
-export const VULN_TRIAGE_ACTIONS = ["verify", "unverify", "false_positive", "out_of_scope", "duplicate", "reopen"] as const;
+export const VULN_TRIAGE_ACTIONS = ["verify", "unverify", "false_positive", "out_of_scope", "duplicate", "reopen", "suppress"] as const;
 export type VulnTriageAction = (typeof VULN_TRIAGE_ACTIONS)[number];
 
 export const VulnTriageInput = z
@@ -45,9 +45,11 @@ export const VulnTriageInput = z
     action: z.enum(VULN_TRIAGE_ACTIONS),
     reason: z.string().trim().max(2000).optional(),
     duplicateOfId: z.string().uuid().optional(),
+    /** Utlumení (v1.106): do kdy; prázdné = dokud ho zdroj hlásí. */
+    until: z.string().date().nullable().optional(),
   })
   .superRefine((v, ctx) => {
-    if ((v.action === "false_positive" || v.action === "out_of_scope") && (v.reason ?? "").length < 5)
+    if ((v.action === "false_positive" || v.action === "out_of_scope" || v.action === "suppress") && (v.reason ?? "").length < 5)
       ctx.addIssue({ code: "custom", path: ["reason"], message: "Uveďte zdůvodnění (min. 5 znaků)" });
     if (v.action === "duplicate" && !v.duplicateOfId) ctx.addIssue({ code: "custom", path: ["duplicateOfId"], message: "Vyberte původní nález" });
   });
@@ -195,6 +197,7 @@ export const VULN_SCAN_LABELS = {
     out_of_scope: "Mimo rozsah",
     duplicate: "Duplicita",
     reopen: "Znovu otevřít",
+    suppress: "Utlumit (historická)",
   } satisfies Record<VulnTriageAction, string>,
 } as const;
 

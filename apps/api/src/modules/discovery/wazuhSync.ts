@@ -1,4 +1,5 @@
 import { companyForAgent, ROOT_COMPANY_ID } from "@contix/shared";
+import { applySuppressionRules } from "../vulnerabilities/suppression";
 import { and, desc, eq } from "drizzle-orm";
 import { audit } from "../../auth/service";
 import type { Config } from "../../config";
@@ -66,6 +67,11 @@ export async function startWazuhSync(db: Db, w: WazuhConn, companyId: string, tr
           ctx.log(`CHYBA zranitelností: ${(e as Error).message}`);
           stats = { vulnError: 1 };
         }
+      }
+      // pravidla utlumení historických zranitelností (v1.106)
+      if (w.vulnEnabled) {
+        const sp = await applySuppressionRules(db);
+        if (sp.suppressed || sp.released || sp.expired) ctx.log(`utlumení: ${sp.suppressed} nově utlumených, ${sp.released + sp.expired} znovu otevřených`);
       }
       const h = await recomputeHealth(db);
       ctx.log(`semafor: ${h.red} červených, ${h.orange} oranžových, ${h.green} zelených, ${h.unknown} bez dat`);

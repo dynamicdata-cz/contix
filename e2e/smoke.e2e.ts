@@ -1977,6 +1977,20 @@ test("certifikáty osob: externí pracovník dodavatele se souborem, filtr platn
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("historické zranitelnosti: náhled kritérií a pravidlo utlumení (v1.106)", async () => {
+  await page.goto("/vulnerabilities");
+  const card = page.getByTestId("vsup-card");
+  await expect(card).toBeVisible();
+  await page.getByTestId("vsup-offline").fill("45");
+  await expect(page.getByTestId("vsup-preview")).toContainText("otevřených zranitelností");
+  await page.getByTestId("vsup-reason").fill("Vypnuté virtuály – data z neaktivních agentů");
+  await page.getByTestId("vsup-rule-name").fill("E2E vypnuté virtuály");
+  await page.getByTestId("vsup-rule-save").click();
+  await expect(page.getByTestId("vsup-rules")).toContainText("E2E vypnuté virtuály");
+  await expect(page.getByTestId("vsup-rules")).toContainText("aktivum nehlášeno > 45 dní");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("tento týden a kalendář lhůt s exportem .ics (v1.98)", async () => {
   await page.goto("/");
   await expect(page.getByTestId("week-card")).toBeVisible();

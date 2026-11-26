@@ -10,6 +10,7 @@ import { fmtDate } from "@/lib/utils";
 import { SUPPORT_STATUSES, VULN_LABELS, type HealthStatus, type VulnPriority } from "@contix/shared";
 import { FixPlanCard, PrioritySection } from "@/components/vulnPriority";
 import { ScansCard } from "@/components/vulnScans";
+import { VulnSuppressionCard } from "@/components/vulnSuppression";
 import { DefectDojoCard, VulnMetricsCard } from "@/components/vulnMetrics";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -71,6 +72,7 @@ export function VulnerabilitiesPage() {
       <FixPlanCard onPackage={(pkg) => focus({ packageName: pkg })} />
       <VulnMetricsCard />
       <ScansCard />
+      <VulnSuppressionCard />
       <DefectDojoCard />
 
       {/* Semafor – stat tiles s ikonou a textem */}

@@ -10,7 +10,7 @@ export const Severity = z.enum(SEVERITIES);
 export type Severity = z.infer<typeof Severity>;
 
 /** Stavy nálezu; false_positive / out_of_scope / duplicate = triáž (ADR-095), reimport je nepřepíše. */
-export const VULN_STATUSES = ["open", "accepted", "resolved", "false_positive", "out_of_scope", "duplicate"] as const;
+export const VULN_STATUSES = ["open", "accepted", "resolved", "false_positive", "out_of_scope", "duplicate", "suppressed"] as const;
 export const VulnStatus = z.enum(VULN_STATUSES);
 export type VulnStatus = z.infer<typeof VulnStatus>;
 
@@ -23,7 +23,7 @@ export type SupportStatus = (typeof SUPPORT_STATUSES)[number];
 
 export const VULN_LABELS = {
   severity: { critical: "Kritická", high: "Vysoká", medium: "Střední", low: "Nízká", unknown: "Neurčeno" } satisfies Record<Severity, string>,
-  status: { open: "Otevřená", accepted: "Akceptovaná (výjimka)", resolved: "Vyřešená", false_positive: "Falešně pozitivní", out_of_scope: "Mimo rozsah", duplicate: "Duplicita" } satisfies Record<VulnStatus, string>,
+  status: { open: "Otevřená", accepted: "Akceptovaná (výjimka)", resolved: "Vyřešená", false_positive: "Falešně pozitivní", out_of_scope: "Mimo rozsah", duplicate: "Duplicita", suppressed: "Utlumená (historická)" } satisfies Record<VulnStatus, string>,
   health: { green: "V pořádku", orange: "Pozor", red: "Kritické", unknown: "Bez dat" } satisfies Record<HealthStatus, string>,
   support: {
     supported: "Podporováno",
@@ -113,6 +113,9 @@ export interface VulnerabilityDto {
   exposed: boolean;
   duplicateOfId: string | null;
   triageReason: string | null;
+  /** Utlumení (v1.106): do kdy / pravidlem. */
+  suppressedUntil?: string | null;
+  suppressRuleId?: string | null;
 }
 
 export const VulnListQuery = z.object({
@@ -127,6 +130,10 @@ export const VulnListQuery = z.object({
   scanId: z.string().uuid().optional(),
   scanner: z.string().max(30).optional(),
   verified: z.literal("1").optional(),
+  /** Historické nálezy (v1.106): poprvé zjištěno před více než N dny / aktivum (agent) nehlášeno N dní. */
+  olderThanDays: z.coerce.number().int().min(1).max(3650).optional(),
+  assetOfflineDays: z.coerce.number().int().min(1).max(3650).optional(),
+  maxSeverity: z.enum(["low", "medium", "high", "critical"]).optional(),
   limit: z.coerce.number().int().min(1).max(1000).default(100),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -308,3 +315,55 @@ export function computeHealth(input: {
 }
 
 export const healthRank: Record<HealthStatus, number> = { unknown: 0, green: 1, orange: 2, red: 3 };
+
+/* ============================================================
+ * Utlumení historických zranitelností (v1.106.0, ADR-200)
+ * ============================================================ */
+
+/** Kritéria „historické“ zranitelnosti – sdílí hromadné utlumení, pravidla i filtr seznamu. */
+export const VulnStaleCriteria = z
+  .object({
+    /** Poprvé zjištěno (detekce Wazuhu, jinak první výskyt v CONTIXu) před více než N dny. */
+    olderThanDays: z.number().int().min(1).max(3650).nullable().default(null),
+    /** Aktivum (agent) se nehlásí déle než N dní – vypnutý virtuál, vyřazený počítač. */
+    assetOfflineDays: z.number().int().min(1).max(3650).nullable().default(null),
+    /** Jen do této závažnosti včetně (např. nízké a střední); prázdné = všechny. */
+    maxSeverity: z.enum(["low", "medium", "high", "critical"]).nullable().default(null),
+    /** Jen nálezy z Wazuhu (ne z importovaných skenů). */
+    wazuhOnly: z.boolean().default(true),
+    /** Nikdy neutlumit zranitelnosti z katalogu KEV (aktivně zneužívané). */
+    keepKev: z.boolean().default(true),
+  })
+  .refine((v) => v.olderThanDays !== null || v.assetOfflineDays !== null, { message: "Zadejte stáří nálezu nebo dobu, po kterou se aktivum nehlásí", path: ["olderThanDays"] });
+export type VulnStaleCriteria = z.input<typeof VulnStaleCriteria>;
+
+export const VulnBulkSuppressInput = z.object({
+  criteria: VulnStaleCriteria,
+  reason: z.string().trim().min(5, "Uveďte zdůvodnění (min. 5 znaků)").max(2000),
+  /** Do kdy utlumení platí; poté se nález znovu otevře, pokud ho zdroj stále hlásí. */
+  until: z.string().date().nullable().default(null),
+  /** Jen spočítat, nic neměnit. */
+  dryRun: z.boolean().default(false),
+});
+export type VulnBulkSuppressInput = z.input<typeof VulnBulkSuppressInput>;
+
+export const VulnSuppressRuleInput = z.object({
+  name: z.string().trim().min(1).max(200),
+  criteria: VulnStaleCriteria,
+  reason: z.string().trim().min(5, "Uveďte zdůvodnění (min. 5 znaků)").max(2000),
+  active: z.boolean().default(true),
+});
+export type VulnSuppressRuleInput = z.input<typeof VulnSuppressRuleInput>;
+
+export interface VulnSuppressRuleDto {
+  id: string;
+  companyId: string;
+  name: string;
+  criteria: z.infer<typeof VulnStaleCriteria>;
+  reason: string;
+  active: boolean;
+  /** Nálezy, které pravidlo právě tlumí. */
+  suppressed: number;
+  lastAppliedAt: string | null;
+  createdByName: string | null;
+}

@@ -919,6 +919,23 @@ export const vulnIntel = pgTable("vuln_intel", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** Pravidla utlumení historických zranitelností (v1.106, ADR-200) – použijí se po každé synchronizaci. */
+export const vulnSuppressionRules = pgTable(
+  "vuln_suppression_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: companyRef(),
+    name: varchar("name", { length: 200 }).notNull(),
+    criteria: jsonb("criteria").$type<{ olderThanDays: number | null; assetOfflineDays: number | null; maxSeverity: "low" | "medium" | "high" | "critical" | null; wazuhOnly: boolean; keepKev: boolean }>().notNull(),
+    reason: text("reason").notNull(),
+    active: boolean("active").notNull().default(true),
+    lastAppliedAt: timestamp("last_applied_at", { withTimezone: true }),
+    createdById: uuid("created_by_id").references(() => users.id, { onDelete: "set null" }),
+    ...timestamps,
+  },
+  (t) => [index("vuln_suppression_rules_company_idx").on(t.companyId)],
+);
+
 export const assetVulnerabilities = pgTable(
   "asset_vulnerabilities",
   {
@@ -963,6 +980,9 @@ export const assetVulnerabilities = pgTable(
     triageReason: text("triage_reason"),
     triagedBy: uuid("triaged_by").references(() => users.id, { onDelete: "set null" }),
     triagedAt: timestamp("triaged_at", { withTimezone: true }),
+    /* utlumení historických nálezů (v1.106, ADR-200) */
+    suppressedUntil: date("suppressed_until"),
+    suppressRuleId: uuid("suppress_rule_id").references((): AnyPgColumn => vulnSuppressionRules.id, { onDelete: "set null" }),
   },
   (t) => [
     uniqueIndex("asset_vuln_uq").on(t.assetId, t.cveId, t.packageName, t.packageVersion, t.findingKey),

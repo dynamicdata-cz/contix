@@ -143,7 +143,7 @@ export function VulnTable({
       {canEdit && picked.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-brand-50/40 px-4 py-2 text-sm">
           <span className="font-medium text-slate-700">{t("vs.selected", { n: picked.length })}</span>
-          {(["verify", "false_positive", "out_of_scope", "reopen"] as const).map((a) => (
+          {(["verify", "false_positive", "out_of_scope", "suppress", "reopen"] as const).map((a) => (
             <Button key={a} variant="secondary" className="px-2 py-1 text-xs" onClick={() => bulk(a)}>
               {t.lbl(VULN_SCAN_LABELS.triage[a])}
             </Button>
@@ -273,10 +273,11 @@ export function VulnTable({
                     </div>
                   ) : v.status === "resolved" ? (
                     <Badge tone="green">{t("ast.vyreseno", { p: v.resolvedAt ? new Date(v.resolvedAt).toLocaleDateString("cs-CZ") : "" })}</Badge>
-                  ) : v.status === "false_positive" || v.status === "out_of_scope" || v.status === "duplicate" ? (
+                  ) : v.status === "false_positive" || v.status === "out_of_scope" || v.status === "duplicate" || v.status === "suppressed" ? (
                     <div>
                       <Badge tone="slate">{t.lbl(VULN_LABELS.status[v.status])}</Badge>
                       {v.triageReason && <div className="mt-1 max-w-56 text-xs text-slate-500">{v.triageReason}</div>}
+                      {v.status === "suppressed" && v.suppressedUntil && <div className="text-xs text-slate-500">{t("vs.suppressedUntil", { d: fmtDay(v.suppressedUntil) })}</div>}
                     </div>
                   ) : (
                     <Badge tone="amber">{t("ast.otevrena")}</Badge>
@@ -293,7 +294,7 @@ export function VulnTable({
                       {t("ast.zrusitVyjimku")}
                     </Button>
                   )}
-                  {canEdit && (v.status === "false_positive" || v.status === "out_of_scope" || v.status === "duplicate") && (
+                  {canEdit && (v.status === "false_positive" || v.status === "out_of_scope" || v.status === "duplicate" || (v.status === "suppressed" && !v.suppressRuleId)) && (
                     <Button variant="ghost" className="px-2 py-1 text-xs" disabled={quick.isPending} onClick={() => quick.mutate({ id: v.id, action: "reopen" })}>
                       {t.lbl(VULN_SCAN_LABELS.triage.reopen)}
                     </Button>
@@ -387,6 +388,7 @@ function TriageModal({ action, rows, onClose }: { action: VulnTriageAction; rows
   const qc = useQueryClient();
   const [reason, setReason] = useState("");
   const [dupOf, setDupOf] = useState("");
+  const [until, setUntil] = useState("");
   const ids = new Set(rows.map((r) => r.id));
   const assetId = rows[0]?.assetId;
   const candidates = useQuery({
@@ -394,9 +396,9 @@ function TriageModal({ action, rows, onClose }: { action: VulnTriageAction; rows
     queryFn: () => api.vulns.list({ assetId, status: "open", limit: 500 }),
     enabled: action === "duplicate" && !!assetId,
   });
-  const needReason = action === "false_positive" || action === "out_of_scope";
+  const needReason = action === "false_positive" || action === "out_of_scope" || action === "suppress";
   const run = useMutation({
-    mutationFn: () => api.vulns.triage({ ids: [...ids], action, reason: reason.trim() || undefined, duplicateOfId: action === "duplicate" ? dupOf : undefined }),
+    mutationFn: () => api.vulns.triage({ ids: [...ids], action, reason: reason.trim() || undefined, duplicateOfId: action === "duplicate" ? dupOf : undefined, until: action === "suppress" ? until || null : undefined }),
     onSuccess: () => {
       for (const k of ["vulns", "asset", "assets", "vuln-summary", "vuln-scans"]) qc.invalidateQueries({ queryKey: [k] });
       onClose(true);
@@ -444,7 +446,12 @@ function TriageModal({ action, rows, onClose }: { action: VulnTriageAction; rows
       )}
       {action !== "verify" && action !== "unverify" && action !== "reopen" && (
         <Field label={t("ast.zduvodneni")} hint={needReason ? t("vs.reasonRequired") : undefined}>
-          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} />
+          <Textarea value={reason} onChange={(e) => setReason(e.target.value)} data-testid="vt-reason" />
+        </Field>
+      )}
+      {action === "suppress" && (
+        <Field label={t("vs.suppressUntil")} hint={t("vs.suppressUntilHint")}>
+          <Input type="date" value={until} onChange={(e) => setUntil(e.target.value)} />
         </Field>
       )}
       <ErrorBox error={run.error} />

@@ -561,6 +561,9 @@ import type {
   LocationsDto,
   LocationDetailDto,
   PersonCertDto,
+  VulnBulkSuppressInput,
+  VulnSuppressRuleDto,
+  VulnSuppressRuleInput,
   PersonCertListDto,
   PersonCertHoldersDto,
   PersonCertInput,
@@ -908,7 +911,7 @@ export const api = {
     cve: (cveId: string) => request<VulnCveDetail>(`/vulnerabilities/cve/${encodeURIComponent(cveId)}`),
     advice: (cveId: string) => post<VulnAdviceDto>(`/vulnerabilities/cve/${encodeURIComponent(cveId)}/advice`),
     summary: () => request<VulnSummaryDto>("/vulnerabilities/summary"),
-    list: (q: { assetId?: string; severity?: Severity; status?: VulnStatus; q?: string; priority?: VulnPriority; kev?: "1"; packageName?: string; overdue?: "1"; scanId?: string; scanner?: string; verified?: "1"; limit?: number; offset?: number }) =>
+    list: (q: { assetId?: string; severity?: Severity; status?: VulnStatus; q?: string; priority?: VulnPriority; kev?: "1"; packageName?: string; overdue?: "1"; scanId?: string; scanner?: string; verified?: "1"; olderThanDays?: number; assetOfflineDays?: number; maxSeverity?: string; limit?: number; offset?: number }) =>
       request<Paged<VulnerabilityDto>>(`/vulnerabilities?${qs(q)}`),
     fixPlan: () => request<VulnFixPlanItem[]>("/vulnerabilities/fix-plan"),
     intel: () => request<VulnIntelStatusDto>("/vulnerabilities/intel"),
@@ -931,6 +934,11 @@ export const api = {
       return request<VulnScanPreviewDto | VulnScanDto>("/vulnerabilities/scans", { method: "POST", body: fd });
     },
     triage: (data: VulnTriageInput) => post<{ changed: number }>("/vulnerabilities/triage", data),
+    suppress: (d: VulnBulkSuppressInput) => post<{ count: number; dryRun: boolean }>("/vulnerabilities/suppress", d),
+    suppressionRules: () => request<VulnSuppressRuleDto[]>("/vulnerabilities/suppression-rules"),
+    createSuppressionRule: (d: VulnSuppressRuleInput) => post<{ id: string; suppressed: number; released: number }>("/vulnerabilities/suppression-rules", d),
+    updateSuppressionRule: (id: string, d: VulnSuppressRuleInput) => put<{ suppressed: number; released: number }>(`/vulnerabilities/suppression-rules/${id}`, d),
+    deleteSuppressionRule: (id: string) => del<{ released: number }>(`/vulnerabilities/suppression-rules/${id}`),
     metrics: (months = 12) => request<VulnMetricsDto>(`/vulnerabilities/metrics?months=${months}`),
     defectDojo: () => request<DefectDojoStatusDto>("/vulnerabilities/defectdojo"),
     saveDefectDojo: (data: DefectDojoSettingsInput) => put<DefectDojoStatusDto>("/vulnerabilities/defectdojo", data),

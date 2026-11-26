@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.106.0
+
+Utlumení historických zranitelností (ADR-200).
+
+- **Karta Historické zranitelnosti** (Zranitelnosti): kritéria „aktivum se nehlásí déle než N dní“ (vypnutý virtuál, vyřazený počítač) a „nález starší než N dní“, volitelně jen do určité závažnosti a jen z Wazuhu. Náhled ukáže, kolik otevřených zranitelností kritériím odpovídá; jedním tlačítkem se utlumí všechny – se zdůvodněním a volitelnou lhůtou. Aktivně zneužívané (KEV) se ve výchozím stavu neutlumí nikdy.
+- **Pravidla utlumení**: kritéria lze uložit jako pravidlo, které se použije po každé synchronizaci Wazuhu – nové historické nálezy utlumí a když se aktivum znovu ozve, jeho nálezy zase otevře. Vypnutí nebo smazání pravidla vrátí jeho nálezy mezi otevřené.
+- Nový stav zranitelnosti **Utlumená (historická)**: nepočítá se do semaforu, přehledů ani priorit; po uplynutí lhůty se znovu otevře, když ji zdroj stále hlásí; když ji zdroj přestane hlásit, je vyřešená.
+- Ruční utlumení vybraných nálezů v tabulce zranitelností (hromadná akce „Utlumit“) a filtr seznamu podle stáří nálezu a nečinnosti aktiva.
+
 ## 1.105.0
 
 Certifikáty a osvědčení osob (ADR-199).

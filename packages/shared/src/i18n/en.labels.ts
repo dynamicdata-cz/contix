@@ -304,6 +304,8 @@ export const EN_LABELS: Record<string, string> = {
   "lbl:Druhy poskytovaných služeb": "Types of services provided",
   "lbl:Druhy povinností": "Obligation types",
   "lbl:Duplicita": "Duplicate",
+  "lbl:Utlumit (historická)": "Suppress (historical)",
+  "lbl:Utlumená (historická)": "Suppressed (historical)",
   "lbl:Důkaz nenalezen": "Evidence not found",
   "lbl:Důležitý produkt – třída I": "Important product – class I",
   "lbl:Důležitý produkt – třída II": "Important product – class II",

@@ -84,7 +84,7 @@ function srcStatuses(source: FindingSource, st: string): string[] | null {
     in_progress: { sectest: [], host: [], vulnerability: [], audit: ["in_progress"], identity: [], monitoring: [] },
     accepted: { sectest: ["accepted"], host: ["accepted"], vulnerability: ["accepted"], audit: ["accepted"], identity: ["accepted"], monitoring: ["accepted"] },
     fixed: { sectest: ["fixed"], host: ["fixed"], vulnerability: ["resolved"], audit: ["closed"], identity: ["resolved"], monitoring: ["fixed"] },
-    dismissed: { sectest: ["false_positive"], host: ["false_positive"], vulnerability: ["false_positive", "out_of_scope", "duplicate"], audit: [], identity: [], monitoring: [] },
+    dismissed: { sectest: ["false_positive"], host: ["false_positive"], vulnerability: ["false_positive", "out_of_scope", "duplicate", "suppressed"], audit: [], identity: [], monitoring: [] },
   };
   return m[st]![source];
 }

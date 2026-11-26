@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { strFromU8, strToU8, unzipSync, zipSync } from "fflate";
 import { PDFDocument } from "pdf-lib";
 import { config as globalConfig } from "../src/config";
@@ -11711,6 +11711,59 @@ describe.skipIf(!url)("API (integrace)", () => {
     for (const x of [u, p, e]) expect((await admin.req(`/api/person-certificates/${x.body.id}`, { method: "DELETE", headers: H })).status).toBe(204);
     await admin.json(`/api/awareness/${course.id}`, { method: "DELETE", headers: H });
     await db.delete(schema.iamPeople).where(eq(schema.iamPeople.id, person!.id));
+  });
+
+  test("historické zranitelnosti (v1.106): náhled, hromadné utlumení, KEV ponechané, pravidlo s uvolněním, lhůta, ruční utlumení", async () => {
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "HV Historie s.r.o." } })).body.id as string;
+    const H = { "x-contix-company": CO };
+    const old = new Date(Date.now() - 90 * 86_400_000);
+    const [off] = await db.insert(schema.assets).values({ companyId: CO, name: "HV-OFF-VM", assetType: "virtual_machine", lastSeenAt: old }).returning();
+    const [on] = await db.insert(schema.assets).values({ companyId: CO, name: "HV-ON-SRV", assetType: "server", lastSeenAt: new Date() }).returning();
+    await db.insert(schema.vulnIntel).values({ cveId: "CVE-2098-770002", kev: true }).onConflictDoNothing();
+    const mk = (assetId: string, cveId: string, severity: "medium" | "critical", detectedAt: Date) => ({ assetId, cveId, severity, packageName: "pkg", packageVersion: "1", sourceType: "wazuh" as const, detectedAt });
+    await db.insert(schema.assetVulnerabilities).values([mk(off!.id, "CVE-2098-770001", "medium", old), mk(off!.id, "CVE-2098-770002", "critical", old), mk(on!.id, "CVE-2098-770003", "medium", old), mk(on!.id, "CVE-2098-770004", "critical", new Date())]);
+    const crit = { assetOfflineDays: 30 };
+    // náhled: KEV na vypnutém virtuálu se nepočítá
+    expect((await admin.json("/api/vulnerabilities/suppress", { method: "POST", headers: H, json: { criteria: crit, reason: "náhled", dryRun: true } })).body.count).toBe(1);
+    expect((await admin.json("/api/vulnerabilities/suppress", { method: "POST", headers: H, json: { criteria: { ...crit, keepKev: false }, reason: "náhled", dryRun: true } })).body.count).toBe(2);
+    expect((await admin.json("/api/vulnerabilities/suppress", { method: "POST", headers: H, json: { criteria: {}, reason: "nic nezadáno" } })).status).toBe(400);
+    // filtr seznamu se stejnými kritérii
+    const lst = (await admin.json(`/api/vulnerabilities?assetOfflineDays=30&q=CVE-2098-77`, { headers: H })).body;
+    expect(lst.items.map((x: any) => x.cveId).sort()).toEqual(["CVE-2098-770001", "CVE-2098-770002"]);
+    // hromadné utlumení
+    const r1 = await admin.json("/api/vulnerabilities/suppress", { method: "POST", headers: H, json: { criteria: crit, reason: "Vypnutý virtuál" } });
+    expect(r1.body.count).toBe(1);
+    const st = async () => Object.fromEntries((await db.select({ c: schema.assetVulnerabilities.cveId, s: schema.assetVulnerabilities.status, r: schema.assetVulnerabilities.suppressRuleId }).from(schema.assetVulnerabilities).where(like(schema.assetVulnerabilities.cveId, "CVE-2098-77%"))).map((x) => [x.c, x.r ? `${x.s}:rule` : x.s]));
+    expect(await st()).toEqual({ "CVE-2098-770001": "suppressed", "CVE-2098-770002": "open", "CVE-2098-770003": "open", "CVE-2098-770004": "open" });
+    // znovu otevřít ručně
+    const id1 = lst.items.find((x: any) => x.cveId === "CVE-2098-770001").id;
+    expect((await admin.json("/api/vulnerabilities/triage", { method: "POST", headers: H, json: { ids: [id1], action: "reopen" } })).body.changed).toBe(1);
+    // pravidlo: stará zjištění (> 60 dní) do střední závažnosti
+    const rule = await admin.json("/api/vulnerabilities/suppression-rules", { method: "POST", headers: H, json: { name: "HV staré střední", criteria: { olderThanDays: 60, maxSeverity: "medium" }, reason: "Historická data z Wazuhu" } });
+    expect([rule.status, rule.body.suppressed]).toEqual([201, 2]);
+    expect(await st()).toEqual({ "CVE-2098-770001": "suppressed:rule", "CVE-2098-770002": "open", "CVE-2098-770003": "suppressed:rule", "CVE-2098-770004": "open" });
+    const rules = (await admin.json("/api/vulnerabilities/suppression-rules", { headers: H })).body as any[];
+    expect(rules.find((x) => x.id === rule.body.id).suppressed).toBe(2);
+    // pravidlo s podmínkou na aktivum: virtuál se znovu ozve → uvolní se
+    await admin.json(`/api/vulnerabilities/suppression-rules/${rule.body.id}`, { method: "PUT", headers: H, json: { name: "HV vypnuté", criteria: { assetOfflineDays: 30 }, reason: "Vypnuté virtuály" } });
+    expect((await st())["CVE-2098-770003"]).toBe("open");
+    expect((await st())["CVE-2098-770001"]).toBe("suppressed:rule");
+    await db.update(schema.assets).set({ lastSeenAt: new Date() }).where(eq(schema.assets.id, off!.id));
+    const { applySuppressionRules } = await import("../src/modules/vulnerabilities/suppression");
+    expect((await applySuppressionRules(db, [CO])).released).toBe(1);
+    expect((await st())["CVE-2098-770001"]).toBe("open");
+    // smazání pravidla; ruční utlumení s lhůtou, která vyprší
+    await db.update(schema.assets).set({ lastSeenAt: old }).where(eq(schema.assets.id, off!.id));
+    await applySuppressionRules(db, [CO]);
+    expect((await admin.json(`/api/vulnerabilities/suppression-rules/${rule.body.id}`, { method: "DELETE", headers: H })).body.released).toBe(1);
+    const id4 = (await admin.json(`/api/vulnerabilities?q=CVE-2098-770004`, { headers: H })).body.items[0].id;
+    expect((await admin.json("/api/vulnerabilities/triage", { method: "POST", headers: H, json: { ids: [id4], action: "suppress" } })).status).toBe(400);
+    expect((await admin.json("/api/vulnerabilities/triage", { method: "POST", headers: H, json: { ids: [id4], action: "suppress", reason: "Testovací prostředí", until: "2020-01-01" } })).body.changed).toBe(1);
+    expect((await st())["CVE-2098-770004"]).toBe("suppressed");
+    expect((await applySuppressionRules(db, [CO])).expired).toBe(1);
+    expect((await st())["CVE-2098-770004"]).toBe("open");
+    await db.delete(schema.assets).where(inArray(schema.assets.id, [off!.id, on!.id]));
+    await db.delete(schema.vulnIntel).where(eq(schema.vulnIntel.cveId, "CVE-2098-770002"));
   });
 
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {

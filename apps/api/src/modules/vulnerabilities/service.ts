@@ -50,6 +50,7 @@ export async function syncVulnerabilities(db: Db, records: AsyncIterable<VulnRec
           status: sql`case
             when ${assetVulnerabilities.status} = 'resolved' then 'open'::vuln_status
             when ${assetVulnerabilities.status} = 'accepted' and ${assetVulnerabilities.acceptedUntil} < current_date then 'open'::vuln_status
+            when ${assetVulnerabilities.status} = 'suppressed' and ${assetVulnerabilities.suppressedUntil} < current_date then 'open'::vuln_status
             else ${assetVulnerabilities.status} end`,
         },
       })
@@ -69,7 +70,7 @@ export async function syncVulnerabilities(db: Db, records: AsyncIterable<VulnRec
           and(
             eq(assetVulnerabilities.sourceType, "wazuh"),
             lt(assetVulnerabilities.lastSeenAt, syncStart),
-            inArray(assetVulnerabilities.status, ["open", "accepted"]),
+            inArray(assetVulnerabilities.status, ["open", "accepted", "suppressed"]),
             inArray(assetVulnerabilities.assetId, assetIds.slice(i, i + 1000)),
           ),
         )
