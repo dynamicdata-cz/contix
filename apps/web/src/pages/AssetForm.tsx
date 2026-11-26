@@ -14,8 +14,10 @@ import {
   ENVIRONMENTS,
   LABELS,
   LIFECYCLE_STATUSES,
+  FACILITY_KINDS,
   type AssetDto,
   type AssetType,
+  type FacilityKind,
 } from "@contix/shared";
 import { useCan } from "@/lib/auth";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -29,11 +31,19 @@ const EMPTY: FormState = {
   osName: "", osVersion: "", manufacturer: "", model: "", serialNumber: "", location: "", ownerName: "", ownerUnitId: "",
   criticality: "medium", confidentiality: "", integrity: "", availability: "", lifecycleStatus: "active",
   environment: "", tags: "", assetClass: "", ownerUserId: "", technicalOwnerUserId: "", technicalDeputyUserId: "", redundant: "false", internetFacing: "false",
+  facilityKind: "building", address: "", placeId: "",
 };
 
-const toForm = (a: AssetDto): FormState => ({
+/** Typy bez technických údajů (IP, MAC, OS) – informace, služby, procesy, lidé, dodavatelé, prostory (v1.107.2). */
+const NON_TECHNICAL = new Set<string>(["facility", "information_asset", "business_service", "business_process", "personnel", "supplier"]);
+
+const toForm = (a: AssetDto & { locationPath?: { id: string; assetType: string }[] }): FormState => ({
   ...EMPTY,
-  ...Object.fromEntries(Object.entries(a).map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v == null ? "" : String(v)])),
+  ...Object.fromEntries(Object.entries(a).filter(([k]) => k !== "physical" && k !== "locationPath").map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v == null ? "" : String(v)])),
+  facilityKind: a.facilityKind ?? "building",
+  address: a.physical?.address ?? "",
+  // bezprostřední lokalita (u techniky v racku se umístění tady nemění – rack se spravuje v Lokalitách)
+  placeId: a.locationPath?.at(-1)?.assetType === "facility" ? a.locationPath.at(-1)!.id : "",
 });
 
 const list = (v: string) => v.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
@@ -71,6 +81,7 @@ function toPayload(f: FormState) {
     redundant: f.redundant === "true",
     internetFacing: f.internetFacing === "true",
     tags: list(f.tags!),
+    ...(f.assetType === "facility" ? { facilityKind: (f.facilityKind || "building") as FacilityKind } : {}),
   });
   return payload;
 }
@@ -94,10 +105,24 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
   }, [existing.data]);
 
   const locations = useQuery({ queryKey: ["assets", "locations"], queryFn: api.assets.locations, staleTime: 60_000 });
+  const premises = useQuery({ queryKey: ["premises"], queryFn: api.premises.list, staleTime: 60_000 });
+  const facility = f.assetType === "facility";
+  const technical = !NON_TECHNICAL.has(f.assetType ?? "");
+  const origPlace = existing.data ? toForm(existing.data).placeId : "";
   const save = useMutation({
-    mutationFn: (payload: ReturnType<typeof toPayload>) =>
-      mode === "create" ? api.assets.create(payload) : api.assets.update(params.assetId!, payload),
+    mutationFn: async (payload: ReturnType<typeof toPayload>) => {
+      const body = facility ? { ...payload, physical: { ...(existing.data?.physical ?? { controls: {}, note: "", reviewedAt: null }), address: f.address?.trim() ?? "" } } : payload;
+      const a = mode === "create" ? await api.assets.create(body) : await api.assets.update(params.assetId!, body);
+      // umístění v lokalitě (v1.107.2): lokalita → nadřazená lokalita, technika → místnost / budova
+      const place = f.placeId ?? "";
+      if (place !== origPlace) {
+        if (place) await api.premises.place(place, [a.id]);
+        else if (origPlace) await api.premises.unplace(origPlace, a.id);
+      }
+      return a;
+    },
     onSuccess: (a) => {
+      qc.invalidateQueries({ queryKey: ["premises"] });
       qc.invalidateQueries({ queryKey: ["assets"] });
       qc.invalidateQueries({ queryKey: ["asset", a.id] });
       // nové štítky z formuláře jsou v katalogu (v1.74)
@@ -239,7 +264,20 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
             </FormSection>
             <FormSection title={t("ast.sec.operation")}>
               <div className="grid gap-4 sm:grid-cols-3">
-                <Field label={t("ast.umisteni")} className="sm:col-span-2">
+                {!facility && (premises.data?.nodes.length ?? 0) > 0 && (
+                  <Field label={t("prem.f.placeIn")} hint={t("prem.f.placeInHint")} className="sm:col-span-3">
+                    <Select {...bind("placeId")} data-testid="asset-place">
+                      <option value="">{t("prem.none")}</option>
+                      {premises.data!.nodes.map((n) => (
+                        <option key={n.id} value={n.id}>
+                          {"\u00a0\u00a0".repeat(n.depth)}
+                          {n.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
+                <Field label={facility || (premises.data?.nodes.length ?? 0) > 0 ? t("prem.f.locationNote") : t("ast.umisteni")} className="sm:col-span-2">
                   {/* v1.76: nabídka dosavadních umístění a míst z map a půdorysů – jednotné názvy lokalit */}
                   <SuggestInput value={f.location ?? ""} onChange={(v) => setF((x) => ({ ...x, location: v }))} suggestions={(locations.data ?? []).map((l) => ({ id: l, label: l }))} ariaLabel={t("ast.umisteni")} />
                 </Field>
@@ -265,6 +303,39 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
           </div>
         </Card>
 
+        {facility && (
+          <Card className="lg:col-span-2" data-testid="asset-facility-card">
+            <CardHeader title={t("prem.f.cardTitle")} subtitle={t("prem.f.cardSub")} />
+            <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-3">
+              <Field label={t("prem.f.kind")}>
+                <Select {...bind("facilityKind")} data-testid="asset-facility-kind">
+                  {FACILITY_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {t(`prem.kind.${k}`)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label={t("prem.f.parent")}>
+                <Select {...bind("placeId")} data-testid="asset-facility-parent">
+                  <option value="">{t("prem.root")}</option>
+                  {(premises.data?.nodes ?? [])
+                    .filter((n) => n.id !== params.assetId && !n.path.some((p) => p.id === params.assetId))
+                    .map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {"\u00a0\u00a0".repeat(n.depth)}
+                        {n.name}
+                      </option>
+                    ))}
+                </Select>
+              </Field>
+              <Field label={t("prem.f.address")}>
+                <Input {...bind("address")} />
+              </Field>
+            </div>
+          </Card>
+        )}
+        {technical && (
         <Card className="lg:col-span-2">
           <CardHeader title={t("ast.technickeUdaje")} subtitle={t("ast.uObjevenychAktivJeDoplnuji")} />
           <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
@@ -297,6 +368,7 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
             </Field>
           </div>
         </Card>
+        )}
       </div>
     </form>
   );

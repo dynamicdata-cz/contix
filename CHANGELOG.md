@@ -2,6 +2,11 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.107.2
+
+- **Objekt / prostory ve formuláři aktiva**: místo technických údajů (IP, MAC, OS) se ukáže karta Lokalita – druh (budova, patro, serverovna…), nadřazená lokalita a adresa. Technické údaje se neukazují ani u informačních aktiv, služeb, procesů, lidí a dodavatelů.
+- **Umístění techniky přímo ve formuláři**: u serveru, síťového prvku apod. lze vybrat lokalitu (budovu, místnost) ze stromu Lokalit; volný text umístění zůstává jako upřesnění.
+
 ## 1.107.1
 
 - Anglické znění nových chybových hlášek (lokality, certifikáty osob, Harbor).

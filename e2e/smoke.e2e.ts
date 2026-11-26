@@ -1958,6 +1958,34 @@ test("lokality: budova, serverovna s fyzickou bezpečností, umístění serveru
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("objekt ve formuláři aktiva: druh lokality, nadřazená lokalita, bez IP adres; server do lokality (v1.107.2)", async () => {
+  await page.goto("/assets/new");
+  await page.getByLabel("Název *").fill("E2E Budova Brno");
+  await page.getByLabel("Typ aktiva").selectOption("facility");
+  await expect(page.getByTestId("asset-facility-card")).toBeVisible();
+  await expect(page.getByLabel("IP adresy")).toHaveCount(0);
+  await page.getByTestId("asset-facility-kind").selectOption("building");
+  await page.getByRole("button", { name: "Uložit" }).click();
+  await expect(page).toHaveURL(/\/assets\/[0-9a-f-]{36}$/);
+  const bld = page.url().split("/").pop()!;
+  await page.goto("/assets/new");
+  await page.getByLabel("Název *").fill("E2E Serverovna Brno");
+  await page.getByLabel("Typ aktiva").selectOption("facility");
+  await page.getByTestId("asset-facility-kind").selectOption("server_room");
+  await page.getByTestId("asset-facility-parent").selectOption({ label: "E2E Budova Brno" });
+  await page.getByRole("button", { name: "Uložit" }).click();
+  await expect(page).toHaveURL(/\/assets\/[0-9a-f-]{36}$/);
+  await expect(page.getByTestId("asset-location")).toHaveText(/E2E Budova Brno/);
+  await page.goto("/assets/new");
+  await page.getByLabel("Název *").fill("E2E-BRNO-SRV");
+  await page.getByLabel("Typ aktiva").selectOption("server");
+  await page.getByTestId("asset-place").selectOption({ label: "\u00a0\u00a0E2E Serverovna Brno" });
+  await page.getByRole("button", { name: "Uložit" }).click();
+  await expect(page.getByTestId("asset-location")).toHaveText(/E2E Budova Brno › E2E Serverovna Brno/);
+  expect(bld).toMatch(/^[0-9a-f-]{36}$/);
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("certifikáty osob: externí pracovník dodavatele se souborem, filtr platnosti (v1.105)", async () => {
   await page.goto("/awareness?tab=certs");
   await expect(page.getByTestId("pc-card")).toBeVisible();

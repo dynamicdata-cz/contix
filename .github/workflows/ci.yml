@@ -33,7 +33,7 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U contix" --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
@@ -60,14 +60,14 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U contix" --health-interval 5s --health-timeout 5s --health-retries 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - run: npm install -g bun@${{ env.BUN_VERSION }} --silent
       - run: bun install --frozen-lockfile
       - name: Testy v prohlížeči
         env:
           E2E_DATABASE_URL: postgres://contix:contix@postgres:5432/contix_e2e
         run: bun run e2e
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: failure()
         with:
           name: playwright-report
