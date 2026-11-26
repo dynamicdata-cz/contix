@@ -26,3 +26,13 @@ CONTIX už měl typ aktiva `facility` (prostory), `rack` a vazbu závislosti `lo
 
 - Existující aktiva typu `facility` se v lokalitách objeví hned (druh „neurčen“), stávající vazby `located_in` tvoří strom.
 - Doporučené minimum fyzické bezpečnosti je pevné podle druhu lokality; zatím se nepropisuje do nálezů ani SoA.
+
+## Doplnění v1.115.0 – racky a obsah po úrovních
+
+- Rack je kontejner (stejně jako lokalita): `POST/DELETE /api/premises/:id/assets` přijímá i rack. Do racku nejde
+  umístit lokalitu ani rack, ve kterém cíl sám leží (kontrola řetězu „umístěno v“). Odpověď je detail lokality,
+  ve které rack stojí.
+- `LocationsDto.racks` (bezprostřední kontejner, lokalita, počet zařízení) – strom je ukazuje pod lokalitou.
+- `LocationDetailDto.content`: podřízené lokality, racky s obsahem, technika přímo v lokalitě a technika
+  v podřízených lokalitách s cestou od této lokality. Plochý seznam `assets` zůstává kvůli kompatibilitě.
+- Seznam aktiv vrací `placePath` (celá cesta umístění) – počítá se jen pro aktiva na stránce.

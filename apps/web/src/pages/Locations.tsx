@@ -9,6 +9,8 @@ import {
   FacilityPhysical as FacilityPhysicalSchema,
   formatAddress,
   type MapSettings,
+  type LocationContentItem,
+  type RackDto,
   FACILITY_KINDS,
   LABELS,
   PHYSICAL_CONTROLS,
@@ -28,7 +30,7 @@ import {
 } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, Map as MapIcon, MapPin, Settings, Warehouse, Pencil, Plus, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Map as MapIcon, MapPin, Server, Settings, Warehouse, Pencil, Plus, ShieldCheck, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { LocationMap } from "@/components/locationMap";
 
@@ -51,6 +53,11 @@ export function LocationsPage() {
   const d = q.data;
   const current = (sel && d?.nodes.some((n) => n.id === sel) ? sel : null) ?? d?.nodes[0]?.id ?? null;
   const ms = useQuery({ queryKey: ["premises", "mapSettings"], queryFn: api.premises.mapSettings });
+  const racksIn = useMemo(() => {
+    const m = new Map<string, RackDto[]>();
+    for (const r of d?.racks ?? []) if (r.parentId && r.parentId === r.facilityId) m.set(r.parentId, [...(m.get(r.parentId) ?? []), r]);
+    return m;
+  }, [d]);
   const [showMap, setShowMap] = useState(false);
   const [mapCfg, setMapCfg] = useState(false);
   const located = useMemo(() => (d?.nodes ?? []).filter((n) => n.physical.lat != null && n.physical.lng != null), [d]);
@@ -116,6 +123,21 @@ export function LocationsPage() {
                     {n.gaps.length > 0 && <AlertTriangle size={13} className="shrink-0 text-amber-500" aria-label={t("prem.gaps", { n: n.gaps.length })} />}
                     <span className="shrink-0 text-xs text-slate-500">{n.assetsTotal}</span>
                   </button>
+                  {/* racky stojící přímo v lokalitě (v1.115) */}
+                  {(racksIn.get(n.id) ?? []).map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => setSel(n.id)}
+                      className="flex w-full items-center gap-2 py-1 pr-3 text-left text-xs text-slate-600 hover:bg-slate-50"
+                      style={{ paddingLeft: `${0.75 + (n.depth + 1) * 1.1}rem` }}
+                      data-testid="loc-tree-rack"
+                    >
+                      <Server size={13} className="shrink-0 text-slate-400" />
+                      <span className="min-w-0 flex-1 truncate">{r.name}</span>
+                      <span className="shrink-0">{r.devices}</span>
+                    </button>
+                  ))}
                 </li>
               ))}
             </ul>
@@ -129,6 +151,7 @@ export function LocationsPage() {
                 setNewParent(pid);
                 setEdit("new");
               }}
+              onOpen={setSel}
             />
           )}
         </div>
@@ -151,18 +174,22 @@ export function LocationsPage() {
   );
 }
 
-function LocationDetail({ id, write, onEdit, onAddChild }: { id: string; write: boolean; onEdit: (n: LocationNodeDto) => void; onAddChild: (parentId: string) => void }) {
+function LocationDetail({ id, write, onEdit, onAddChild, onOpen }: { id: string; write: boolean; onEdit: (n: LocationNodeDto) => void; onAddChild: (parentId: string) => void; onOpen: (id: string) => void }) {
   const t = useT();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["premises", id], queryFn: () => api.premises.get(id) });
-  const [placing, setPlacing] = useState(false);
+  const [placing, setPlacing] = useState<{ id: string; name: string } | null>(null);
+  const [withNested, setWithNested] = useState(false);
   const [mapsOpen, setMapsOpen] = useState(false);
   const refresh = (d: LocationDetailDto) => {
     qc.setQueryData(["premises", id], d);
     qc.invalidateQueries({ queryKey: ["premises"] });
     qc.invalidateQueries({ queryKey: ["zones"] });
   };
-  const unplace = useMutation({ mutationFn: (assetId: string) => api.premises.unplace(id, assetId), onSuccess: refresh });
+  const unplace = useMutation({
+    mutationFn: (x: { from: string; assetId: string }) => api.premises.unplace(x.from, x.assetId),
+    onSuccess: (r) => ("content" in r ? refresh(r) : qc.invalidateQueries({ queryKey: ["premises"] })),
+  });
   const ms = useQuery({ queryKey: ["premises", "mapSettings"], queryFn: api.premises.mapSettings });
   const d = q.data;
   const pin = useMemo(() => (d && d.physical.lat != null && d.physical.lng != null ? [{ id: d.id, lat: d.physical.lat, lng: d.physical.lng, label: d.name, selected: true }] : []), [d]);
@@ -285,7 +312,7 @@ function LocationDetail({ id, write, onEdit, onAddChild }: { id: string; write: 
                 <Button variant="secondary" onClick={() => setMapsOpen(true)}>
                   {t("prem.setMaps")}
                 </Button>
-                <Button onClick={() => setPlacing(true)} data-testid="loc-place">
+                <Button onClick={() => setPlacing({ id: d.id, name: d.name })} data-testid="loc-place">
                   <Plus size={15} /> {t("prem.place")}
                 </Button>
               </div>
@@ -293,32 +320,98 @@ function LocationDetail({ id, write, onEdit, onAddChild }: { id: string; write: 
           }
         />
         <ErrorBox error={unplace.error} />
-        {d.assets.length === 0 ? (
+        {d.assets.length === 0 && d.content.nested.length === 0 ? (
           <p className="px-5 py-4 text-sm text-slate-500">{t("prem.noContents")}</p>
         ) : (
-          <ul className="divide-y divide-slate-100" data-testid="loc-assets">
-            {d.assets.map((a) => (
-              <li key={a.id} className="flex items-center gap-3 px-5 py-2 text-sm">
-                {a.assetType === "facility" ? <MapPin size={14} className="text-slate-400" /> : <HealthIndicator status={a.healthStatus as HealthStatus} size={13} />}
-                <Link to={recordPath("asset", a.id)} className="min-w-0 flex-1 truncate hover:underline">
-                  {a.name}
-                </Link>
-                <span className="text-xs text-slate-500">
-                  {a.assetType === "facility" ? (a.facilityKind ? t(`prem.kind.${a.facilityKind}`) : t.lbl(LABELS.assetType.facility)) : t.lbl(LABELS.assetType[a.assetType as keyof typeof LABELS.assetType])}
-                  {a.viaRack ? ` · ${t("prem.viaRack", { name: a.viaRack })}` : ""}
-                </span>
-                <Badge tone={a.criticality === "critical" ? "red" : a.criticality === "high" ? "amber" : "slate"}>{t.lbl(LABELS.criticality[a.criticality as keyof typeof LABELS.criticality])}</Badge>
-                {write && a.assetType !== "facility" && !a.viaRack && (
-                  <button type="button" className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={() => unplace.mutate(a.id)} aria-label={t("prem.unplace", { name: a.name })}>
-                    <X size={14} />
-                  </button>
+          <div className="divide-y divide-slate-100" data-testid="loc-assets">
+            {d.content.children.length > 0 && (
+              <ContentSection title={t("prem.c.children", { n: d.content.children.length })}>
+                {d.content.children.map((ch) => (
+                  <li key={ch.id} className="flex items-center gap-3 px-5 py-2 text-sm">
+                    <MapPin size={14} className="text-slate-400" />
+                    <button type="button" className="min-w-0 flex-1 truncate text-left text-brand-700 hover:underline" onClick={() => onOpen(ch.id)}>
+                      {ch.name}
+                    </button>
+                    <span className="text-xs text-slate-500">
+                      {ch.facilityKind ? t(`prem.kind.${ch.facilityKind}`) : t.lbl(LABELS.assetType.facility)} · {t("prem.c.devices", { n: ch.assetsTotal })}
+                    </span>
+                  </li>
+                ))}
+              </ContentSection>
+            )}
+            {d.content.racks.length > 0 && (
+              <ContentSection title={t("prem.c.racks", { n: d.content.racks.length })}>
+                {d.content.racks.map((r) => (
+                  <li key={r.id} className="px-5 py-2 text-sm" data-testid={`loc-rack-${r.name}`}>
+                    <div className="flex items-center gap-3">
+                      <Server size={14} className="text-slate-500" />
+                      <Link to={recordPath("asset", r.id)} className="min-w-0 flex-1 truncate font-medium hover:underline">
+                        {r.name}
+                      </Link>
+                      <span className="text-xs text-slate-500">{t("prem.c.devices", { n: r.items.length })}</span>
+                      {write && (
+                        <>
+                          <Button variant="secondary" className="px-2 py-0.5 text-xs" onClick={() => setPlacing({ id: r.id, name: r.name })} data-testid="loc-rack-place">
+                            <Plus size={13} /> {t("prem.c.placeInRack")}
+                          </Button>
+                          <UnplaceButton name={r.name} onClick={() => unplace.mutate({ from: d.id, assetId: r.id })} />
+                        </>
+                      )}
+                    </div>
+                    {r.items.length > 0 && (
+                      <ul className="ml-6 mt-1 border-l border-slate-200 pl-3">
+                        {r.items.map((a) => (
+                          <ItemRow key={a.id} a={a} write={write} onUnplace={() => unplace.mutate({ from: r.id, assetId: a.id })} />
+                        ))}
+                      </ul>
+                    )}
+                  </li>
+                ))}
+              </ContentSection>
+            )}
+            {d.content.direct.length > 0 && (
+              <ContentSection title={t("prem.c.direct", { n: d.content.direct.length })}>
+                {d.content.direct.map((a) => (
+                  <ItemRow key={a.id} a={a} write={write} indent onUnplace={() => unplace.mutate({ from: d.id, assetId: a.id })} />
+                ))}
+              </ContentSection>
+            )}
+            {d.content.nested.length > 0 && (
+              <div className="px-5 py-2">
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" checked={withNested} onChange={(e) => setWithNested(e.target.checked)} data-testid="loc-nested-toggle" />
+                  {t("prem.c.nested", { n: d.content.nested.length })}
+                </label>
+                {withNested && (
+                  <ul className="mt-1" data-testid="loc-nested">
+                    {d.content.nested.map((a) => (
+                      <li key={a.id} className="flex items-center gap-3 py-1 text-sm">
+                        <HealthIndicator status={a.healthStatus as HealthStatus} size={13} />
+                        <Link to={recordPath("asset", a.id)} className="min-w-0 flex-1 truncate hover:underline">
+                          {a.name}
+                        </Link>
+                        <span className="truncate text-xs text-slate-500">{a.path}</span>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              </li>
-            ))}
-          </ul>
+              </div>
+            )}
+          </div>
         )}
       </Card>
-      {placing && <PlaceModal id={d.id} name={d.name} onClose={() => setPlacing(false)} onDone={(r) => (setPlacing(false), refresh(r))} />}
+      {placing && (
+        <PlaceModal
+          id={placing.id}
+          name={placing.name}
+          onClose={() => setPlacing(null)}
+          onDone={(r) => {
+            setPlacing(null);
+            if ("content" in r) refresh(r);
+            else qc.invalidateQueries({ queryKey: ["premises"] });
+          }}
+        />
+      )}
       {mapsOpen && <MapsModal d={d} onClose={() => setMapsOpen(false)} onDone={(r) => (setMapsOpen(false), refresh(r))} />}
     </div>
   );
@@ -670,7 +763,7 @@ function LocationModal({ node, parentId, nodes, onClose, onDone }: { node: Locat
   );
 }
 
-function PlaceModal({ id, name, onClose, onDone }: { id: string; name: string; onClose: () => void; onDone: (r: LocationDetailDto) => void }) {
+function PlaceModal({ id, name, onClose, onDone }: { id: string; name: string; onClose: () => void; onDone: (r: LocationDetailDto | { ok: true }) => void }) {
   const t = useT();
   const [picked, setPicked] = useState<PickedAsset[]>([]);
   const save = useMutation({ mutationFn: () => api.premises.place(id, picked.map((p) => p.id)), onSuccess: onDone });
@@ -797,5 +890,38 @@ function MapSettingsModal({ value, onClose }: { value: MapSettings; onClose: () 
         <ErrorBox error={save.error} />
       </div>
     </Modal>
+  );
+}
+
+function ContentSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="py-1">
+      <div className="px-5 pt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+      <ul>{children}</ul>
+    </div>
+  );
+}
+
+function UnplaceButton({ name, onClick }: { name: string; onClick: () => void }) {
+  const t = useT();
+  return (
+    <button type="button" className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700" onClick={onClick} aria-label={t("prem.unplace", { name })}>
+      <X size={14} />
+    </button>
+  );
+}
+
+function ItemRow({ a, write, indent, onUnplace }: { a: LocationContentItem; write: boolean; indent?: boolean; onUnplace: () => void }) {
+  const t = useT();
+  return (
+    <li className={cn("flex items-center gap-3 py-1.5 text-sm", indent ? "px-5" : "pr-0")}>
+      <HealthIndicator status={a.healthStatus as HealthStatus} size={13} />
+      <Link to={recordPath("asset", a.id)} className="min-w-0 flex-1 truncate hover:underline">
+        {a.name}
+      </Link>
+      <span className="text-xs text-slate-500">{t.lbl(LABELS.assetType[a.assetType as keyof typeof LABELS.assetType])}</span>
+      <Badge tone={a.criticality === "critical" ? "red" : a.criticality === "high" ? "amber" : "slate"}>{t.lbl(LABELS.criticality[a.criticality as keyof typeof LABELS.criticality])}</Badge>
+      {write && <UnplaceButton name={a.name} onClick={onUnplace} />}
+    </li>
   );
 }

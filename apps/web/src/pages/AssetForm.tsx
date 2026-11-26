@@ -43,7 +43,7 @@ const toForm = (a: AssetDto & { locationPath?: { id: string; assetType: string }
   facilityKind: a.facilityKind ?? "building",
   address: a.physical?.address ?? "",
   // bezprostřední lokalita (u techniky v racku se umístění tady nemění – rack se spravuje v Lokalitách)
-  placeId: a.locationPath?.at(-1)?.assetType === "facility" ? a.locationPath.at(-1)!.id : "",
+  placeId: a.locationPath?.at(-1)?.assetType === "facility" || a.locationPath?.at(-1)?.assetType === "rack" ? a.locationPath.at(-1)!.id : "",
 });
 
 const list = (v: string) => v.split(/[,\n]/).map((s) => s.trim()).filter(Boolean);
@@ -268,12 +268,21 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
                   <Field label={t("prem.f.placeIn")} hint={t("prem.f.placeInHint")} className="sm:col-span-3">
                     <Select {...bind("placeId")} data-testid="asset-place">
                       <option value="">{t("prem.none")}</option>
-                      {premises.data!.nodes.map((n) => (
+                      {premises.data!.nodes.flatMap((n) => [
                         <option key={n.id} value={n.id}>
                           {"\u00a0\u00a0".repeat(n.depth)}
                           {n.name}
-                        </option>
-                      ))}
+                        </option>,
+                        // racky v lokalitě (v1.115) – technika do racku, rack sám ne do sebe
+                        ...premises
+                          .data!.racks.filter((r) => r.facilityId === n.id && r.parentId === n.id && f.assetType !== "rack" && r.id !== params.assetId)
+                          .map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {"\u00a0\u00a0".repeat(n.depth + 1)}
+                              {t("prem.rackOption", { name: r.name })}
+                            </option>
+                          )),
+                      ])}
                     </Select>
                   </Field>
                 )}

@@ -26,7 +26,7 @@ import { HealthIndicator, VulnCounts } from "@/components/health";
 import { HEALTH_STATUSES, VULN_LABELS, type HealthStatus } from "@contix/shared";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Copy, Map as MapIcon, Network, Plus, Search, Share2, ShieldAlert, ShieldCheck , Layers } from "lucide-react";
+import { Copy, Map as MapIcon, MapPin, Network, Plus, Search, Share2, ShieldAlert, ShieldCheck , Layers } from "lucide-react";
 import { useState } from "react";
 
 const PAGE = 50;
@@ -251,6 +251,12 @@ export function AssetsPage() {
                   <div className={a.assetClass === "primary" ? "text-xs font-medium text-violet-700" : "text-xs text-slate-400"}>
                     {t.lbl(LABELS.assetClass[a.assetClass])}
                   </div>
+                  {a.placePath && (
+                    <div className="mt-0.5 flex max-w-[16rem] items-center gap-1 text-xs text-slate-500" title={a.placePath} data-testid="asset-place-path">
+                      <MapPin size={11} className="shrink-0" />
+                      <span className="truncate">{a.placePath}</span>
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-slate-600">
                   <div>{a.ipAddresses.slice(0, 2).join(", ") || "—"}</div>

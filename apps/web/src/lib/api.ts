@@ -678,7 +678,7 @@ export interface QuantOverview {
   unquantified: number;
 }
 
-export type AssetListItem = AssetDto & { ownerDisplayName: string | null };
+export type AssetListItem = AssetDto & { ownerDisplayName: string | null; placePath?: string | null };
 
 export type AssetDetail = AssetDto & {
   owner: { id: string; displayName: string; email: string } | null;
@@ -2063,8 +2063,9 @@ export const api = {
     get: (id: string) => request<LocationDetailDto>(`/premises/${id}`),
     create: (d: LocationInput) => post<LocationDetailDto>("/premises", d),
     update: (id: string, d: LocationPatch) => patch<LocationDetailDto>(`/premises/${id}`, d),
-    place: (id: string, assetIds: string[]) => post<LocationDetailDto>(`/premises/${id}/assets`, { assetIds }),
-    unplace: (id: string, assetId: string) => del<LocationDetailDto>(`/premises/${id}/assets/${assetId}`),
+    /** `id` = lokalita nebo rack (v1.115); u racku mimo lokalitu vrací { ok: true } */
+    place: (id: string, assetIds: string[]) => post<LocationDetailDto | { ok: true }>(`/premises/${id}/assets`, { assetIds }),
+    unplace: (id: string, assetId: string) => del<LocationDetailDto | { ok: true }>(`/premises/${id}/assets/${assetId}`),
     setMaps: (id: string, mapIds: string[]) => put<LocationDetailDto>(`/premises/${id}/maps`, { mapIds }),
     textLocations: () => request<TextLocationDto[]>("/premises/text-locations"),
     importTextLocations: (d: TextLocationImport) => post<{ created: number; placed: number }>("/premises/text-locations", d),

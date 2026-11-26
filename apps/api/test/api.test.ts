@@ -11639,6 +11639,31 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect((await admin.json("/api/assets/dependencies", { method: "POST", headers: H, json: { fromId: srv2.id, toId: rack.id, kind: "located_in" } })).status).toBe(201);
     const det = (await admin.json(`/api/premises/${sr.id}`, { headers: H })).body;
     expect(det.assets.find((a: any) => a.name === "LOC-SRV2").viaRack).toBe("LOC-RACK1");
+    // obsah po úrovních (v1.115): rack s jeho zařízením, technika přímo, z budovy vidět vnořené s cestou
+    expect(det.content.racks.map((r: any) => [r.name, r.items.map((i: any) => i.name)])).toEqual([["LOC-RACK1", ["LOC-SRV2"]]]);
+    expect(det.content.direct.map((a: any) => a.name)).toEqual(["LOC-SRV1"]);
+    const detB = (await admin.json(`/api/premises/${bld.id}`, { headers: H })).body;
+    expect(detB.content.children.map((c: any) => [c.name, c.assetsTotal])).toEqual([["LOC 2. patro", 3]]);
+    expect(detB.content.nested.map((a: any) => [a.name, a.path])).toEqual([["LOC-SRV1", "LOC 2. patro › LOC Serverovna"], ["LOC-SRV2", "LOC 2. patro › LOC Serverovna › LOC-RACK1"]]);
+    const treeR = (await admin.json("/api/premises", { headers: H })).body;
+    expect(treeR.racks.map((r: any) => [r.name, r.parentId, r.facilityId, r.devices])).toEqual([["LOC-RACK1", sr.id, sr.id, 1]]);
+    // umístění přímo do racku a odebrání z racku přes Lokality; lokalita do racku ne; rack do vlastního obsahu ne
+    const srv3 = (await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "LOC-SW3", assetType: "network_device" } })).body;
+    const pr = await admin.json(`/api/premises/${rack.id}/assets`, { method: "POST", headers: H, json: { assetIds: [srv3.id] } });
+    expect(pr.status).toBe(200);
+    expect(pr.body.id).toBe(sr.id);
+    expect(pr.body.content.racks[0].items.map((i: any) => i.name)).toEqual(["LOC-SRV2", "LOC-SW3"]);
+    expect((await admin.json(`/api/premises/${rack.id}/assets`, { method: "POST", headers: H, json: { assetIds: [floor.id] } })).status).toBe(400);
+    const rack2 = (await admin.json("/api/assets", { method: "POST", headers: H, json: { name: "LOC-RACK2", assetType: "rack" } })).body;
+    expect((await admin.json(`/api/premises/${rack.id}/assets`, { method: "POST", headers: H, json: { assetIds: [rack2.id] } })).status).toBe(200);
+    expect((await admin.json(`/api/premises/${rack2.id}/assets`, { method: "POST", headers: H, json: { assetIds: [rack.id] } })).status).toBe(400);
+    expect((await admin.req(`/api/premises/${rack.id}/assets/${rack2.id}`, { method: "DELETE", headers: H })).status).toBe(200);
+    expect((await admin.req(`/api/premises/${rack.id}/assets/${srv3.id}`, { method: "DELETE", headers: H })).status).toBe(200);
+    // seznam aktiv ukazuje cestu umístění
+    const lst = (await admin.json("/api/assets?q=LOC-SRV2", { headers: H })).body.items as any[];
+    expect(lst[0].placePath).toBe("LOC Budova A › LOC 2. patro › LOC Serverovna › LOC-RACK1");
+    await admin.req(`/api/assets/${srv3.id}`, { method: "DELETE", headers: H });
+    await admin.req(`/api/assets/${rack2.id}`, { method: "DELETE", headers: H });
     const tree = (await admin.json("/api/premises", { headers: H })).body;
     const nb = tree.nodes.find((n: any) => n.id === bld.id);
     expect([nb.assetsTotal, nb.assetsCritical, nb.assetsDirect]).toEqual([3, 1, 0]);

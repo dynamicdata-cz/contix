@@ -11,7 +11,7 @@ import { hasPermIn, targetCompany } from "../../auth/scope";
 import { audit, type AppEnv } from "../../auth/service";
 import type { Db } from "../../db/client";
 import { assetSources, assets, siteMaps } from "../../db/schema";
-import { importTextLocations, isWithin, locationDetail, locationsOf, placeAsset, syncPremiseFindings, textLocations } from "./service";
+import { importTextLocations, isWithin, loadPlacement, locationDetail, locationsOf, placeAsset, syncPremiseFindings, textLocations } from "./service";
 
 /** Jednořádková adresa (pro starší zobrazení a export) se skládá ze strukturovaných polí (v1.114). */
 const withAddress = (p: FacilityPhysical): FacilityPhysical => (p.street || p.city || p.zip || p.country ? { ...p, address: formatAddress({ ...p, address: "" }).slice(0, 300) } : p);
@@ -28,6 +28,18 @@ export function premiseRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
     const [f] = await db.select().from(assets).where(and(eq(assets.id, id), eq(assets.companyId, companyId), eq(assets.assetType, "facility")));
     if (!f) throw new HTTPException(404, { message: "Lokalita nenalezena" });
     return f;
+  };
+  /** Cíl umístění: lokalita nebo rack (v1.115). */
+  const target = async (companyId: string, id: string) => {
+    const [f] = await db.select().from(assets).where(and(eq(assets.id, id), eq(assets.companyId, companyId), inArray(assets.assetType, ["facility", "rack"])));
+    if (!f) throw new HTTPException(404, { message: "Lokalita nenalezena" });
+    return f;
+  };
+  /** Po změně v racku se vrací detail lokality, ve které rack stojí (rack mimo lokalitu → jen ok). */
+  const detailOfTarget = async (companyId: string, f: { id: string; assetType: string }) => {
+    if (f.assetType === "facility") return locationDetail(db, companyId, f.id);
+    const fac = (await loadPlacement(db, companyId)).facilityOf(f.id);
+    return fac ? locationDetail(db, companyId, fac) : { ok: true };
   };
   /** Kontrola nového rodiče: stejná společnost, lokalita, ne sama sebe ani potomek. */
   const checkParent = async (companyId: string, id: string | null, parentId: string | null) => {
@@ -113,28 +125,39 @@ export function premiseRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
       return c.json(await locationDetail(db, companyId, f.id));
     })
     /** Umístit aktiva (techniku, racky i podřízené lokality) do lokality. */
+    /** Umístění do lokality nebo do racku (v1.115). Vrací detail lokality, ve které cíl stojí. */
     .post("/:id/assets", requirePerm("assets:write"), zValidator("param", Id), zValidator("json", LocationAssetsInput), async (c) => {
       const companyId = co(c, true);
-      const f = await facility(companyId, c.req.param("id"));
+      const f = await target(companyId, c.req.param("id"));
       const ids = [...new Set(c.req.valid("json").assetIds)];
       const own = await db.select({ id: assets.id, type: assets.assetType }).from(assets).where(and(inArray(assets.id, ids), eq(assets.companyId, companyId)));
       if (own.length !== ids.length) throw new HTTPException(400, { message: "Aktiva nepatří do aktivní společnosti" });
+      const pl = f.assetType === "rack" ? await loadPlacement(db, companyId) : null;
       for (const a of own) {
         if (a.id === f.id) throw new HTTPException(400, { message: "Lokalitu nelze umístit do sebe" });
+        if (a.type === "facility" && f.assetType === "rack") throw new HTTPException(400, { message: "Lokalitu nelze umístit do racku" });
         if (a.type === "facility") await checkParent(companyId, a.id, f.id);
+        // rack do racku: cíl nesmí ležet uvnitř přesouvaného racku
+        if (pl && a.type === "rack") {
+          const seen = new Set<string>();
+          for (let cur: string | null = f.id; cur && !seen.has(cur); cur = pl.container(cur)) {
+            if (cur === a.id) throw new HTTPException(400, { message: "Rack nelze umístit do racku, který je v něm" });
+            seen.add(cur);
+          }
+        }
       }
       for (const a of own) await placeAsset(db, a.id, f.id);
       await audit(db, { c, user: currentUser(c), action: "location.assets_placed", entityType: "asset", entityId: f.id, details: { assetIds: ids } });
-      return c.json(await locationDetail(db, companyId, f.id));
+      return c.json(await detailOfTarget(companyId, f));
     })
     .delete("/:id/assets/:assetId", requirePerm("assets:write"), zValidator("param", z.object({ id: z.string().uuid(), assetId: z.string().uuid() })), async (c) => {
       const companyId = co(c, true);
-      const f = await facility(companyId, c.req.param("id"));
+      const f = await target(companyId, c.req.param("id"));
       const [a] = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, c.req.param("assetId")), eq(assets.companyId, companyId)));
       if (!a) throw new HTTPException(404, { message: "Aktivum nenalezeno" });
       await placeAsset(db, a.id, null);
       await audit(db, { c, user: currentUser(c), action: "location.asset_removed", entityType: "asset", entityId: f.id, details: { assetId: a.id } });
-      return c.json(await locationDetail(db, companyId, f.id));
+      return c.json(await detailOfTarget(companyId, f));
     })
     /** Půdorysy lokality: zvolené mapy patří k ní, ostatní dosud přiřazené se uvolní. */
     .put("/:id/maps", requirePerm("assets:write"), zValidator("param", Id), zValidator("json", z.object({ mapIds: z.array(z.string().uuid()).max(100) })), async (c) => {

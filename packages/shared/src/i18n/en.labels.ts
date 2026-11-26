@@ -3,6 +3,8 @@ import { hardeningEnLabels } from "../hardening";
 /** Anglické překlady hotových českých textů (t.lbl / lbl) – klíč `lbl:<český text>`. Generováno z *_LABELS, MODULES, SECURITY_ROLES, stupnic rizik, map v komponentách a chybových hlášek API. */
 export const EN_LABELS: Record<string, string> = {
   "lbl:Neplatná dlaždice": "Invalid tile",
+  "lbl:Lokalitu nelze umístit do racku": "A location cannot be placed in a rack",
+  "lbl:Rack nelze umístit do racku, který je v něm": "A rack cannot be placed in a rack that is inside it",
   "lbl:Mapa je vypnutá": "The map is disabled",
   "lbl:Mapové podklady nejsou dostupné": "Map tiles are not available",
   "lbl:Dohledání souřadnic je vypnuté": "Coordinate lookup is disabled",

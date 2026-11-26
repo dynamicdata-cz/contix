@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.115.0
+
+Přehlednější Lokality: budova › místnost › rack › zařízení.
+
+- **Strom lokalit s racky**: racky se ve stromu zobrazují pod lokalitou, ve které stojí, s počtem zařízení; kliknutím se otevře jejich lokalita.
+- **Obsah lokality po úrovních**: místo jednoho seznamu jsou zvlášť podřízené lokality (proklik), racky s jejich zařízeními a technika přímo v lokalitě. Přepínač „Zobrazit i techniku v podřízených lokalitách“ ukáže vše pod lokalitou i s cestou (např. „2. patro › Serverovna › RACK1“), takže seznam odpovídá počtům.
+- **Umístění do racku**: tlačítko „Umístit do racku“ přímo u racku; ve formuláři aktiva jsou racky v nabídce „Umístění v lokalitě“ pod svou místností. Rack nejde umístit do racku, který je v něm, a lokalitu nejde dát do racku.
+- **Seznam aktiv** ukazuje u umístěných aktiv celou cestu (budova › místnost › rack).
+
 ## 1.114.0
 
 Adresa a mapa lokalit (ADR-206).

@@ -167,7 +167,17 @@ export async function locationsOf(db: Db, companyId: string, now = new Date()): 
   const seen = new Set<string>();
   for (const r of kids(null)) walk(r, seen);
   for (const n of nodes) if (!seen.has(n.id)) order.push(byNode.get(n.id)!);
-  return { nodes: order, issues, unplaced };
+  // racky (v1.115): kde stojí a kolik zařízení je přímo v nich
+  const inRack = new Map<string, number>();
+  for (const r of rows) {
+    const c = pl.container(r.id);
+    if (c && byId.get(c)!.assetType === "rack") inRack.set(c, (inRack.get(c) ?? 0) + 1);
+  }
+  const racks = rows
+    .filter((r) => r.assetType === "rack")
+    .map((r) => ({ id: r.id, name: r.name, parentId: pl.container(r.id), facilityId: facilityOf(r.id), criticality: r.criticality, healthStatus: r.healthStatus, devices: inRack.get(r.id) ?? 0 }))
+    .sort((a, b) => a.name.localeCompare(b.name, "cs"));
+  return { nodes: order, racks, issues, unplaced };
 }
 
 export async function locationDetail(db: Db, companyId: string, id: string): Promise<LocationDetailDto | null> {
@@ -182,7 +192,41 @@ export async function locationDetail(db: Db, companyId: string, id: string): Pro
       return { id: r.id, name: r.name, assetType: r.assetType, criticality: r.criticality, healthStatus: r.healthStatus, facilityKind: (r.facilityKind as FacilityKind | null) ?? null, viaRack: c && c !== id ? pl.byId.get(c)!.name : null };
     })
     .sort((a, b) => Number(b.assetType === "facility") - Number(a.assetType === "facility") || a.name.localeCompare(b.name, "cs"));
-  return { ...node, assets: list };
+  // obsah po úrovních (v1.115)
+  const item = (r: Row) => ({ id: r.id, name: r.name, assetType: r.assetType, criticality: r.criticality, healthStatus: r.healthStatus });
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name, "cs");
+  const inside = pl.rows.filter((r) => r.assetType !== "facility" && pl.container(r.id) === id);
+  const racks = inside
+    .filter((r) => r.assetType === "rack")
+    .map((r) => ({ ...item(r), items: pl.rows.filter((x) => pl.container(x.id) === r.id).map(item).sort(byName) }))
+    .sort(byName);
+  const sub = await subtreeOf(db, companyId, id);
+  const pathFrom = (assetId: string) => {
+    const parts: string[] = [];
+    const seen = new Set([assetId]);
+    let cur = pl.container(assetId);
+    while (cur && cur !== id && !seen.has(cur)) {
+      seen.add(cur);
+      parts.unshift(pl.byId.get(cur)!.name);
+      cur = pl.container(cur);
+    }
+    return parts.join(" › ");
+  };
+  const nested = pl.rows
+    .filter((r) => r.assetType !== "facility" && r.assetType !== "rack")
+    .filter((r) => {
+      const f = pl.facilityOf(r.id);
+      return !!f && f !== id && sub.has(f);
+    })
+    .map((r) => ({ ...item(r), path: pathFrom(r.id) }))
+    .sort((a, b) => a.path.localeCompare(b.path, "cs") || byName(a, b));
+  const content = {
+    children: dto.nodes.filter((n) => n.parentId === id).map((n) => ({ id: n.id, name: n.name, facilityKind: n.kind, assetsTotal: n.assetsTotal })),
+    racks,
+    direct: inside.filter((r) => r.assetType !== "rack").map(item).sort(byName),
+    nested,
+  };
+  return { ...node, assets: list, content };
 }
 
 /** Podstrom lokality (včetně ní). */
@@ -228,6 +272,24 @@ export async function placeAsset(db: Db, assetId: string, targetId: string | nul
 /** Je `ancestorId` předkem (nebo totožný) s `id` ve stromu lokalit? (proti cyklu při přesunu) */
 export async function isWithin(db: Db, companyId: string, id: string, ancestorId: string) {
   return (await subtreeOf(db, companyId, ancestorId)).has(id);
+}
+
+/** Cesty umístění pro seznam aktiv (v1.115): „Budova › Serverovna › RACK1“, jen u umístěných aktiv. */
+export async function placePaths(db: Db, items: { id: string; companyId: string }[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  for (const companyId of [...new Set(items.map((i) => i.companyId))]) {
+    const pl = await loadPlacement(db, companyId);
+    for (const it of items.filter((i) => i.companyId === companyId)) {
+      const parts: string[] = [];
+      const seen = new Set([it.id]);
+      for (let cur = pl.container(it.id); cur && !seen.has(cur); cur = pl.container(cur)) {
+        seen.add(cur);
+        parts.unshift(pl.byId.get(cur)!.name);
+      }
+      if (parts.length) out.set(it.id, parts.join(" › "));
+    }
+  }
+  return out;
 }
 
 /** Cesta lokality aktiva (pro detail aktiva): od kořene po bezprostřední kontejner. */

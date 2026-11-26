@@ -25,7 +25,7 @@ import { recomputeHealth } from "../vulnerabilities/service";
 import { reassignFindingTasks } from "../sectests/tasks";
 import type { Db } from "../../db/client";
 import { assetCompanies, assetDuplicateDismissals, assetLinks, assetSoftware, assetSources, assets, orgUnits, users, type AssetRow } from "../../db/schema";
-import { locationPathOf } from "../premises/service";
+import { locationPathOf, placePaths } from "../premises/service";
 import { canonicalTags } from "../tags/routes";
 import { ApiError } from "../../lib/apiError";
 
@@ -165,7 +165,9 @@ export function assetRoutes(db: Db) {
             .offset(q.offset),
           db.select({ n: count() }).from(assets).where(cond),
         ]);
-        return c.json({ items, total: total?.n ?? 0, limit: q.limit, offset: q.offset });
+        // umístění v lokalitě / racku (v1.115)
+        const paths = await placePaths(db, items);
+        return c.json({ items: items.map((i) => ({ ...i, placePath: paths.get(i.id) ?? null })), total: total?.n ?? 0, limit: q.limit, offset: q.offset });
       })
 
       .get("/stats", requirePerm("assets:read"), async (c) => {

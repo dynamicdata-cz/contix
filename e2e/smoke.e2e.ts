@@ -1970,6 +1970,19 @@ test("lokality: budova, serverovna s fyzickou bezpečností, umístění serveru
   await page.getByRole("option", { name: /E2E-LOK-SRV/ }).click();
   await page.getByTestId("loc-place-save").click();
   await expect(page.getByTestId("loc-assets")).toContainText("E2E-LOK-SRV");
+  // rack v serverovně a umístění techniky do racku (v1.115)
+  const rack = await (await page.request.post("/api/assets", { data: { name: "E2E-RACK-A", assetType: "rack" }, headers })).json();
+  await (await page.request.post("/api/assets", { data: { name: "E2E-LOK-SW", assetType: "network_device" }, headers })).json();
+  const srId = (await (await page.request.get("/api/premises", { headers })).json()).nodes.find((n: any) => n.name === "E2E Serverovna").id;
+  await page.request.post(`/api/premises/${srId}/assets`, { data: { assetIds: [rack.id] }, headers });
+  await page.reload();
+  await expect(page.getByTestId("loc-tree-rack")).toContainText("E2E-RACK-A");
+  await page.getByTestId("loc-tree-rack").click();
+  await page.getByTestId("loc-rack-E2E-RACK-A").getByTestId("loc-rack-place").click();
+  await page.getByRole("dialog").getByPlaceholder(/Hledat aktivum/).fill("E2E-LOK-SW");
+  await page.getByRole("option", { name: /E2E-LOK-SW/ }).click();
+  await page.getByTestId("loc-place-save").click();
+  await expect(page.getByTestId("loc-rack-E2E-RACK-A")).toContainText("E2E-LOK-SW");
   await page.goto(`/assets/${srv.id}`);
   await expect(page.getByTestId("asset-location")).toHaveText(/E2E Budova Zlín › E2E Serverovna/);
   // zóna v serverovně a filtr mapy podle budovy

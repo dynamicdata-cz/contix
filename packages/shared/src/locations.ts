@@ -181,8 +181,42 @@ export interface LocationIssueDto {
   related: { id: string; name: string }[];
 }
 
+/** Rack v lokalitě (v1.115) – ve stromu pod lokalitou, ve které stojí. */
+export interface RackDto {
+  id: string;
+  name: string;
+  /** bezprostřední kontejner: lokalita nebo jiný rack */
+  parentId: string | null;
+  /** lokalita, ve které rack stojí (i přes nadřazený rack) */
+  facilityId: string | null;
+  criticality: string;
+  healthStatus: string;
+  /** zařízení přímo v racku */
+  devices: number;
+}
+export interface LocationContentItem {
+  id: string;
+  name: string;
+  assetType: string;
+  criticality: string;
+  healthStatus: string;
+}
+/** Obsah lokality po úrovních (v1.115). */
+export interface LocationContentDto {
+  /** podřízené lokality */
+  children: { id: string; name: string; facilityKind: FacilityKind | null; assetsTotal: number }[];
+  /** racky stojící přímo v lokalitě, s tím, co je v nich */
+  racks: (LocationContentItem & { items: LocationContentItem[] })[];
+  /** technika umístěná přímo v lokalitě (mimo rack) */
+  direct: LocationContentItem[];
+  /** technika v podřízených lokalitách – cesta od této lokality (např. „2. patro › Serverovna › RACK1“) */
+  nested: (LocationContentItem & { path: string })[];
+}
+
 export interface LocationsDto {
   nodes: LocationNodeDto[];
+  /** racky (v1.115) */
+  racks: RackDto[];
   issues: LocationIssueDto[];
   /** Servery, síťová a úložná technika bez umístění. */
   unplaced: number;
@@ -190,6 +224,7 @@ export interface LocationsDto {
 
 export interface LocationDetailDto extends LocationNodeDto {
   assets: { id: string; name: string; assetType: string; criticality: string; healthStatus: string; facilityKind: FacilityKind | null; viaRack: string | null }[];
+  content: LocationContentDto;
 }
 
 export const LocationInput = z.object({
