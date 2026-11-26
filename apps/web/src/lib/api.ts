@@ -565,6 +565,9 @@ import type {
   PersonCertDto,
   HarborSettingsDto,
   HarborState,
+  GeocodeResult,
+  MapSettings,
+  MapSettingsInput,
   SupplierCertRequirement,
   SupplierQualificationDto,
   HarborSettingsInput,
@@ -2065,6 +2068,10 @@ export const api = {
     setMaps: (id: string, mapIds: string[]) => put<LocationDetailDto>(`/premises/${id}/maps`, { mapIds }),
     textLocations: () => request<TextLocationDto[]>("/premises/text-locations"),
     importTextLocations: (d: TextLocationImport) => post<{ created: number; placed: number }>("/premises/text-locations", d),
+    mapSettings: () => request<MapSettings>("/premises/map/settings"),
+    saveMapSettings: (d: MapSettingsInput) => put<MapSettings>("/premises/map/settings", d),
+    geocode: (query: string) => post<{ result: GeocodeResult | null }>("/premises/geocode", { query }),
+    tileUrl: () => withCompany("/api/premises/map/tiles/{z}/{x}/{y}.png"),
   },
   integrations: {
     /** Mapa propojení (v1.86): zóny, uzly, spojení, stavy a pokrytí serverů. */

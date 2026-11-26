@@ -143,7 +143,7 @@ export const API_CSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; im
 export const MAX_JSON_BYTES = 32 * 1024 * 1024;
 export const MAX_UPLOAD_BYTES = 160 * 1024 * 1024;
 
-export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams?: TeamsPoster; fetchImpl?: FetchLike; onBackground?: (p: Promise<unknown>) => void; esbirkaFetch?: (input: string, init?: RequestInit) => Promise<Response>; aresFetch?: AresFetch; intelFetch?: FetchLike; infoFetch?: FetchLike; pdfText?: (buf: Uint8Array) => Promise<string>; tls?: TlsDeps; netscan?: NetScanDeps; adAuth?: AdAuthenticator; toImage?: MapImageConverter; adWriter?: AdWriterFactory }) {
+export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams?: TeamsPoster; fetchImpl?: FetchLike; onBackground?: (p: Promise<unknown>) => void; esbirkaFetch?: (input: string, init?: RequestInit) => Promise<Response>; aresFetch?: AresFetch; intelFetch?: FetchLike; infoFetch?: FetchLike; pdfText?: (buf: Uint8Array) => Promise<string>; tls?: TlsDeps; netscan?: NetScanDeps; adAuth?: AdAuthenticator; toImage?: MapImageConverter; adWriter?: AdWriterFactory; mapFetch?: FetchLike }) {
   const { db, config } = deps;
   const origins = [...new Set([...config.CORS_ORIGINS, new URL(config.APP_URL).origin])];
 
@@ -175,7 +175,7 @@ export function createApp(deps: { db: Db; config: Config; mailer?: Mailer; teams
     .route("/hosts", hostRoutes(db))
     .route("/integrations", integrationRoutes(deps))
     .route("/zones", zoneRoutes(deps.db))
-    .route("/premises", premiseRoutes(deps.db))
+    .route("/premises", premiseRoutes(deps.db, { fetchImpl: deps.mapFetch ?? deps.fetchImpl }))
     .route("/quality", qualityRoutes(db))
     .route("/bulk", bulkRoutes(db))
     .route("/findings", findingRoutes(db, { config, fetchImpl: deps.fetchImpl }))

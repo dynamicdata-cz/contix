@@ -329,9 +329,16 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
                     ))}
                 </Select>
               </Field>
-              <Field label={t("prem.f.address")}>
-                <Input {...bind("address")} />
-              </Field>
+              {(() => {
+                // strukturovaná adresa (v1.114) se upravuje v Lokalitách
+                const p = existing.data?.physical;
+                const structured = !!(p?.street || p?.city || p?.zip || p?.country);
+                return (
+                  <Field label={t("prem.f.address")} hint={structured ? t("prem.addressInLocations") : undefined}>
+                    <Input {...bind("address")} disabled={structured} />
+                  </Field>
+                );
+              })()}
             </div>
           </Card>
         )}

@@ -60,7 +60,15 @@ export type PhysicalRevision = z.infer<typeof PhysicalRevision>;
 export const FacilityPhysical = z.object({
   controls: z.partialRecord(z.enum(PHYSICAL_CONTROLS), z.enum(PHYSICAL_LEVELS)).default({}),
   note: z.string().trim().max(2000).default(""),
+  /** Adresa jako jeden řádek (starší záznamy; od v1.114 se skládá ze strukturovaných polí). */
   address: z.string().trim().max(300).default(""),
+  /** Strukturovaná adresa a poloha (v1.114). */
+  street: z.string().trim().max(200).default(""),
+  city: z.string().trim().max(120).default(""),
+  zip: z.string().trim().max(20).default(""),
+  country: z.string().trim().max(80).default(""),
+  lat: z.number().min(-90).max(90).nullable().default(null),
+  lng: z.number().min(-180).max(180).nullable().default(null),
   /** Datum poslední kontroly fyzické bezpečnosti (prohlídka, revize). */
   reviewedAt: z
     .string()
@@ -243,3 +251,43 @@ export const splitLocationText = (text: string) =>
     .map((x) => x.trim())
     .filter(Boolean)
     .slice(0, 5);
+
+/* ---------- Adresa a mapa lokalit (v1.114, ADR-206) ---------- */
+
+/** Jednořádková adresa: „ulice, PSČ obec, stát“; bez strukturovaných polí starší text `address`. */
+export function formatAddress(p: Partial<Pick<FacilityPhysical, "address" | "street" | "city" | "zip" | "country">> | null | undefined): string {
+  if (!p) return "";
+  const town = [p.zip, p.city].filter(Boolean).join(" ");
+  const s = [p.street, town, p.country].filter(Boolean).join(", ");
+  return s || p.address || "";
+}
+
+export const MAP_SETTINGS_KEY = "maps";
+export const MapSettingsInput = z.object({
+  /** mapa v Lokalitách (podklady stahuje server CONTIXu a ukládá do mezipaměti) */
+  enabled: z.boolean().default(true),
+  /** dlaždice {z}/{x}/{y}; výchozí OpenStreetMap */
+  tileUrl: z
+    .string()
+    .trim()
+    .max(300)
+    .regex(/^https:\/\/[^\s]+\{z\}[^\s]*\{x\}[^\s]*\{y\}/, "Adresa dlaždic musí být https a obsahovat {z}, {x} a {y}")
+    .default("https://tile.openstreetmap.org/{z}/{x}/{y}.png"),
+  attribution: z.string().trim().max(200).default("© OpenStreetMap"),
+  /** dohledání souřadnic podle adresy (Nominatim) */
+  geocode: z.boolean().default(true),
+  geocodeUrl: z
+    .string()
+    .trim()
+    .max(300)
+    .regex(/^https:\/\/\S+$/, "Adresa služby musí být https")
+    .default("https://nominatim.openstreetmap.org/search"),
+});
+export type MapSettings = z.output<typeof MapSettingsInput>;
+export type MapSettingsInput = z.input<typeof MapSettingsInput>;
+export const GeocodeInput = z.object({ query: z.string().trim().min(3).max(300) });
+export interface GeocodeResult {
+  lat: number;
+  lng: number;
+  label: string;
+}

@@ -2,6 +2,15 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.114.0
+
+Adresa a mapa lokalit (ADR-206).
+
+- **Strukturovaná adresa**: lokalita má ulici a číslo, PSČ, obec a stát; dřívější jednořádková adresa se při úpravě předvyplní do ulice.
+- **Poloha**: zeměpisná šířka a délka – zadáním, kliknutím do mapy nebo tlačítkem „Dohledat souřadnice“ podle adresy (OpenStreetMap Nominatim).
+- **Mapa**: v detailu lokality je mapa s polohou a odkaz „Otevřít v Mapy.cz“; tlačítko „Mapa lokalit“ ukáže všechny lokality s polohou na jedné mapě (kliknutím se lokalita otevře).
+- **Bezpečnost**: mapové podklady i dohledání jdou přes server CONTIXu, prohlížeč dál nekomunikuje s cizími servery. V Nastavení mapy (ikona ozubeného kola v Lokalitách, správa systému) lze mapu i dohledání vypnout nebo zadat vlastní server dlaždic.
+
 ## 1.113.0
 
 Webhook z Harboru (ADR-205).

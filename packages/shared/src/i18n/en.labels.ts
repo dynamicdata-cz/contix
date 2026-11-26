@@ -2,6 +2,14 @@ import { hardeningEnLabels } from "../hardening";
 
 /** Anglické překlady hotových českých textů (t.lbl / lbl) – klíč `lbl:<český text>`. Generováno z *_LABELS, MODULES, SECURITY_ROLES, stupnic rizik, map v komponentách a chybových hlášek API. */
 export const EN_LABELS: Record<string, string> = {
+  "lbl:Neplatná dlaždice": "Invalid tile",
+  "lbl:Mapa je vypnutá": "The map is disabled",
+  "lbl:Mapové podklady nejsou dostupné": "Map tiles are not available",
+  "lbl:Dohledání souřadnic je vypnuté": "Coordinate lookup is disabled",
+  "lbl:Zkuste to znovu za chvíli": "Try again in a moment",
+  "lbl:Služba pro dohledání souřadnic není dostupná": "The geocoding service is not available",
+  "lbl:Adresa dlaždic musí být https a obsahovat {z}, {x} a {y}": "The tile URL must be https and contain {z}, {x} and {y}",
+  "lbl:Adresa služby musí být https": "The service URL must be https",
   "lbl:Rozsah zadejte jako 10.0.0.0/24": "Enter the range as 10.0.0.0/24",
   "lbl:Zóna nepatří do společnosti aktiva": "The zone does not belong to the asset's company",
   "lbl:Zóna nenalezena": "Zone not found",

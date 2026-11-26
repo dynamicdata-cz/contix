@@ -1,4 +1,6 @@
-import { LocationAssetsInput, LocationInput, LocationPatch, TextLocationImport } from "@contix/shared";
+import { formatAddress, GeocodeInput, LocationAssetsInput, LocationInput, LocationPatch, MapSettingsInput, TextLocationImport, type FacilityPhysical } from "@contix/shared";
+import { geocode, mapSettings, mapTile, MapError, saveMapSettings } from "./map";
+import type { FetchLike } from "../discovery/connectors/wazuh";
 import { zValidator } from "@hono/zod-validator";
 import { and, eq, inArray } from "drizzle-orm";
 import { Hono, type Context } from "hono";
@@ -11,9 +13,12 @@ import type { Db } from "../../db/client";
 import { assetSources, assets, siteMaps } from "../../db/schema";
 import { importTextLocations, isWithin, locationDetail, locationsOf, placeAsset, syncPremiseFindings, textLocations } from "./service";
 
+/** Jednořádková adresa (pro starší zobrazení a export) se skládá ze strukturovaných polí (v1.114). */
+const withAddress = (p: FacilityPhysical): FacilityPhysical => (p.street || p.city || p.zip || p.country ? { ...p, address: formatAddress({ ...p, address: "" }).slice(0, 300) } : p);
+
 /* Lokality – /api/locations (v1.104, ADR-198). Vše v aktivní společnosti. */
 
-export function premiseRoutes(db: Db) {
+export function premiseRoutes(db: Db, deps: { fetchImpl?: FetchLike } = {}) {
   const co = (c: Context<AppEnv>, write = false) => {
     const id = targetCompany(c);
     if (write && !hasPermIn(c, "assets:write", id)) throw new HTTPException(403, { message: "Nedostatečná oprávnění" });
@@ -34,6 +39,31 @@ export function premiseRoutes(db: Db) {
   return new Hono<AppEnv>()
     .use(requireModule(db, "assets"))
     .get("/", requirePerm("assets:read"), async (c) => c.json(await locationsOf(db, co(c))))
+    /* ---------- mapa (v1.114) ---------- */
+    .get("/map/settings", requirePerm("assets:read"), async (c) => c.json(await mapSettings(db)))
+    .put("/map/settings", requirePerm("admin:settings"), zValidator("json", MapSettingsInput), async (c) => {
+      const v = await saveMapSettings(db, c.req.valid("json"));
+      await audit(db, { c, user: currentUser(c), action: "location.map_settings", entityType: "settings", details: v });
+      return c.json(v);
+    })
+    .get("/map/tiles/:z/:x/:y", requirePerm("assets:read"), async (c) => {
+      const [z, x, y] = [c.req.param("z"), c.req.param("x"), c.req.param("y").replace(/\.png$/, "")].map((v) => (/^\d{1,7}$/.test(v) ? Number(v) : NaN)) as [number, number, number];
+      try {
+        const t = await mapTile(db, z, x, y, deps.fetchImpl);
+        return c.body(t.body as never, 200, { "content-type": t.type, "cache-control": "private, max-age=86400" });
+      } catch (e) {
+        if (e instanceof MapError) throw new HTTPException(e.status, { message: e.message });
+        throw e;
+      }
+    })
+    .post("/geocode", requirePerm("assets:write"), zValidator("json", GeocodeInput), async (c) => {
+      try {
+        return c.json({ result: await geocode(db, c.req.valid("json").query, deps.fetchImpl) });
+      } catch (e) {
+        if (e instanceof MapError) throw new HTTPException(e.status, { message: e.message });
+        throw e;
+      }
+    })
     /** Texty z pole „Umístění“ aktiv k převodu na lokality (v1.108). */
     .get("/text-locations", requirePerm("assets:read"), async (c) => c.json(await textLocations(db, co(c))))
     .post("/text-locations", requirePerm("assets:write"), zValidator("json", TextLocationImport), async (c) => {
@@ -56,7 +86,7 @@ export function premiseRoutes(db: Db) {
       const row = await db.transaction(async (tx) => {
         const [r] = await tx
           .insert(assets)
-          .values({ companyId, name: v.name, assetType: "facility", assetClass: "supporting", criticality: v.criticality, facilityKind: v.kind, physical: v.physical ?? null })
+          .values({ companyId, name: v.name, assetType: "facility", assetClass: "supporting", criticality: v.criticality, facilityKind: v.kind, physical: v.physical ? withAddress(v.physical) : null })
           .returning();
         await tx.insert(assetSources).values({ assetId: r!.id, sourceType: "manual", sourceRef: r!.id });
         return r!;
@@ -75,7 +105,7 @@ export function premiseRoutes(db: Db) {
       if (v.name !== undefined) set.name = v.name;
       if (v.kind !== undefined) set.facilityKind = v.kind;
       if (v.criticality !== undefined) set.criticality = v.criticality;
-      if (v.physical !== undefined) set.physical = v.physical;
+      if (v.physical !== undefined) set.physical = v.physical ? withAddress(v.physical) : v.physical;
       if (Object.keys(set).length) await db.update(assets).set({ ...set, updatedAt: new Date() }).where(eq(assets.id, f.id));
       if (v.parentId !== undefined) await placeAsset(db, f.id, v.parentId);
       await syncPremiseFindings(db, [companyId]);

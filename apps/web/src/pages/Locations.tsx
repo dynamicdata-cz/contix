@@ -6,6 +6,9 @@ import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { cn, fmtDay } from "@/lib/utils";
 import {
+  FacilityPhysical as FacilityPhysicalSchema,
+  formatAddress,
+  type MapSettings,
   FACILITY_KINDS,
   LABELS,
   PHYSICAL_CONTROLS,
@@ -25,8 +28,9 @@ import {
 } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, MapPin, Warehouse, Pencil, Plus, ShieldCheck, X } from "lucide-react";
-import { useState } from "react";
+import { AlertTriangle, Map as MapIcon, MapPin, Settings, Warehouse, Pencil, Plus, ShieldCheck, X } from "lucide-react";
+import { useMemo, useState } from "react";
+import { LocationMap } from "@/components/locationMap";
 
 /* ============================================================
  * Lokality (v1.104, ADR-198): budovy, patra, místnosti a datová centra jako aktiva typu „prostory“.
@@ -46,6 +50,11 @@ export function LocationsPage() {
   const [newParent, setNewParent] = useState<string | null>(null);
   const d = q.data;
   const current = (sel && d?.nodes.some((n) => n.id === sel) ? sel : null) ?? d?.nodes[0]?.id ?? null;
+  const ms = useQuery({ queryKey: ["premises", "mapSettings"], queryFn: api.premises.mapSettings });
+  const [showMap, setShowMap] = useState(false);
+  const [mapCfg, setMapCfg] = useState(false);
+  const located = useMemo(() => (d?.nodes ?? []).filter((n) => n.physical.lat != null && n.physical.lng != null), [d]);
+  const points = useMemo(() => located.map((n) => ({ id: n.id, lat: n.physical.lat!, lng: n.physical.lng!, label: [...n.path.map((p) => p.name), n.name].join(" › "), selected: n.id === current })), [located, current]);
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end gap-3">
@@ -55,6 +64,16 @@ export function LocationsPage() {
           </h1>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">{t("prem.sub")}</p>
         </div>
+        {ms.data?.enabled && located.length > 0 && (
+          <Button variant="secondary" onClick={() => setShowMap(!showMap)} data-testid="loc-map-toggle">
+            <MapIcon size={15} /> {t(showMap ? "prem.map.hide" : "prem.map.show", { n: located.length })}
+          </Button>
+        )}
+        {can("admin:settings") && (
+          <Button variant="secondary" onClick={() => setMapCfg(true)} aria-label={t("prem.map.settings")} title={t("prem.map.settings")} data-testid="loc-map-settings">
+            <Settings size={15} />
+          </Button>
+        )}
         {write && (
           <Button
             onClick={() => {
@@ -68,6 +87,12 @@ export function LocationsPage() {
         )}
       </div>
       <ErrorBox error={q.error} />
+      {showMap && ms.data?.enabled && points.length > 0 && (
+        <Card className="p-3">
+          <LocationMap points={points} attribution={ms.data.attribution} onSelect={setSel} height={360} testId="loc-overview-map" />
+        </Card>
+      )}
+      {mapCfg && ms.data && <MapSettingsModal value={ms.data} onClose={() => setMapCfg(false)} />}
       {d && !d.nodes.length && (
         <Card className="p-6" data-testid="loc-empty">
           <p className="text-sm text-slate-700">{t("prem.empty")}</p>
@@ -138,9 +163,12 @@ function LocationDetail({ id, write, onEdit, onAddChild }: { id: string; write: 
     qc.invalidateQueries({ queryKey: ["zones"] });
   };
   const unplace = useMutation({ mutationFn: (assetId: string) => api.premises.unplace(id, assetId), onSuccess: refresh });
+  const ms = useQuery({ queryKey: ["premises", "mapSettings"], queryFn: api.premises.mapSettings });
   const d = q.data;
+  const pin = useMemo(() => (d && d.physical.lat != null && d.physical.lng != null ? [{ id: d.id, lat: d.physical.lat, lng: d.physical.lng, label: d.name, selected: true }] : []), [d]);
   if (!d) return <ErrorBox error={q.error} />;
   const required = new Set(requiredPhysical(d.kind));
+  const addr = formatAddress(d.physical);
   return (
     <div className="space-y-6" data-testid="loc-detail">
       <Card>
@@ -165,9 +193,24 @@ function LocationDetail({ id, write, onEdit, onAddChild }: { id: string; write: 
           <Stat label={t("prem.assetsCritical")} value={d.assetsCritical} />
           <Stat label={t("prem.zones")} value={d.zones.length} />
         </div>
-        {(d.zones.length > 0 || d.maps.length > 0 || d.physical.address) && (
+        {(d.zones.length > 0 || d.maps.length > 0 || addr || pin.length > 0) && (
           <div className="space-y-1 border-t border-slate-100 px-5 py-3 text-sm">
-            {d.physical.address && <p className="text-slate-700">{d.physical.address}</p>}
+            {(addr || pin.length > 0) && (
+              <p className="flex flex-wrap items-center gap-2 text-slate-700" data-testid="loc-address">
+                <MapPin size={14} className="text-slate-400" />
+                {addr}
+                {pin.length > 0 && <span className="text-xs text-slate-500">({d.physical.lat}, {d.physical.lng})</span>}
+                <a
+                  className="text-xs text-brand-700 hover:underline"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  href={pin.length ? `https://mapy.cz/zakladni?x=${d.physical.lng}&y=${d.physical.lat}&z=17&source=coor&id=${d.physical.lng}%2C${d.physical.lat}` : `https://mapy.cz/zakladni?q=${encodeURIComponent(addr)}`}
+                >
+                  {t("prem.map.openMapy")}
+                </a>
+              </p>
+            )}
+            {ms.data?.enabled && pin.length > 0 && <LocationMap points={pin} attribution={ms.data.attribution} height={220} testId="loc-detail-map" />}
             {d.zones.length > 0 && (
               <p className="flex flex-wrap items-center gap-2">
                 <span className="text-slate-500">{t("prem.zones")}:</span>
@@ -427,7 +470,21 @@ function LocationModal({ node, parentId, nodes, onClose, onDone }: { node: Locat
     parentId: parentId,
     criticality: (node?.criticality ?? "medium") as "low" | "medium" | "high" | "critical",
   });
-  const [ph, setPh] = useState<FacilityPhysical>(node?.physical ?? { controls: {}, note: "", address: "", reviewedAt: null, revisions: {} });
+  const [ph, setPh] = useState<FacilityPhysical>(() => {
+    const p = FacilityPhysicalSchema.parse(node?.physical ?? {});
+    // starší jednořádková adresa → ulice (k doplnění obce a PSČ)
+    return p.address && !p.street && !p.city && !p.zip && !p.country ? { ...p, street: p.address } : p;
+  });
+  const ms = useQuery({ queryKey: ["premises", "mapSettings"], queryFn: api.premises.mapSettings });
+  const geo = useMutation({
+    mutationFn: () => api.premises.geocode(formatAddress({ ...ph, address: "" }) || ph.address),
+    onSuccess: (r) => r.result && setPh((x) => ({ ...x, lat: r.result!.lat, lng: r.result!.lng })),
+  });
+  const pickPin = useMemo(() => (ph.lat != null && ph.lng != null ? [{ id: "pin", lat: ph.lat, lng: ph.lng, label: f.name || "•", selected: true }] : []), [ph.lat, ph.lng, f.name]);
+  const coord = (v: string, max: number) => {
+    const n = Number(v.replace(",", "."));
+    return v.trim() === "" || !Number.isFinite(n) ? null : Math.max(-max, Math.min(max, n));
+  };
   const setRev = (k: PhysicalControl, patch: Partial<PhysicalRevision>) => {
     const cur = ph.revisions?.[k] ?? { lastAt: null, intervalMonths: null };
     setPh({ ...ph, revisions: { ...(ph.revisions ?? {}), [k]: { ...cur, ...patch } } });
@@ -501,9 +558,47 @@ function LocationModal({ node, parentId, nodes, onClose, onDone }: { node: Locat
             ))}
           </Select>
         </Field>
-        <Field label={t("prem.f.address")} className="sm:col-span-2">
-          <Input value={ph.address} onChange={(e) => setPh({ ...ph, address: e.target.value })} />
+        <Field label={t("prem.f.street")} className="sm:col-span-2">
+          <Input value={ph.street} maxLength={200} onChange={(e) => setPh({ ...ph, street: e.target.value })} data-testid="loc-street" />
         </Field>
+        <div className="grid grid-cols-[7rem_1fr] gap-3">
+          <Field label={t("prem.f.zip")}>
+            <Input value={ph.zip} maxLength={20} onChange={(e) => setPh({ ...ph, zip: e.target.value })} data-testid="loc-zip" />
+          </Field>
+          <Field label={t("prem.f.city")}>
+            <Input value={ph.city} maxLength={120} onChange={(e) => setPh({ ...ph, city: e.target.value })} data-testid="loc-city" />
+          </Field>
+        </div>
+        <Field label={t("prem.f.country")}>
+          <Input value={ph.country} maxLength={80} placeholder="Česko" onChange={(e) => setPh({ ...ph, country: e.target.value })} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3 sm:col-span-2 sm:grid-cols-[1fr_1fr_auto]">
+          <Field label={t("prem.f.lat")}>
+            <Input inputMode="decimal" value={ph.lat ?? ""} onChange={(e) => setPh({ ...ph, lat: coord(e.target.value, 90) })} data-testid="loc-lat" />
+          </Field>
+          <Field label={t("prem.f.lng")}>
+            <Input inputMode="decimal" value={ph.lng ?? ""} onChange={(e) => setPh({ ...ph, lng: coord(e.target.value, 180) })} data-testid="loc-lng" />
+          </Field>
+          {ms.data?.geocode && (
+            <div className="col-span-2 flex items-end sm:col-span-1">
+              <Button variant="secondary" onClick={() => geo.mutate()} disabled={geo.isPending || !(ph.street || ph.city)} data-testid="loc-geocode">
+                <MapPin size={15} /> {t("prem.map.geocode")}
+              </Button>
+            </div>
+          )}
+        </div>
+        {geo.isSuccess && !geo.data.result && <p className="text-xs text-amber-700 sm:col-span-2">{t("prem.map.notFound")}</p>}
+        {geo.error && (
+          <div className="sm:col-span-2">
+            <ErrorBox error={geo.error} />
+          </div>
+        )}
+        {ms.data?.enabled && (
+          <div className="sm:col-span-2">
+            <LocationMap points={pickPin} attribution={ms.data.attribution} onPick={(lat, lng) => setPh((x) => ({ ...x, lat, lng }))} height={200} testId="loc-pick-map" />
+            <p className="mt-1 text-xs text-slate-500">{t("prem.map.pickHint")}</p>
+          </div>
+        )}
       </div>
       <h3 className="mt-5 flex items-center gap-2 text-sm font-semibold text-slate-800">
         <ShieldCheck size={15} className="text-slate-400" /> {t("prem.physical")}
@@ -653,3 +748,54 @@ function MapsModal({ d, onClose, onDone }: { d: LocationDetailDto; onClose: () =
 }
 
 
+
+/** Nastavení mapy (správa systému, v1.114). */
+function MapSettingsModal({ value, onClose }: { value: MapSettings; onClose: () => void }) {
+  const t = useT();
+  const qc = useQueryClient();
+  const [f, setF] = useState(value);
+  const save = useMutation({
+    mutationFn: () => api.premises.saveMapSettings(f),
+    onSuccess: (d) => {
+      qc.setQueryData(["premises", "mapSettings"], d);
+      onClose();
+    },
+  });
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t("prem.map.settings")}
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>
+            {t("common.cancelAction")}
+          </Button>
+          <Button onClick={() => save.mutate()} disabled={save.isPending} data-testid="map-settings-save">
+            {t("prem.save")}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <p className="text-xs text-slate-500">{t("prem.map.settingsSub")}</p>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} data-testid="map-enabled" /> {t("prem.map.enabled")}
+        </label>
+        <Field label={t("prem.map.tileUrl")}>
+          <Input value={f.tileUrl} onChange={(e) => setF({ ...f, tileUrl: e.target.value })} />
+        </Field>
+        <Field label={t("prem.map.attribution")}>
+          <Input value={f.attribution} onChange={(e) => setF({ ...f, attribution: e.target.value })} />
+        </Field>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={f.geocode} onChange={(e) => setF({ ...f, geocode: e.target.checked })} /> {t("prem.map.geocodeEnabled")}
+        </label>
+        <Field label={t("prem.map.geocodeUrl")}>
+          <Input value={f.geocodeUrl} onChange={(e) => setF({ ...f, geocodeUrl: e.target.value })} />
+        </Field>
+        <ErrorBox error={save.error} />
+      </div>
+    </Modal>
+  );
+}

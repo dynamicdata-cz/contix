@@ -622,9 +622,19 @@ describe.skipIf(!url)("API (integrace)", () => {
   const sentMails: { to: string; subject: string; html: string }[] = [];
   const background: Promise<unknown>[] = [];
   const teamsPosts: { url: string; payload: any }[] = [];
+  // mapové podklady a Nominatim (v1.114)
+  const mapCalls: string[] = [];
+  const mapFetch = (async (url: string, init?: any) => {
+    mapCalls.push(`${url}|${init?.headers?.["user-agent"] ?? ""}`);
+    if (url.startsWith("https://tile.test/")) return new Response(new Uint8Array([137, 80, 78, 71, 1, 2, 3]), { headers: { "content-type": "image/png" } });
+    if (url.startsWith("https://tile.openstreetmap.org/")) return new Response("<html>", { headers: { "content-type": "text/html" } });
+    if (url.startsWith("https://nominatim.test/")) return Response.json(url.includes("Neexistuje") ? [] : [{ lat: "49.2001234567", lon: "17.6701234567", display_name: "Zlín, Česko" }]);
+    return new Response("", { status: 404 });
+  }) as any;
   const app = createApp({
     db,
     config,
+    mapFetch,
     mailer: { send: async (m) => void sentMails.push(m) },
     teams: { post: async (url, payload) => void teamsPosts.push({ url, payload }) },
     onBackground: (p) => void background.push(p),
@@ -12115,6 +12125,52 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect((await admin.req("/api/cra/harbor/webhook", { method: "DELETE" })).status).toBe(204);
     expect((await call(tk2, ev("SCANNING_COMPLETED", "2.0"))).status).toBe(401);
     for (const p of [p1, p2, p3]) await admin.json(`/api/cra/${p.id}`, { method: "DELETE", headers: H });
+  });
+
+  test("adresa a mapa lokalit (v1.114): strukturovaná adresa, dlaždice přes server, dohledání souřadnic", async () => {
+    const { formatAddress } = await import("@contix/shared");
+    expect(formatAddress({ street: "Třída Tomáše Bati 5", zip: "760 01", city: "Zlín", country: "" })).toBe("Třída Tomáše Bati 5, 760 01 Zlín");
+    expect(formatAddress({ address: "Stará adresa 1" })).toBe("Stará adresa 1");
+    const { resetMapState, tileCacheSize } = await import("../src/modules/premises/map");
+    resetMapState();
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "MP Mapa s.r.o." } })).body.id as string;
+    const H = { [COMPANY_HEADER]: CO };
+    const s0 = (await admin.json("/api/premises/map/settings", { headers: H })).body;
+    expect([s0.enabled, s0.geocode, s0.tileUrl]).toEqual([true, true, "https://tile.openstreetmap.org/{z}/{x}/{y}.png"]);
+    expect((await admin.json("/api/premises/map/settings", { method: "PUT", json: { ...s0, tileUrl: "http://tile.test/{z}/{x}/{y}.png" } })).status).toBe(400);
+    expect((await admin.json("/api/premises/map/settings", { method: "PUT", json: { ...s0, tileUrl: "https://tile.test/{z}/{x}/{y}.png", geocodeUrl: "https://nominatim.test/search" } })).status).toBe(200);
+    // lokalita se strukturovanou adresou → jednořádková adresa se složí
+    const loc = (await admin.json("/api/premises", { method: "POST", headers: H, json: { name: "MP Budova", kind: "building", physical: { street: "Třída Tomáše Bati 5", zip: "760 01", city: "Zlín", lat: 49.2, lng: 17.67, address: "x" } } })).body;
+    const node = ((await admin.json("/api/premises", { headers: H })).body.nodes as any[]).find((n) => n.id === loc.id);
+    expect([node.physical.address, node.physical.lat, node.physical.lng]).toEqual(["Třída Tomáše Bati 5, 760 01 Zlín", 49.2, 17.67]);
+    expect((await admin.json(`/api/premises/${loc.id}`, { method: "PATCH", headers: H, json: { physical: { ...node.physical, lat: 91 } } })).status).toBe(400);
+    // dlaždice: přes server, v mezipaměti, s identifikací CONTIXu
+    const n0 = mapCalls.length;
+    const t1 = await admin.req("/api/premises/map/tiles/12/2240/1405.png", { headers: H });
+    expect([t1.status, t1.headers.get("content-type")]).toEqual([200, "image/png"]);
+    expect(new Uint8Array(await t1.arrayBuffer()).slice(0, 4)).toEqual(new Uint8Array([137, 80, 78, 71]));
+    expect((await admin.req("/api/premises/map/tiles/12/2240/1405.png", { headers: H })).status).toBe(200);
+    expect(mapCalls.length).toBe(n0 + 1);
+    expect(mapCalls.at(-1)).toMatch(/^https:\/\/tile\.test\/12\/2240\/1405\.png\|CONTIX\//);
+    expect(tileCacheSize()).toBe(1);
+    expect((await admin.req("/api/premises/map/tiles/3/9/1.png", { headers: H })).status).toBe(400); // x mimo rozsah
+    expect((await admin.req("/api/premises/map/tiles/20/1/1.png", { headers: H })).status).toBe(400);
+    expect((await browser().req("/api/premises/map/tiles/12/2240/1405.png")).status).toBe(401);
+    // dohledání souřadnic (zaokrouhlení, nenalezeno, limit 1/s)
+    const g1 = await admin.json("/api/premises/geocode", { method: "POST", headers: H, json: { query: "Třída Tomáše Bati 5, Zlín" } });
+    expect(g1.body).toEqual({ result: { lat: 49.200123, lng: 17.670123, label: "Zlín, Česko" } });
+    expect(mapCalls.at(-1)).toContain("q=T%C5%99%C3%ADda");
+    expect((await admin.json("/api/premises/geocode", { method: "POST", headers: H, json: { query: "Neexistuje 1" } })).status).toBe(400); // do 1 s znovu
+    resetMapState();
+    expect((await admin.json("/api/premises/geocode", { method: "POST", headers: H, json: { query: "Neexistuje 1" } })).body).toEqual({ result: null });
+    // podklady, které nejsou obrázek, se nevrátí; vypnutá mapa
+    await admin.json("/api/premises/map/settings", { method: "PUT", json: { ...s0 } });
+    expect((await admin.req("/api/premises/map/tiles/1/0/0.png", { headers: H })).status).toBe(502);
+    await admin.json("/api/premises/map/settings", { method: "PUT", json: { ...s0, enabled: false, geocode: false } });
+    expect((await admin.req("/api/premises/map/tiles/1/0/0.png", { headers: H })).status).toBe(404);
+    resetMapState();
+    expect((await admin.json("/api/premises/geocode", { method: "POST", headers: H, json: { query: "Zlín" } })).status).toBe(404);
+    await admin.json("/api/premises/map/settings", { method: "PUT", json: { ...s0 } });
   });
 
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {

@@ -1941,8 +1941,19 @@ test("lokality: budova, serverovna s fyzickou bezpečností, umístění serveru
   await page.getByTestId("loc-new").click();
   await page.getByTestId("loc-name").fill("E2E Budova Zlín");
   await page.getByTestId("loc-kind").selectOption("building");
+  // adresa a poloha (v1.114)
+  await page.getByTestId("loc-street").fill("Třída Tomáše Bati 5");
+  await page.getByTestId("loc-zip").fill("760 01");
+  await page.getByTestId("loc-city").fill("Zlín");
+  await expect(page.getByTestId("loc-pick-map")).toBeVisible();
+  await page.getByTestId("loc-lat").fill("49.2265");
+  await page.getByTestId("loc-lng").fill("17.6670");
   await page.getByTestId("loc-save").click();
   await expect(page.getByTestId("loc-tree")).toContainText("E2E Budova Zlín");
+  await expect(page.getByTestId("loc-address")).toContainText("Třída Tomáše Bati 5, 760 01 Zlín");
+  await expect(page.getByTestId("loc-detail-map")).toBeVisible();
+  await page.getByTestId("loc-map-toggle").click();
+  await expect(page.getByTestId("loc-overview-map")).toBeVisible();
   await page.getByTestId("loc-add-child").click();
   await page.getByTestId("loc-name").fill("E2E Serverovna");
   await page.getByTestId("loc-kind").selectOption("server_room");

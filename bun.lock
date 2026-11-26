@@ -47,6 +47,7 @@
         "@tanstack/react-router": "^1.170.40",
         "bpmn-js": "^18.30.1",
         "clsx": "^2.1.1",
+        "leaflet": "1.9.4",
         "lucide-react": "^1.48.0",
         "qrcode": "^1.5.4",
         "react": "^19.3.0",
@@ -55,6 +56,7 @@
       },
       "devDependencies": {
         "@tailwindcss/vite": "^4.3.3",
+        "@types/leaflet": "^1.9.23",
         "@types/qrcode": "^1.5.6",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
@@ -266,6 +268,10 @@
 
     "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
+    "@types/geojson": ["@types/geojson@7946.0.16", "", {}, "sha512-6C8nqWur3j98U6+lXDfTUWIfgvZU+EumvpHKcYjujKH7woYyLj2sUmff0tRhrqM7BohUw7Pz3ZB1jj2gW9Fvmg=="],
+
+    "@types/leaflet": ["@types/leaflet@1.9.23", "", { "dependencies": { "@types/geojson": "*" } }, "sha512-rpvCoR7fQ2I4tFGIDjuyRAXl25e9YiJ9eE7AdJY5aJF8tkgg4ph3fRb9zafM6ZB1YO5LYziZQwh/vW3IOat/+Q=="],
+
     "@types/node": ["@types/node@26.6.3", "", { "dependencies": { "undici-types": "~8.9.0" } }, "sha512-dsqMQQoeTLqu9wynDD00q573mNzso3IdQOAfHRJqLCcmCFPoGo9A1bDpUcv/9tnKpErQWv9uKeGfl37EIS02Yg=="],
 
     "@types/nodemailer": ["@types/nodemailer@8.0.2", "", { "dependencies": { "@types/node": "*" } }, "sha512-c7M5ox8p0nEOfbJ2E9Qcmt8/QCu/VzsiAhzBiZbvky2PhKZDHpKB3sQHBM5MEZNkCfBOaS6S9//AGPRTNB7IaA=="],
@@ -449,6 +455,8 @@
     "ldapjs": ["ldapjs@3.0.7", "", { "dependencies": { "@ldapjs/asn1": "^2.0.0", "@ldapjs/attribute": "^1.0.0", "@ldapjs/change": "^1.0.0", "@ldapjs/controls": "^2.1.0", "@ldapjs/dn": "^1.1.0", "@ldapjs/filter": "^2.1.1", "@ldapjs/messages": "^1.3.0", "@ldapjs/protocol": "^1.2.1", "abstract-logging": "^2.0.1", "assert-plus": "^1.0.0", "backoff": "^2.5.0", "once": "^1.4.0", "vasync": "^2.2.1", "verror": "^1.10.1" } }, "sha512-1ky+WrN+4CFMuoekUOv7Y1037XWdjKpu0xAPwSP+9KdvmV9PG+qOKlssDV6a+U32apwxdD3is/BZcWOYzN30cg=="],
 
     "ldapts": ["ldapts@9.2.0", "", { "dependencies": { "strict-event-emitter-types": "2.0.0" } }, "sha512-5mDg3OT5fDP9DUXga9dCLW8cMW24OTOKT4pv/Qj+f2zCV3qxb+gkZLCzMAqzVTOANoycidKkYpPvkclUQU2aXw=="],
+
+    "leaflet": ["leaflet@1.9.4", "", {}, "sha512-nxS1ynzJOmOlHp+iL3FyWqK89GtNL8U8rvlMOsQdTTssxZwCXh8N2NB3GDQOL+YR3XnWyZAxwQixURb+FA74PA=="],
 
     "lie": ["lie@3.3.0", "", { "dependencies": { "immediate": "~3.0.5" } }, "sha512-UaiMJzeWRlEujzAuw5LokY1L5ecNQYZKfmyZ9L7wDHb/p5etKaxXhohBcrw0EYby+G/NA52vRSN4N39dxHAIwQ=="],
 
