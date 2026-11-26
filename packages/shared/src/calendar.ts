@@ -40,6 +40,7 @@ const BASIS: Partial<Record<CalendarKind, DeadlineBasis>> = {
   contract: "measures",
   supplier_report: "measures",
   supplier_questionnaire: "measures",
+  supplier_qualification: "measures",
   restore_test: "measures",
   processing_review: "gdpr",
   ai_review: "aiact",

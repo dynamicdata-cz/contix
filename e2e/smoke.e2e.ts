@@ -2019,6 +2019,21 @@ test("certifikáty osob: externí pracovník dodavatele se souborem, filtr platn
   expect(errors, errors.join("\n")).toEqual([]);
 });
 
+test("kvalifikace pracovníků dodavatele: požadavek splněný certifikátem z dotazníku (v1.112)", async () => {
+  await page.goto("/suppliers");
+  await page.getByText("E2E Cloud s.r.o.", { exact: true }).first().click();
+  await page.getByRole("tab", { name: "Smlouvy a dotazníky" }).click();
+  const box = page.getByTestId("pc-qualification");
+  await expect(box).toContainText("Žádný požadavek");
+  await page.getByTestId("pc-req-edit").click();
+  await page.getByTestId("pc-req-add").click();
+  await page.getByTestId("pc-req-name-0").fill("CCNA");
+  await page.getByTestId("pc-req-save").click();
+  await expect(box).toContainText("Splněno (1/1)");
+  await expect(box).toContainText("Jan Technik");
+  expect(errors, errors.join("\n")).toEqual([]);
+});
+
 test("historické zranitelnosti: náhled kritérií a pravidlo utlumení (v1.106)", async () => {
   await page.goto("/vulnerabilities");
   const card = page.getByTestId("vsup-card");

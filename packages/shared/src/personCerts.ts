@@ -82,3 +82,56 @@ export function personCertState(validUntil: string | null, today: string): { sta
   const days = Math.round((Date.parse(`${validUntil}T00:00:00Z`) - Date.parse(`${today}T00:00:00Z`)) / 86_400_000);
   return { state: days < 0 ? "expired" : days <= PERSON_CERT_EXPIRING_DAYS ? "expiring" : "valid", daysLeft: days };
 }
+
+/* ---------- Požadavek na kvalifikaci dodavatele (v1.112, ADR-204) ---------- */
+
+/** Např. „CCNA“ alespoň u 2 pracovníků. Shoda podle názvu certifikátu (obsahuje, bez ohledu na velikost písmen). */
+export const SupplierCertRequirement = z.object({
+  name: z.string().trim().min(2).max(200),
+  min: z.number().int().min(1).max(50).default(1),
+});
+export type SupplierCertRequirement = z.infer<typeof SupplierCertRequirement>;
+export const SupplierCertRequirementsInput = z.object({
+  items: z
+    .array(SupplierCertRequirement)
+    .max(20)
+    .refine((a) => new Set(a.map((x) => x.name.toLowerCase())).size === a.length, "Požadavek je uveden dvakrát"),
+});
+
+export interface SupplierQualificationItem {
+  name: string;
+  min: number;
+  /** pracovníci s platným odpovídajícím certifikátem */
+  holders: string[];
+  ok: boolean;
+  /** den, od kterého platných pracovníků bude méně než `min` (null = neomezeně / už teď nesplněno) */
+  until: string | null;
+}
+export interface SupplierQualificationDto {
+  items: SupplierQualificationItem[];
+  ok: boolean;
+}
+
+/** Vyhodnocení požadavků proti certifikátům pracovníků dodavatele. */
+export function evaluateQualification(reqs: SupplierCertRequirement[], certs: { name: string; holder: string; validUntil: string | null }[], today: string): SupplierQualificationDto {
+  const items = reqs.map((r) => {
+    const n = r.name.toLowerCase();
+    // nejdelší platnost u každého pracovníka (null = bez omezení)
+    const best = new Map<string, string | null>();
+    const label = new Map<string, string>();
+    for (const c of certs) {
+      if (!c.name.toLowerCase().includes(n) || (c.validUntil && c.validUntil < today)) continue;
+      const k = c.holder.trim().toLowerCase();
+      const cur = best.get(k);
+      if (cur === undefined || (cur !== null && (c.validUntil === null || c.validUntil > cur))) best.set(k, c.validUntil);
+      if (!label.has(k)) label.set(k, c.holder.trim());
+    }
+    const holders = [...label.values()].sort((a, b) => a.localeCompare(b, "cs"));
+    const ok = best.size >= r.min;
+    // seřazeno od nejdelší platnosti; `min`-tý pracovník určuje, dokdy je požadavek splněn
+    const ends = [...best.values()].sort((a, b) => (a === null ? -1 : b === null ? 1 : b.localeCompare(a)));
+    const until = ok ? (ends[r.min - 1] ?? null) : null;
+    return { name: r.name, min: r.min, holders, ok, until };
+  });
+  return { items, ok: items.every((i) => i.ok) };
+}

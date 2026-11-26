@@ -12020,6 +12020,48 @@ describe.skipIf(!url)("API (integrace)", () => {
     expect((await open()).map((f) => f.status)).toEqual(["fixed"]);
   });
 
+  test("kvalifikace pracovníků dodavatele (v1.112): požadavek, vyhodnocení, povinnost", async () => {
+    const { evaluateQualification } = await import("@contix/shared");
+    // nejdelší platnost u pracovníka; „do“ = platnost min-tého nejlépe pokrytého pracovníka
+    const ev = evaluateQualification(
+      [{ name: "ccna", min: 2 }],
+      [
+        { name: "CCNA Routing", holder: "Jan", validUntil: "2027-05-01" },
+        { name: "CCNA", holder: "jan ", validUntil: "2028-01-01" },
+        { name: "CCNA", holder: "Eva", validUntil: "2026-12-20" },
+        { name: "CCNA", holder: "Petr", validUntil: "2020-01-01" },
+      ],
+      "2026-12-01",
+    );
+    expect(ev.items[0]).toEqual({ name: "ccna", min: 2, holders: ["Eva", "Jan"], ok: true, until: "2026-12-20" });
+    expect(evaluateQualification([{ name: "CISSP", min: 1 }], [{ name: "CISSP", holder: "X", validUntil: null }], "2026-01-01").items[0]!.until).toBeNull();
+
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "KV Kvalifikace s.r.o." } })).body.id as string;
+    const H = { [COMPANY_HEADER]: CO };
+    const sup = (await admin.json("/api/suppliers", { method: "POST", headers: H, json: { name: "KV Síťaři a.s." } })).body;
+    expect((await admin.json(`/api/suppliers/${sup.id}/qualification`, { headers: H })).body).toEqual({ items: [], ok: true });
+    expect((await admin.json(`/api/suppliers/${sup.id}/qualification`, { method: "PUT", headers: H, json: { items: [{ name: "CCNA", min: 1 }, { name: "ccna", min: 2 }] } })).status).toBe(400);
+    const q1 = await admin.json(`/api/suppliers/${sup.id}/qualification`, { method: "PUT", headers: H, json: { items: [{ name: "CCNA", min: 2 }, { name: "ISO 27001", min: 1 }] } });
+    expect(q1.status).toBe(200);
+    expect(q1.body.items.map((i: any) => [i.name, i.ok, i.holders.length])).toEqual([["CCNA", false, 0], ["ISO 27001", false, 0]]);
+    const today = new Date().toISOString().slice(0, 10);
+    const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    const mk = (holderName: string, name: string, validUntil: string | null) => admin.json("/api/person-certificates", { method: "POST", headers: H, json: { holderName, supplierId: sup.id, name, validUntil } });
+    expect((await mk("Jan Síťař", "CCNA", inDays(400))).status).toBe(201);
+    expect((await mk("Eva Síťařová", "Cisco CCNA", inDays(10))).status).toBe(201);
+    expect((await mk("Eva Síťařová", "ISO 27001 Lead Auditor", null)).status).toBe(201);
+    const q2 = (await admin.json(`/api/suppliers/${sup.id}/qualification`, { headers: H })).body;
+    expect(q2.ok).toBe(true);
+    expect(q2.items.map((i: any) => [i.name, i.ok, i.until])).toEqual([["CCNA", true, inDays(10)], ["ISO 27001", true, null]]);
+    // povinnost: CCNA přestane být splněno za 10 dní
+    const team = ((await admin.json("/api/notifications/team", { headers: H })).body as any[]).filter((o) => o.kind === "supplier_qualification");
+    expect(team.map((o) => [o.title, o.due, o.link])).toEqual([[`KV Síťaři a.s. – CCNA`, inDays(10), `/suppliers/${sup.id}`]]);
+    // nesplněno → povinnost na dnešek
+    await admin.json(`/api/suppliers/${sup.id}/qualification`, { method: "PUT", headers: H, json: { items: [{ name: "CCNA", min: 3 }] } });
+    const team2 = ((await admin.json("/api/notifications/team", { headers: H })).body as any[]).filter((o) => o.kind === "supplier_qualification");
+    expect(team2.map((o) => [o.due, o.detail])).toEqual([[today, "Požadovaná kvalifikace není splněna: platný certifikát má 2 z 3 pracovníků"]]);
+  });
+
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {
     expect(secretLeaks).toEqual([]);
     const rows = await db.execute(sql`select action, details::text as d from audit_log where details::text ~ '(passwordHash|tokenHash|[a-zA-Z]+Enc|_enc)"\s*:\s*"'`);

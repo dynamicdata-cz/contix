@@ -1,0 +1,1 @@
+ALTER TABLE "suppliers" ADD COLUMN "cert_requirements" jsonb DEFAULT '[]'::jsonb NOT NULL;

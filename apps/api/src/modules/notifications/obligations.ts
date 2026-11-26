@@ -8,6 +8,7 @@ import { certExpiryItems } from "../assets/certificates";
 import { auditRequestItems } from "../audits/requests";
 import { daysOverdue, mapProblems, PHYSICAL_CONTROL_LABELS, ROOT_COMPANY_ID, EXCEPTION_LABELS, EXCEPTION_LEAD_DAYS, OBLIGATION_LABELS, type ExceptionDto, type Translate, POLICY_WORKFLOW_ACTIONS, urgencyOf, type ObligationItem, type ObligationKind, triggerDue, RISK_TRIGGER_LABELS, exerciseCode, requestCode } from "@contix/shared";
 import { locationsOf } from "../premises/service";
+import { qualificationOf, suppliersWithRequirements } from "../suppliers/qualification";
 import { vulnRemediationItems } from "../vulnerabilities/remediation";
 import { escalationChain, escalationLevel, orgSnapshot, positionOfUser } from "../org/hierarchy";
 import { nukibMeasuresItems, nukibNoticeItems } from "../regulation/registration";
@@ -74,7 +75,7 @@ export function kindsForModules(enabled: string[]): Set<ObligationKind> {
   if (m.has("policies")) k.add("policy_review").add("doc_approval").add("doc_retention");
   if (m.has("continuity")) k.add("plan_test").add("exercise");
   if (m.has("assets")) k.add("cert_expiry").add("premise_revision");
-  if (m.has("suppliers")) k.add("contract").add("supplier_questionnaire").add("supplier_report");
+  if (m.has("suppliers")) k.add("contract").add("supplier_questionnaire").add("supplier_report").add("supplier_qualification");
   if (m.has("risks") || m.has("continuity")) k.add("assessment_cycle");
   if (m.has("controls")) k.add("control_test").add("evidence_expiry");
   if (m.has("awareness")) k.add("person_cert");
@@ -838,6 +839,26 @@ export async function collectObligations(db: Db, o: CollectOptions): Promise<Obl
         link: "/awareness?tab=certs",
         ...owner(null),
       });
+  }
+
+  // požadovaná kvalifikace pracovníků dodavatele (v1.112): nesplněno = dnes, jinak den, kdy přestane platit
+  if (want("supplier_qualification")) {
+    const sups = await suppliersWithRequirements(db, o.companyIds);
+    const q = await qualificationOf(db, sups.map((s) => s.id), now.toISOString().slice(0, 10));
+    for (const s of sups)
+      for (const it of q.get(s.id)?.items ?? []) {
+        if (it.ok && !it.until) continue;
+        push({
+          key: `supplier_qualification:${s.id}:${it.name.toLowerCase()}`,
+          kind: "supplier_qualification",
+          title: `${s.name} – ${it.name}`,
+          detail: it.ok ? t("srv.obl.supQualEnds", { n: it.min }) : t("srv.obl.supQualMissing", { have: it.holders.length, n: it.min }),
+          companyId: s.companyId,
+          due: it.ok ? it.until! : now.toISOString().slice(0, 10),
+          link: `/suppliers/${s.id}`,
+          ...owner(null),
+        });
+      }
   }
 
   // revize prvků fyzické bezpečnosti lokalit (v1.111)

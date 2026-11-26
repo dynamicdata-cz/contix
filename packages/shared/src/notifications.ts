@@ -54,6 +54,8 @@ export const OBLIGATION_KINDS = [
   "person_cert",
   // v1.111: revize prvků fyzické bezpečnosti lokalit (EPS, hašení, UPS…)
   "premise_revision",
+  // v1.112: požadovaná kvalifikace pracovníků dodavatele (chybí / končí platnost)
+  "supplier_qualification",
 ] as const;
 export type ObligationKind = (typeof OBLIGATION_KINDS)[number];
 
@@ -98,6 +100,7 @@ export const OBLIGATION_LABELS: Record<ObligationKind, string> = {
   evidence_expiry: "Platnost důkazu",
   person_cert: "Platnost certifikátu osoby",
   premise_revision: "Revize fyzické bezpečnosti lokality",
+  supplier_qualification: "Kvalifikace pracovníků dodavatele",
   processing_review: "Přezkum činnosti zpracování (GDPR)",
   ai_review: "Přezkum AI systému a FRIA (AI Act)",
   cra_report: "Hlášení zranitelnosti / incidentu produktu (CRA čl. 14)",

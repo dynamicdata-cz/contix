@@ -565,6 +565,8 @@ import type {
   PersonCertDto,
   HarborSettingsDto,
   HarborState,
+  SupplierCertRequirement,
+  SupplierQualificationDto,
   HarborSettingsInput,
   VulnBulkSuppressInput,
   VulnSuppressRuleDto,
@@ -2039,6 +2041,8 @@ export const api = {
     list: (q: { state?: string; supplierId?: string; userId?: string; personId?: string; q?: string } = {}) =>
       request<PersonCertListDto>(`/person-certificates?${new URLSearchParams(Object.entries(q).filter(([, v]) => !!v) as [string, string][])}`),
     holders: () => request<PersonCertHoldersDto>("/person-certificates/holders"),
+    qualification: (supplierId: string) => request<SupplierQualificationDto>(`/suppliers/${supplierId}/qualification`),
+    setQualification: (supplierId: string, items: SupplierCertRequirement[]) => put<SupplierQualificationDto>(`/suppliers/${supplierId}/qualification`, { items }),
     create: (d: PersonCertInput) => post<PersonCertDto>("/person-certificates", d),
     update: (id: string, d: PersonCertInput) => put<PersonCertDto>(`/person-certificates/${id}`, d),
     remove: (id: string) => del(`/person-certificates/${id}`),

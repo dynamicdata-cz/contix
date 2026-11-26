@@ -62,6 +62,7 @@ export const NEED: Record<ObligationKind, string> = {
   evidence_expiry: "controls:read",
   person_cert: "awareness:read",
   premise_revision: "assets:read",
+  supplier_qualification: "suppliers:read",
   processing_review: "gdpr:read",
   ai_review: "aiact:read",
   cra_report: "cra:read",

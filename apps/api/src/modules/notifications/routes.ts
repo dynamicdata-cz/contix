@@ -59,6 +59,7 @@ export function notificationRoutes(deps: { db: Db; config: Config; mailer?: Mail
           data_source: "admin:settings",
           person_cert: "awareness:read",
           premise_revision: "assets:read",
+          supplier_qualification: "suppliers:read",
         };
         for (const k of [...kinds]) if (!hasPerm(c, need[k] as never)) kinds.delete(k);
         return c.json(await collectObligations(db, { companyIds: scopeOf(c).ids, leadDays: s.leadDays, kinds, includeLater: false, t: await tFor(db, c), config }));

@@ -1,5 +1,6 @@
 import {
   type HarborState,
+  type SupplierCertRequirement,
   type QuestionnaireStaffCert,
   type NetScanSummary,
   type TuningKind,
@@ -1853,6 +1854,8 @@ export const suppliers = pgTable("suppliers", {
   reviewIntervalMonths: integer("review_interval_months").notNull().default(12),
   status: varchar("status", { length: 20 }).notNull().default("active"),
   notes: text("notes"),
+  /** Požadavky na kvalifikaci pracovníků dodavatele (v1.112) – např. CCNA alespoň u 2 pracovníků. */
+  certRequirements: jsonb("cert_requirements").$type<SupplierCertRequirement[]>().notNull().default([]),
   /** DORA – poskytovatel služeb IKT (ADR-069). */
   dora: jsonb("dora").$type<Partial<DoraProvider>>().notNull().default({}),
   /** Útvar odpovědný za vztah s dodavatelem (v1.80, ADR-173). */

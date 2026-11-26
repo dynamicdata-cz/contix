@@ -2,6 +2,13 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.112.0
+
+Požadovaná kvalifikace pracovníků dodavatele (ADR-204).
+
+- **Požadavek u dodavatele**: v záložce Smlouvy a dotazníky lze u dodavatele zadat požadovanou kvalifikaci, např. „CCNA alespoň u 2 pracovníků“ nebo „ISO 27001 Lead Auditor“. CONTIX ji průběžně vyhodnocuje proti Certifikátům pracovníků (zapsaným ručně i z dotazníku dodavatele) a ukazuje, kdo požadavek splňuje a dokdy.
+- **Upozornění**: nesplněný požadavek, nebo blížící se den, kdy přestane být splněn (končí platnost certifikátů), je v povinnostech, upozorněních a kalendáři lhůt s odkazem na dodavatele.
+
 ## 1.111.0
 
 Revize a termíny prvků fyzické bezpečnosti lokalit (ADR-203).

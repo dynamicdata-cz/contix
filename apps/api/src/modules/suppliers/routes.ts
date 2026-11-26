@@ -13,6 +13,7 @@ import {
   type ContractDto,
   type SupplierDetail,
   type SupplierListItem,
+  SupplierCertRequirementsInput,
 } from "@contix/shared";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, eq, ilike, inArray, sql } from "drizzle-orm";
@@ -25,6 +26,7 @@ import { audit, getSettings, type AppEnv } from "../../auth/service";
 import { assertScope, inScope, riskPolicies, scopeOf, settingsFor, targetCompany, visibleIds } from "../../auth/scope";
 import type { Db } from "../../db/client";
 import { tFor } from "../i18n/service";
+import { qualificationOf } from "./qualification";
 import { assets, orgUnits, processes, risks, supplierAssets, supplierContracts, supplierProcesses, supplierRisks, suppliers } from "../../db/schema";
 
 type Ctx = Context<AppEnv>;
@@ -233,6 +235,22 @@ export function supplierRoutes(db: Db) {
         if (!s) throw new HTTPException(404, { message: "Dodavatel nenalezen" });
         await audit(db, { c, user: currentUser(c), action: "supplier.deleted", entityType: "supplier", entityId: id, details: s });
         return c.body(null, 204);
+      })
+
+      /* ---------- požadavek na kvalifikaci pracovníků (v1.112) ---------- */
+      .get("/:id/qualification", requirePerm("suppliers:read"), async (c) => {
+        const id = c.req.param("id");
+        const [s] = await db.select({ companyId: suppliers.companyId, reqs: suppliers.certRequirements }).from(suppliers).where(eq(suppliers.id, id));
+        assertScope(c, s?.companyId, "Dodavatel nenalezen");
+        return c.json((await qualificationOf(db, [id])).get(id)!);
+      })
+      .put("/:id/qualification", requirePerm("suppliers:write"), zValidator("json", SupplierCertRequirementsInput), async (c) => {
+        const id = c.req.param("id");
+        await owned(c, id);
+        const { items } = c.req.valid("json");
+        await db.update(suppliers).set({ certRequirements: items, updatedAt: new Date() }).where(eq(suppliers.id, id));
+        await audit(db, { c, user: currentUser(c), action: "supplier.qualification_updated", entityType: "supplier", entityId: id, details: { items } });
+        return c.json((await qualificationOf(db, [id])).get(id)!);
       })
 
       /* ---------- smlouvy ---------- */

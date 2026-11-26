@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { useCan } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { cn, fmtDay } from "@/lib/utils";
-import { PERSON_CERT_KINDS, PERSON_CERT_STATES, type PersonCertDto, type PersonCertInput, type PersonCertKind, type PersonCertState } from "@contix/shared";
+import { PERSON_CERT_KINDS, PERSON_CERT_STATES, type SupplierCertRequirement, type PersonCertDto, type PersonCertInput, type PersonCertKind, type PersonCertState } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Paperclip, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
@@ -41,6 +41,7 @@ export function PersonCertsCard({ supplierId, title }: { supplierId?: string; ti
           )
         }
       />
+      {supplierId && <QualificationBox supplierId={supplierId} />}
       <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-3">
         {(["", ...PERSON_CERT_STATES] as const).map((s) => (
           <button
@@ -278,5 +279,107 @@ function PersonCertModal({ cert, supplierId, onClose }: { cert: PersonCertDto | 
       </div>
       <ErrorBox error={save.error} />
     </Modal>
+  );
+}
+
+/** Požadovaná kvalifikace pracovníků dodavatele (v1.112, ADR-204). */
+function QualificationBox({ supplierId }: { supplierId: string }) {
+  const t = useT();
+  const can = useCan();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["personCerts", "qualification", supplierId], queryFn: () => api.personCerts.qualification(supplierId) });
+  const [edit, setEdit] = useState<SupplierCertRequirement[] | null>(null);
+  const save = useMutation({
+    mutationFn: (items: SupplierCertRequirement[]) => api.personCerts.setQualification(supplierId, items),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["personCerts"] });
+      setEdit(null);
+    },
+  });
+  const d = q.data;
+  return (
+    <div className="border-b border-slate-100 px-5 py-3 text-sm" data-testid="pc-qualification">
+      <div className="flex items-center gap-2">
+        <span className="font-medium text-slate-800">{t("pc.req.title")}</span>
+        {can("suppliers:write") && (
+          <button type="button" className="ml-auto text-xs text-brand-700 hover:underline" onClick={() => setEdit(d?.items.map(({ name, min }) => ({ name, min })) ?? [])} data-testid="pc-req-edit">
+            {t("pc.req.edit")}
+          </button>
+        )}
+      </div>
+      {!d?.items.length ? (
+        <p className="text-xs text-slate-500">{t("pc.req.none")}</p>
+      ) : (
+        <ul className="mt-1 space-y-1">
+          {d.items.map((it) => (
+            <li key={it.name} className="flex flex-wrap items-center gap-2">
+              <Badge tone={it.ok ? "green" : "red"}>
+                {it.ok
+                  ? it.until
+                    ? t("pc.req.okUntil", { have: it.holders.length, n: it.min, d: fmtDay(it.until) })
+                    : t("pc.req.ok", { have: it.holders.length, n: it.min })
+                  : t("pc.req.missing", { have: it.holders.length, n: it.min })}
+              </Badge>
+              <span className="text-slate-700">{it.name}</span>
+              {it.holders.length > 0 && <span className="text-xs text-slate-500">({it.holders.join(", ")})</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <ErrorBox error={q.error} />
+      {edit && (
+        <Modal
+          open
+          onClose={() => setEdit(null)}
+          title={t("pc.req.title")}
+          footer={
+            <>
+              <Button variant="secondary" onClick={() => setEdit(null)}>
+                {t("common.cancelAction")}
+              </Button>
+              <Button onClick={() => save.mutate(edit.filter((x) => x.name.trim().length >= 2))} disabled={save.isPending} data-testid="pc-req-save">
+                {t("pc.req.save")}
+              </Button>
+            </>
+          }
+        >
+          <p className="mb-3 text-xs text-slate-500">{t("pc.req.sub")}</p>
+          <div className="space-y-2">
+            {edit.map((r, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  className="flex-1"
+                  placeholder={t("pc.req.name")}
+                  aria-label={t("pc.req.name")}
+                  value={r.name}
+                  maxLength={200}
+                  onChange={(e) => setEdit(edit.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                  data-testid={`pc-req-name-${i}`}
+                />
+                <Input
+                  type="number"
+                  className="w-20"
+                  min={1}
+                  max={50}
+                  aria-label={t("pc.req.min")}
+                  title={t("pc.req.min")}
+                  value={r.min}
+                  onChange={(e) => setEdit(edit.map((x, j) => (j === i ? { ...x, min: Math.min(50, Math.max(1, Number(e.target.value) || 1)) } : x)))}
+                />
+                <button type="button" className="text-slate-400 hover:text-red-700" aria-label={t("common.delete")} onClick={() => setEdit(edit.filter((_, j) => j !== i))}>
+                  <Trash2 size={15} />
+                </button>
+              </div>
+            ))}
+          </div>
+          {edit.length < 20 && (
+            <Button variant="secondary" className="mt-3" onClick={() => setEdit([...edit, { name: "", min: 1 }])} data-testid="pc-req-add">
+              <Plus size={15} /> {t("pc.req.add")}
+            </Button>
+          )}
+          <ErrorBox error={save.error} />
+        </Modal>
+      )}
+    </div>
   );
 }
