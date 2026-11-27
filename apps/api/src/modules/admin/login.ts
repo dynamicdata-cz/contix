@@ -11,6 +11,7 @@ import {
   type SsoKind,
   type SsoProviderDto,
 } from "@contix/shared";
+import { targetCompany } from "../../auth/scope";
 import { zValidator } from "@hono/zod-validator";
 import { and, asc, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -102,7 +103,7 @@ export function loginAdminRoutes(deps: { db: Db; config: Config; adAuth?: AdAuth
       const [row] = await db
         .insert(identitySources)
         // jen pro přihlášení: bez automatické synchronizace účtů (zapne se v Identitách a přístupech)
-        .values({ companyId: ROOT_COMPANY_ID, kind: "ad", name: input.name, enabled: true, config: input.config, secretEnc: enc(input.secret, null), policy: DEFAULT_IDENTITY_POLICY, syncHours: 0, login: input.login })
+        .values({ companyId: targetCompany(c, input.companyId ?? ROOT_COMPANY_ID), kind: "ad", name: input.name, enabled: true, config: input.config, secretEnc: enc(input.secret, null), policy: DEFAULT_IDENTITY_POLICY, syncHours: 0, login: input.login })
         .returning();
       await audit(db, { c, user: currentUser(c), action: "auth.ad_login_created", entityType: "identity_source", entityId: row!.id, details: { name: input.name, config: publicAd(input.config), login: input.login } });
       return c.json(adDto(row!), 201);
@@ -114,10 +115,10 @@ export function loginAdminRoutes(deps: { db: Db; config: Config; adAuth?: AdAuth
       await checkRole(input.login.defaultRoleKey);
       const [row] = await db
         .update(identitySources)
-        .set({ name: input.name, config: input.config, secretEnc: enc(input.secret, prev.secretEnc), login: input.login, updatedAt: new Date() })
+        .set({ name: input.name, config: input.config, secretEnc: enc(input.secret, prev.secretEnc), login: input.login, ...(input.companyId && input.companyId !== prev.companyId ? { companyId: targetCompany(c, input.companyId) } : {}), updatedAt: new Date() })
         .where(eq(identitySources.id, prev.id))
         .returning();
-      await audit(db, { c, user: currentUser(c), action: "auth.ad_login_updated", entityType: "identity_source", entityId: prev.id, details: { name: input.name, config: publicAd(input.config), login: input.login, secretChanged: !!input.secret } });
+      await audit(db, { c, user: currentUser(c), action: "auth.ad_login_updated", entityType: "identity_source", entityId: prev.id, details: { name: input.name, config: publicAd(input.config), login: input.login, secretChanged: !!input.secret, companyId: input.companyId ?? prev.companyId } });
       return c.json(adDto(row!));
     })
 

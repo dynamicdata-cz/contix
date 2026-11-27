@@ -354,7 +354,7 @@ export function authRoutes(deps: { db: Db; config: Config; adAuth?: AdAuthentica
 
         // synchronizace rolí ze skupin IdP (role.externalGroups)
         const idpRoleIds = (await rolesForGroups(db, id.groups)).map((r) => r.id);
-        await syncIdpRoles(db, user!.id, idpRoleIds);
+        await syncIdpRoles(db, user!.id, idpRoleIds, user!.companyId);
 
         await db
           .update(users)

@@ -9984,6 +9984,8 @@ export const EN: Record<keyof typeof CS, string> = {
   "prem.c.devices": "{n} dev.",
   "prem.c.placeInRack": "Place in rack",
   "prem.rackOption": "rack {name}",
+  "lgn.company": "Users' company",
+  "lgn.companyHint": "Users from this domain are created in this company and roles from AD groups apply only to it (and its subsidiaries).",
   "zn.title": "Security zones",
   "zn.sub": "Network split into zones with a trust level (segmentation per Decree 409/2025). Assets are placed into zones by IP address or manually in the asset detail. The map shows zones from untrusted to critical and asset dependencies across zone boundaries.",
   "zn.assign": "Reassign by IP",

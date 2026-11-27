@@ -29,6 +29,8 @@ export const AdLoginSourceInput = z.object({
   /** Heslo účtu pro čtení; prázdné = ponechat uložené. */
   secret: z.string().max(1000).optional(),
   login: AdLoginConfig,
+  /** Společnost, do které uživatelé z této domény patří; role ze skupin AD platí jen pro ni (v1.115.1). */
+  companyId: z.string().uuid().optional(),
 });
 export type AdLoginSourceInput = z.input<typeof AdLoginSourceInput>;
 

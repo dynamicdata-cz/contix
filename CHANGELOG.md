@@ -2,6 +2,17 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.115.2
+
+Stejný obsah jako 1.115.1 (bezpečnostní oprava rolí ze skupin AD / IdP – viz níže); 1.115.1 nebyla zveřejněna kvůli úpravě testovacích dat.
+
+## 1.115.1
+
+Bezpečnostní oprava přihlášení účty AD a SSO ve skupině společností.
+
+- **Role ze skupin AD / IdP platí jen pro společnost uživatele.** Dřív se zapisovaly ke kořenové společnosti, takže ve sdílené instalaci s více společnostmi dávaly přístup i k ostatním společnostem. U AD platí pro společnost připojení, u SSO pro domovskou společnost uživatele. Migrace přesune dříve zapsané role ze skupin k domovské společnosti uživatele.
+- **Připojení AD pro přihlášení má volbu „Společnost uživatelů“** (Administrace → Přihlášení): uživatelé z domény se zakládají v této společnosti a jejich role platí jen pro ni a její dceřiné společnosti. Dříve se všechna připojení zakládala v kořenové společnosti.
+
 ## 1.115.0
 
 Přehlednější Lokality: budova › místnost › rack › zařízení.

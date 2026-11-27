@@ -2,7 +2,7 @@ import { askConfirm } from "@/components/ui/overlay";
 /** Administrace → Přihlášení: účty AD (LDAPS), mapování skupin na role a poskytovatelé SSO (ADR-078). */
 import { Badge, Button, Card, CardHeader, Checkbox, EmptyState, ErrorBox, Field, Input, Modal, Select, SuccessBox, Textarea } from "@/components/ui";
 import { api } from "@/lib/api";
-import { useCan } from "@/lib/auth";
+import { useCan, useMe } from "@/lib/auth";
 import { useT } from "@/lib/i18n";
 import { SSO_KIND_LABELS, SSO_KINDS, type AdLoginSourceDto, type AdLoginTestResult, type LoginAdminDto, type SsoKind, type SsoProviderDto } from "@contix/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -17,6 +17,7 @@ const lines = (v: string) =>
 
 export function AdminLoginPage() {
   const t = useT();
+  const me = useMe();
   const q = useQuery({ queryKey: ["admin", "login"], queryFn: api.admin.login });
   const [ad, setAd] = useState<AdLoginSourceDto | "new" | null>(null);
   const [test, setTest] = useState<AdLoginSourceDto | null>(null);
@@ -53,7 +54,10 @@ export function AdminLoginPage() {
               <div key={s.id} className="flex flex-wrap items-center gap-3 px-5 py-3 text-sm">
                 <Server size={16} className="text-slate-400" />
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium">{s.name}</div>
+                  <div className="font-medium">
+                    {s.name}
+                    {me.companies.length > 1 && <span className="ml-2 text-xs font-normal text-slate-500">· {me.companies.find((c) => c.id === s.companyId)?.name ?? "—"}</span>}
+                  </div>
                   <div className="font-mono text-xs text-slate-500">
                     {s.config.url} · {s.config.baseDn}
                   </div>
@@ -156,6 +160,7 @@ export function AdminLoginPage() {
 
 function AdModal({ source, roles, onClose }: { source: AdLoginSourceDto | null; roles: LoginAdminDto["roles"]; onClose: () => void }) {
   const t = useT();
+  const me = useMe();
   const qc = useQueryClient();
   const [f, setF] = useState({
     name: source?.name ?? "Active Directory",
@@ -170,6 +175,7 @@ function AdModal({ source, roles, onClose }: { source: AdLoginSourceDto | null; 
     autoProvision: source?.login.autoProvision ?? true,
     defaultRoleKey: source?.login.defaultRoleKey ?? "",
     upnSuffix: source?.login.upnSuffix ?? "",
+    companyId: source?.companyId ?? me.activeCompanyId ?? me.homeCompanyId,
   });
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   const body = () => ({
@@ -177,6 +183,7 @@ function AdModal({ source, roles, onClose }: { source: AdLoginSourceDto | null; 
     config: { url: f.url, baseDn: f.baseDn, bindDn: f.bindDn, verifyTls: f.verifyTls, caCert: f.caCert, extraPrivilegedGroups: source?.config.extraPrivilegedGroups ?? [] },
     secret: f.secret || undefined,
     login: { enabled: f.enabled, allowedGroups: lines(f.allowedGroups), autoProvision: f.autoProvision, defaultRoleKey: f.defaultRoleKey, upnSuffix: f.upnSuffix },
+    companyId: f.companyId,
   });
   const save = useMutation({
     mutationFn: () => (source ? api.admin.updateAdLogin(source.id, body()) : api.admin.createAdLogin(body())),
@@ -208,6 +215,18 @@ function AdModal({ source, roles, onClose }: { source: AdLoginSourceDto | null; 
         <Field label={t("lgn.name")}>
           <Input value={f.name} onChange={(e) => set("name", e.target.value)} />
         </Field>
+        {me.companies.length > 1 && (
+          <Field label={t("lgn.company")} hint={t("lgn.companyHint")}>
+            <Select value={f.companyId} onChange={(e) => set("companyId", e.target.value)} data-testid="ad-login-company">
+              {me.companies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {"\u00a0\u00a0".repeat(c.depth)}
+                  {c.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
         <Field label={t("lgn.url")} hint={t("lgn.urlHint")}>
           <Input value={f.url} onChange={(e) => set("url", e.target.value)} placeholder="ldaps://dc01.firma.local:636" className="font-mono" />
         </Field>

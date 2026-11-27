@@ -28,10 +28,14 @@ export async function rolesForGroups(db: Db, groups: string[]): Promise<{ id: st
   return all.filter((r) => groupsMatch(groups, r.ext)).map(({ id, key, name }) => ({ id, key, name }));
 }
 
-/** Role ze skupin IdP / AD – nahradí předchozí (source = idp). */
-export async function syncIdpRoles(db: Db, userId: string, roleIds: string[]) {
+/**
+ * Role ze skupin IdP / AD – nahradí předchozí (source = idp). Platí jen pro `companyId` (a její dceřiné společnosti):
+ * u AD společnost připojení, u OIDC domovská společnost uživatele. Dřív se zapisovaly ke kořenové společnosti,
+ * takže ve sdílené instalaci dávaly přístup ke všem společnostem (oprava v1.115.1).
+ */
+export async function syncIdpRoles(db: Db, userId: string, roleIds: string[], companyId: string) {
   await db.delete(userRoles).where(and(eq(userRoles.userId, userId), eq(userRoles.source, "idp")));
-  if (roleIds.length) await db.insert(userRoles).values(roleIds.map((roleId) => ({ userId, roleId, source: "idp" as const }))).onConflictDoNothing();
+  if (roleIds.length) await db.insert(userRoles).values(roleIds.map((roleId) => ({ userId, roleId, source: "idp" as const, companyId }))).onConflictDoNothing();
 }
 
 export interface AdLoginDecision {
@@ -120,7 +124,7 @@ export async function applyAdLogin(db: Db, d: AdLoginDecision): Promise<{ user: 
     [user] = await db.update(users).set({ externalId, authProvider: "ad" }).where(eq(users.id, user.id)).returning();
     linked = true;
   }
-  await syncIdpRoles(db, user!.id, d.groupRoles.map((r) => r.id));
+  await syncIdpRoles(db, user!.id, d.groupRoles.map((r) => r.id), source.companyId);
   [user] = await db.update(users).set({ lastLoginAt: new Date(), displayName: id.displayName || user!.displayName, failedLogins: 0 }).where(eq(users.id, user!.id)).returning();
   return { user: user!, created, linked };
 }

@@ -74,6 +74,7 @@ const adUsers: Record<string, { pw: string; guid: string; email: string | null; 
   "jan.novak": { pw: "Ad-Heslo-1", guid: "11111111-aaaa-4bbb-8ccc-000000000001", email: "jan.novak@example.test", name: "Jan Novák", groups: ["CONTIX-Auditori", "CN=CONTIX-Auditori,OU=Skupiny,DC=example,DC=test"] },
   petr: { pw: "Ad-Heslo-2", guid: "11111111-aaaa-4bbb-8ccc-000000000002", email: "petr@example.test", name: "Petr", groups: ["Domain Users"] },
   zak: { pw: "Ad-Heslo-3", guid: "11111111-aaaa-4bbb-8ccc-000000000003", email: "zak@example.test", name: "Žák", groups: ["CONTIX-Auditori"], disabled: true },
+  "eva.zakaznik": { pw: "Ad-Heslo-5", guid: "11111111-aaaa-4bbb-8ccc-000000000005", email: "eva@zakaznik.test", name: "Eva Zákaznická", groups: ["CONTIX-ManazerKB"] },
   kolize: { pw: "Ad-Heslo-4", guid: "11111111-aaaa-4bbb-8ccc-000000000004", email: "konverze@test.cz", name: "Kolize", groups: ["CONTIX-Auditori"] },
 };
 const adCalls: string[] = [];
@@ -1083,6 +1084,7 @@ describe.skipIf(!url)("API (integrace)", () => {
     for (const u of (await admin.json("/api/admin/users")).body as any[])
       if (["jan.novak@example.test", "petr@example.test", "konverze@test.cz"].includes(u.email)) await admin.json(`/api/admin/users/${u.id}`, { method: "PATCH", json: { isActive: false } });
   });
+
 
   test("SSO poskytovatel z administrace: přidání, přihlášení, smazání", async () => {
     const form = { kind: "oidc", label: "Keycloak", issuer: idp.issuer, clientId: "contix-client", secret: "s3cret", scopes: "openid profile email" };
@@ -12196,6 +12198,38 @@ describe.skipIf(!url)("API (integrace)", () => {
     resetMapState();
     expect((await admin.json("/api/premises/geocode", { method: "POST", headers: H, json: { query: "Zlín" } })).status).toBe(404);
     await admin.json("/api/premises/map/settings", { method: "PUT", json: { ...s0 } });
+  });
+
+  test("přihlášení AD do dceřiné společnosti (v1.115.1): role ze skupin platí jen pro společnost připojení", async () => {
+    const CO = (await admin.json("/api/companies", { method: "POST", json: { name: "AD Zákazník s.r.o." } })).body.id as string;
+    const smRole = (await admin.json("/api/admin/roles")).body.find((r: any) => r.key === "security_manager");
+    expect((await admin.json(`/api/admin/roles/${smRole.id}`, { method: "PATCH", json: { externalGroups: ["CONTIX-ManazerKB"] } })).status).toBe(200);
+    const form = {
+      name: "Zákazník AD",
+      config: { url: "ldaps://dc.zakaznik.test:636", baseDn: "DC=zakaznik,DC=test", bindDn: "svc@zakaznik.test", verifyTls: true, caCert: "" },
+      secret: "svc-pw",
+      login: { enabled: true, allowedGroups: [], autoProvision: true, defaultRoleKey: "employee", upnSuffix: "" },
+      companyId: CO,
+    };
+    const src = await admin.json("/api/admin/login/ad", { method: "POST", json: form });
+    expect([src.status, src.body.companyId]).toEqual([201, CO]);
+    const b = browser();
+    expect((await b.login("eva.zakaznik", "Ad-Heslo-5")).status).toBe(200);
+    const me = (await b.json("/api/auth/me")).body;
+    expect(me.user.companyId ?? me.homeCompanyId).toBe(CO);
+    const rows = await db.select().from(schema.userRoles).where(eq(schema.userRoles.userId, me.user.id));
+    expect(rows.map((r) => [r.source, r.companyId]).sort()).toEqual([["idp", CO], ["manual", CO]]);
+    // nevidí kořenovou společnost ani jiné zákazníky
+    expect(me.companies.map((c: any) => c.id)).toEqual([CO]);
+    const other = await b.json("/api/assets", { headers: { [COMPANY_HEADER]: "00000000-0000-4000-8000-000000000001" } });
+    expect(other.status === 200 ? other.body.items.every((a: any) => a.companyId === CO) : true).toBe(true);
+    // změna společnosti připojení u existujícího připojení
+    const CO2 = (await admin.json("/api/companies", { method: "POST", json: { name: "AD Zákazník 2 s.r.o." } })).body.id as string;
+    expect((await admin.json(`/api/admin/login/ad/${src.body.id}`, { method: "PUT", json: { ...form, secret: "", companyId: CO2 } })).body.companyId).toBe(CO2);
+    // úklid
+    await admin.json(`/api/admin/login/ad/${src.body.id}`, { method: "PUT", json: { ...form, secret: "", login: { ...form.login, enabled: false } } });
+    await admin.json(`/api/admin/roles/${smRole.id}`, { method: "PATCH", json: { externalGroups: [] } });
+    await admin.json(`/api/admin/users/${me.user.id}`, { method: "PATCH", json: { isActive: false } });
   });
 
   test("revize: žádná odpověď API ani auditní záznam neobsahuje hash hesla, tajemství ani hash tokenu", async () => {
