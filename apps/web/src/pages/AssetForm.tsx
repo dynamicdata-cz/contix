@@ -15,6 +15,7 @@ import {
   LABELS,
   LIFECYCLE_STATUSES,
   FACILITY_KINDS,
+  isNetworkedAsset,
   isTechnicalAsset,
   type AssetDto,
   type AssetType,
@@ -108,6 +109,7 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
   const premises = useQuery({ queryKey: ["premises"], queryFn: api.premises.list, staleTime: 60_000 });
   const facility = f.assetType === "facility";
   const technical = isTechnicalAsset(f.assetType ?? "");
+  const networked = isNetworkedAsset(f.assetType ?? "");
   const origPlace = existing.data ? toForm(existing.data).placeId : "";
   const save = useMutation({
     mutationFn: async (payload: ReturnType<typeof toPayload>) => {
@@ -302,7 +304,9 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
                 </Field>
                 <div className="space-y-3 sm:col-span-3">
                   <Checkbox checked={f.redundant === "true"} onChange={(v) => setF({ ...f, redundant: v ? "true" : "false" })} label={t("res.redundant")} hint={t("res.redundantHint")} />
-                  <Checkbox checked={f.internetFacing === "true"} onChange={(v) => setF({ ...f, internetFacing: v ? "true" : "false" })} label={t("vs.internetFacing")} hint={t("vs.internetFacingHint")} />
+                  {networked && (
+                    <Checkbox checked={f.internetFacing === "true"} onChange={(v) => setF({ ...f, internetFacing: v ? "true" : "false" })} label={t("vs.internetFacing")} hint={t("vs.internetFacingHint")} />
+                  )}
                 </div>
                 <Field label={t("ast.stitky")} hint={t("ast.tagsHint")} className="sm:col-span-3">
                   <TagInput value={list(f.tags!)} onChange={(v) => setF((x) => ({ ...x, tags: v.join(", ") }))} ariaLabel={t("ast.stitky")} />
@@ -353,8 +357,10 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
         )}
         {technical && (
         <Card className="lg:col-span-2">
-          <CardHeader title={t("ast.technickeUdaje")} subtitle={t("ast.uObjevenychAktivJeDoplnuji")} />
+          <CardHeader title={networked ? t("ast.technickeUdaje") : t("ast.physicalData")} subtitle={networked ? t("ast.uObjevenychAktivJeDoplnuji") : undefined} />
           <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4">
+            {networked && (
+              <>
             <Field label={t("ast.hostname")}>
               <Input {...bind("hostname")} />
             </Field>
@@ -373,6 +379,8 @@ export function AssetFormPage({ mode }: { mode: "create" | "edit" }) {
             <Field label={t("ast.verzeOs")}>
               <Input {...bind("osVersion")} />
             </Field>
+              </>
+            )}
             <Field label={t("ast.vyrobce")}>
               <Input {...bind("manufacturer")} />
             </Field>

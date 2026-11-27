@@ -9985,6 +9985,7 @@ export const CS = {
   "prem.rackOption": "rack {name}",
   "lgn.company": "Společnost uživatelů",
   "lgn.companyHint": "Uživatelé z této domény se založí v této společnosti a role ze skupin AD platí jen pro ni (a její dceřiné společnosti).",
+  "ast.physicalData": "Fyzické údaje",
   "zn.title": "Bezpečnostní zóny",
   "zn.sub": "Rozdělení sítě do zón s úrovní důvěry (segmentace podle vyhlášky 409/2025). Aktiva se do zón řadí podle IP adres, případně ručně v detailu aktiva. Mapa ukazuje zóny od nedůvěryhodné po kritickou a vazby mezi aktivy přes hranice zón.",
   "zn.assign": "Přeřadit podle IP",

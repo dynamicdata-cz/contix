@@ -22,7 +22,7 @@ import { AssetMapsCard } from "@/pages/SiteMaps";
 import { useCan, useModule } from "@/lib/auth";
 import { AssetScaCard } from "./Sca";
 import { cn, fmtDate } from "@/lib/utils";
-import { ASSET_GRAPH_LABELS, hostKeyOfAsset, isTechnicalAsset, LABELS, recordPath, type HealthStatus, type AssetClass, type LinkedAssetDto, type SourceType } from "@contix/shared";
+import { ASSET_GRAPH_LABELS, hostKeyOfAsset, isNetworkedAsset, isTechnicalAsset, LABELS, recordPath, type HealthStatus, type AssetClass, type LinkedAssetDto, type SourceType } from "@contix/shared";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { ArrowDownRight, ArrowUpRight, Link2, Network, Pencil, Plus, Radar, Trash2, X } from "lucide-react";
@@ -58,6 +58,8 @@ export function AssetDetailPage() {
 
   const isPrimary = a.assetClass === "primary";
   const tech = isTechnicalAsset(a.assetType);
+  // rack, zásuvka: bez hostname / IP / zóny (v1.115.3)
+  const networked = isNetworkedAsset(a.assetType);
   const vulnTotal = a.vulnCritical + a.vulnHigh + a.vulnMedium + a.vulnLow;
   const links = isPrimary ? a.supportedBy : a.supports;
   const eff = a.effectiveCia;
@@ -169,9 +171,9 @@ export function AssetDetailPage() {
           <HostInventoryCard assetId={a.id} />
 
           <Card data-testid={tech ? "asset-tech-card" : "asset-place-card"}>
-            <CardHeader title={tech ? t("ast.technickeUdaje") : t("prem.detailTitle")} subtitle={tech ? t("ast.doplnujiSeAutomatickyZKonektoru") : undefined} />
+            <CardHeader title={networked ? t("ast.technickeUdaje") : tech ? t("ast.physicalData") : t("prem.detailTitle")} subtitle={networked ? t("ast.doplnujiSeAutomatickyZKonektoru") : undefined} />
             <dl className="grid gap-x-8 gap-y-4 p-5 sm:grid-cols-2">
-              {tech && (
+              {networked && (
                 <>
                   <Item label={t("ast.hostname")}>{a.hostname}</Item>
                   <Item label={t("ast.fqdn")}>{a.fqdn && a.fqdn !== a.hostname ? a.fqdn : null}</Item>
@@ -216,8 +218,8 @@ export function AssetDetailPage() {
               )}
               {tech && (
                 <>
-                  <Item label={t("ast.macAdresy")}>{a.macAddresses.length ? <AddrList items={a.macAddresses} /> : null}</Item>
-                  <Item label={t("ast.operacniSystem")}>{osLabel(a.osName, a.osVersion)}</Item>
+                  {networked && <Item label={t("ast.macAdresy")}>{a.macAddresses.length ? <AddrList items={a.macAddresses} /> : null}</Item>}
+                  {networked && <Item label={t("ast.operacniSystem")}>{osLabel(a.osName, a.osVersion)}</Item>}
                   <Item label={t("ast.vyrobceModel")}>{[a.manufacturer, a.model].filter(Boolean).join(" ")}</Item>
                   <Item label={t("ast.serioveCislo")}>{a.serialNumber}</Item>
                   <Item label={t("ast.poprveNaposledyVideno")}>

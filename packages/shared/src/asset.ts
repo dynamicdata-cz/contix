@@ -50,6 +50,10 @@ const PRIMARY_TYPES = new Set<AssetType>(["information_asset", "business_service
 /** Typy bez technických údajů (IP, MAC, OS): informace, služby, procesy, lidé, dodavatelé, prostory (v1.108). */
 export const NON_TECHNICAL_ASSET_TYPES = new Set<string>(["facility", "information_asset", "business_service", "business_process", "personnel", "supplier"]);
 export const isTechnicalAsset = (t: string) => !NON_TECHNICAL_ASSET_TYPES.has(t);
+/** Pasivní technika bez síťové identity (rack, zásuvka) – jen výrobce, model, sériové číslo (v1.115.3). */
+export const PASSIVE_ASSET_TYPES = new Set<string>(["rack", "network_socket"]);
+/** Aktivum s hostname / IP / OS (zobrazit síťové údaje a „dosažitelné z internetu“). */
+export const isNetworkedAsset = (t: string) => isTechnicalAsset(t) && !PASSIVE_ASSET_TYPES.has(t);
 
 /** Výchozí třída podle typu (lze u aktiva ručně změnit). */
 export const defaultAssetClass = (t: AssetType): AssetClass => (PRIMARY_TYPES.has(t) ? "primary" : "supporting");

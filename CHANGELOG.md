@@ -2,6 +2,10 @@
 
 Přehled vydání CONTIXu. Podrobnosti ke každé změně jsou v rozhodnutích [docs/05_decisions](docs/05_decisions/) (ADR).
 
+## 1.115.3
+
+- **Rack a síťová zásuvka bez síťových údajů**: formulář i detail racku (a síťové zásuvky) ukazují jen „Fyzické údaje“ – výrobce, model a sériové číslo; hostname, FQDN, IP a MAC adresy, OS, bezpečnostní zóna a „Dosažitelné z internetu“ se u nich už nezobrazují.
+
 ## 1.115.2
 
 Stejný obsah jako 1.115.1 (bezpečnostní oprava rolí ze skupin AD / IdP – viz níže); 1.115.1 nebyla zveřejněna kvůli úpravě testovacích dat.
